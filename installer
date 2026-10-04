@@ -1988,7 +1988,11 @@ opkg_clean_env() {
 # for the cleanup kind in $1. Other paths are left untouched.
 installer_cleanup_tmp_file() {
 	case "$1:$2" in
-		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp")
+		setup:"${YAML_ORI}.new.$$" | blocklist:"${YAML_FILE}.blocklists.$$.tmp" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.candidates" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.configured.ids" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.orphaned.ids" | \
+			blocklist-analysis:"${TARG_DIR:-}/blocklist_analyzer.$$.selected")
 			rm -f "$2" 2>/dev/null
 			;;
 		blocklist-analysis:*)

@@ -372,6 +372,7 @@ printf '%s\n' 'stale filter cache' >"${TMP_ROOT}/data/filters/999.txt" || fail '
 	WARNING='Warning:'
 	YAML_FILE="${TMP_ROOT}/AdGuardHome.yaml"
 	TARG_DIR="${TMP_ROOT}"
+	# read_yesno records prompt text ($1) in prompts.actual and returns 1 (no).
 	read_yesno() {
 		printf '%s\n' "$1" >>"${TMP_ROOT}/prompts.actual"
 		return 1
