@@ -1992,6 +1992,17 @@ installer_cleanup_tmp_file() {
 			blocklist-analysis:"${TARG_DIR}/blocklist_analyzer.$$.selected")
 			rm -f "$2" 2>/dev/null
 			;;
+		blocklist-analysis:*)
+			[ -n "${TARG_DIR:-}" ] || return 0
+			case "$2" in
+				"${TARG_DIR}/blocklist_analyzer.$$.candidates" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.configured.ids" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.orphaned.ids" | \
+					"${TARG_DIR}/blocklist_analyzer.$$.selected")
+					rm -f "$2" 2>/dev/null
+					;;
+			esac
+			;;
 	esac
 }
 
