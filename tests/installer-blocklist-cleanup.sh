@@ -53,6 +53,10 @@ sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists()
 	fail 'could not extract blocklist removal function'
 sed -n '/^cleanup_unused_blocklists() {$/,/^########################Modified Version/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist cleanup function'
+sed -n '/^menu() {$/,/^read_input_dns() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract menu dispatch function'
+sed -n '/^menu_action_allowed() {$/,/^cli_action_requires_install_mode() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract CLI menu routing functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
 sed 's#/opt/bin/python3#${PYTHON3_BIN:-/opt/bin/python3}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
 	fail 'could not make Entware python3 path mockable'
@@ -69,13 +73,15 @@ grep -Fq 'menu "$2"' "${SCRIPT_PATH}" ||
 	fail 'branch-qualified CLI actions no longer enter menu dispatch'
 
 # run_cleanup_pause_case runs cleanup with mocked dependencies and checks its status.
-# Arguments: case name, interactive flag (yes/no), analyzer status, expected status.
+# Arguments: case name, interactive flag (yes/no), analyzer status, expected status,
+# and optional dispatch kind (direct/menu/cli).
 # Captures output and end-operation calls in per-case files under TMP_ROOT.
 run_cleanup_pause_case() {
 	case_name="$1"
 	interactive="$2"
 	analyzer_status="$3"
 	expected_status="$4"
+	dispatch_kind="${5:-direct}"
 	output_file="${TMP_ROOT}/pause-${case_name}.out"
 	call_file="${TMP_ROOT}/pause-${case_name}.calls"
 	(
@@ -87,6 +93,9 @@ run_cleanup_pause_case() {
 		ERROR='Error:'
 		TARG_DIR="${TMP_ROOT}/${case_name}"
 		mkdir -p "${TARG_DIR}" || exit 1
+		AGH_FILE="${TARG_DIR}/AdGuardHome"
+		: >"${AGH_FILE}" || exit 1
+		BLOCKLIST_ANALYZER_SHA256='test-checksum'
 		# PTXT prints plain text, honoring -n so pause prompt ordering is observable.
 		PTXT() {
 			if [ "${1:-}" = "-n" ]; then
@@ -146,18 +155,26 @@ run_cleanup_pause_case() {
 			printf 'end:%s\n' "$1" >>"${call_file}"
 			PTXT "end:$1"
 		}
-		cleanup_unused_blocklists
+		case "${dispatch_kind}" in
+			direct) cleanup_unused_blocklists ;;
+			menu) menu unusedblocklists ;;
+			cli)
+				single_arg_menu_action unusedblocklists || exit 1
+				menu unusedblocklists
+				;;
+			*) exit 1 ;;
+		esac
 		status="$?"
 		[ "${status}" -eq "${expected_status}" ] || exit 1
 	) >"${output_file}" 2>&1
 }
 
 for dispatch_kind in menu cli; do
-	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-success" yes 0 0 ||
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-success" yes 0 0 "${dispatch_kind}" ||
 		fail "${dispatch_kind} successful cleanup pause regression failed"
-	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-no-unused" yes 2 0 ||
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-no-unused" yes 2 0 "${dispatch_kind}" ||
 		fail "${dispatch_kind} no-unused cleanup pause regression failed"
-	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-failure" yes 1 1 ||
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-failure" yes 1 1 "${dispatch_kind}" ||
 		fail "${dispatch_kind} analyzer failure pause regression failed"
 	for result_kind in success no-unused failure; do
 		output_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.out"
