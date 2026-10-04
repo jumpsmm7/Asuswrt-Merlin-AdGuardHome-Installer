@@ -72,6 +72,7 @@ awk '
 	/^md5_manifest_digest\(\)/,/^}/
 	/^sha256_is_valid\(\)/,/^}/
 	/^sha256_manifest_digest\(\)/,/^}/
+	/^http_url_with_cache_token\(\)/,/^}/
 	/^adguard_archive_is_safe\(\)/,/^}/
 	/^adguard_restart_after_failed_replace\(\)/,/^}/
 	/^adguard_restart_after_install_abort\(\)/,/^}/
@@ -175,7 +176,8 @@ for checksum_case in upstream_sha_only unchanged_sha sha_preferred sha_unavailab
 		}
 		# http_get_file simulates downloading checksum metadata or payload files for checksum verification tests.
 		http_get_file() {
-			case "$1" in
+			request_path="${1%%\?*}"
+			case "${request_path}" in
 				*.sha256sum)
 					sha256_requests="$((sha256_requests + 1))"
 					case "${checksum_case}" in
@@ -359,7 +361,8 @@ grep -q 'MD5 digest calculation failed' "${TMP_DIR}/md5_hash_failure.out" || fai
 
 	# http_get_file downloads checksum metadata or the payload fixture into the specified destination based on the URL suffix.
 	http_get_file() {
-		case "$1" in
+		request_path="${1%%\?*}"
+		case "${request_path}" in
 			*.md5sum)
 				md5sum "${TMP_DIR}/payload" | awk '{print $1}' >"$2"
 				;;

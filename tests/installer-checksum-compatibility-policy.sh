@@ -200,6 +200,11 @@ RETRY_TOKEN_2="${RETRY_PAYLOAD_URL_2##*installer_check=}"
 [ "${RETRY_TOKEN_1}" != "${RETRY_TOKEN_2}" ] || fail 'cache token did not change between download retries'
 
 reset_case sha_match
+download_file "${TARGET_DIR}" 755 'https://example.invalid/component' >/dev/null 2>&1 || fail 'second download call was rejected'
+SECOND_CALL_TOKEN="$(sed -n '1{s/^.*installer_check=//;p;}' "${REQUESTS_FILE}")"
+[ "${SECOND_CALL_TOKEN}" != "${RETRY_TOKEN_1}" ] || fail 'separate download calls reused a cache token'
+
+reset_case sha_match
 download_file "${TARGET_DIR}" 755 'https://example.invalid/component?ref=test' >/dev/null 2>&1 || fail 'URL with an existing query was rejected'
 grep -q 'component?ref=test&installer_check=' "${REQUESTS_FILE}" || fail 'payload request did not preserve its existing query string'
 grep -q 'component.sha256sum?ref=test&installer_check=' "${REQUESTS_FILE}" || fail 'checksum request did not preserve its existing query string'

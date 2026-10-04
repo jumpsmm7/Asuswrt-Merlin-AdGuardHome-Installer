@@ -32,8 +32,12 @@ sed -n '/^http_url_with_cache_token() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS
 	fail 'cache token did not preserve an existing query'
 
 CHECK_VERSION_BODY="$(sed -n '/^check_version() {$/,/^setup_AdGuardHome() {$/p' "${SCRIPT_PATH}")"
-printf '%s\n' "${CHECK_VERSION_BODY}" | grep -q 'REMOTE_CACHE_TOKEN="\$\$-${varcnt}"' ||
-	fail 'version check does not change its cache token between retry attempts'
+grep -q '^if \[ -r /proc/sys/kernel/random/uuid \]; then$' "${SCRIPT_PATH}" ||
+	fail 'installer cache nonce does not prefer the kernel UUID source'
+grep -q '^\[ -n "${INSTALLER_CACHE_NONCE:-}" \] || INSTALLER_CACHE_NONCE=' "${SCRIPT_PATH}" ||
+	fail 'installer cache nonce does not provide a process-identity fallback'
+printf '%s\n' "${CHECK_VERSION_BODY}" | grep -q 'REMOTE_CACHE_TOKEN="${INSTALLER_CACHE_NONCE}-version-${varcnt}"' ||
+	fail 'version check does not use invocation-unique, namespaced retry tokens'
 printf '%s\n' "${CHECK_VERSION_BODY}" | grep -q 'http_url_with_cache_token "${RURL}/installer" "${REMOTE_CACHE_TOKEN}"' ||
 	fail 'version check does not cache-bust the installer payload'
 printf '%s\n' "${CHECK_VERSION_BODY}" | grep -q 'http_url_with_cache_token "${RURL}/installer.md5sum" "${REMOTE_CACHE_TOKEN}"' ||
