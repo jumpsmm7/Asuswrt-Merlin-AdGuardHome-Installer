@@ -152,6 +152,7 @@ ptxt_step() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 }
 
+# Log command arguments and simulate immediate state changes for direct init actions.
 adguard_service_without_nvram_lock_fd() {
 	printf '%s\n' "$*" >>"${CALLS_FILE}"
 	case "$*" in
@@ -212,6 +213,7 @@ grep -q '^/opt/etc/init.d/S99AdGuardHome stop x$' "${CALLS_FILE}" ||
 # and restart must wait for a replacement PID rather than the original daemon.
 for requested_action in start restart; do
 	(
+		# Accept and log queued actions; the sleep stub controls their completion.
 		adguard_service_without_nvram_lock_fd() {
 			printf '%s\n' "$*" >>"${CALLS_FILE}"
 			return 0
@@ -299,6 +301,8 @@ EOF
 chmod 700 "${INIT_FILE}" || fail 'could not prepare simulated init entry point'
 export TEST_ROOT DISPATCH_FILE CALLS_FILE STATE_FILE MONITOR_STATE_FILE
 
+# Log firmware requests and route direct init arguments through the real dispatcher;
+# return its status, or fail the test for an unexpected command.
 adguard_service_without_nvram_lock_fd() {
 	case "${1:-}" in
 		service)
@@ -312,9 +316,13 @@ adguard_service_without_nvram_lock_fd() {
 		*) fail "unexpected service command: $*" ;;
 	esac
 }
+# Print the simulated daemon PIDs recorded by the runtime dispatcher fixture.
 pidof() { cat "${STATE_FILE}"; }
+# Succeed when the fixture's daemon state file contains a PID.
 agh_is_running() { [ -s "${STATE_FILE}" ]; }
+# Print the combined daemon and monitor PID count from the fixture state files.
 agh_process_count() { cat "${STATE_FILE}" "${MONITOR_STATE_FILE}" | wc -w; }
+# Wait one real second per poll so asynchronous dispatcher work can complete.
 sleep() { command sleep 1; }
 
 # Confirm the fixture retains the real gate before checking the bypass path.
