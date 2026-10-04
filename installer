@@ -50,6 +50,12 @@ BLOCKLIST_ANALYZER_SHA256=""
 SCRIPT_LOC=""
 SETUP_YAML_TMP_FILE=""
 BLOCKLIST_YAML_TMP_FILE=""
+if [ -r /proc/sys/kernel/random/uuid ]; then
+	INSTALLER_CACHE_NONCE="$(cat /proc/sys/kernel/random/uuid 2>/dev/null)"
+fi
+[ -n "${INSTALLER_CACHE_NONCE:-}" ] || INSTALLER_CACHE_NONCE="$(date +%s)-$(sed 's/^.*) //' "/proc/$$/stat" 2>/dev/null | awk '{ print $20; exit }')-$$"
+readonly INSTALLER_CACHE_NONCE
+DOWNLOAD_CACHE_SEQUENCE=0
 
 BOLD="$(printf "\033[1m")" || true
 readonly BOLD
@@ -5144,7 +5150,7 @@ check_version() {
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(file_md5 "${TARG_DIR}/installer" 2>/dev/null)"; fi
 				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
-					REMOTE_CACHE_TOKEN="$$-${varcnt}"
+					REMOTE_CACHE_TOKEN="${INSTALLER_CACHE_NONCE}-version-${varcnt}"
 					REMOTE_INSTALLER_URL="$(http_url_with_cache_token "${RURL}/installer" "${REMOTE_CACHE_TOKEN}")"
 					REMOTE_INSTALLER_MD5_URL="$(http_url_with_cache_token "${RURL}/installer.md5sum" "${REMOTE_CACHE_TOKEN}")"
 					if http_get_file "${REMOTE_INSTALLER_URL}" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
@@ -6661,6 +6667,7 @@ download_file() {
 	PERM="$1"
 	shift
 	RET="0"
+	DOWNLOAD_CACHE_SEQUENCE="$((${DOWNLOAD_CACHE_SEQUENCE:-0} + 1))"
 	ptxt_phase "Downloading and verifying files."
 	for URL in "$@"; do
 		case "${URL}" in
@@ -6685,7 +6692,7 @@ download_file() {
 		COUNT="0"
 		[ -f "${TARG}/${FILENAME}" ] && MD5SUM_OLD="$(file_md5 "${TARG}/${FILENAME}" 2>/dev/null)"
 		while [ "${COUNT}" -lt 3 ]; do
-			CACHE_TOKEN="$$-${COUNT}"
+			CACHE_TOKEN="${INSTALLER_CACHE_NONCE:-$$}-download-${DOWNLOAD_CACHE_SEQUENCE}-${COUNT}"
 			PAYLOAD_URL="$(http_url_with_cache_token "${URL}" "${CACHE_TOKEN}")"
 			SHA256_URL="$(http_url_with_cache_token "${URL_BASE}.sha256sum${URL_QUERY}" "${CACHE_TOKEN}")"
 			MD5_URL="$(http_url_with_cache_token "${URL_BASE}.md5sum${URL_QUERY}" "${CACHE_TOKEN}")"
