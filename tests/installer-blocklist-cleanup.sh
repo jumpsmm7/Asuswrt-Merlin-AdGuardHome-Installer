@@ -41,6 +41,7 @@ sed -n \
 	-e '/^rollback_result_notice() {$/,/^}/p' \
 	-e '/^adguardhome_owner_account() {$/,/^}/p' \
 	-e '/^adguardhome_yaml_secure_file() {$/,/^}/p' \
+	-e '/^blocklist_analyzer_pause() {$/,/^}/p' \
 	-e '/^blocklist_analyzer_ids() {$/,/^}/p' \
 	-e '/^run_blocklist_analyzer() {$/,/^}/p' \
 	-e '/^blocklist_yaml_candidates() {$/,/^}/p' \
@@ -50,6 +51,12 @@ sed -n '/^select_unused_blocklists_for_removal() {$/,/^remove_unused_blocklists_
 	fail 'could not extract blocklist selection function'
 sed -n '/^remove_unused_blocklists_from_yaml() {$/,/^cleanup_unused_blocklists() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract blocklist removal function'
+sed -n '/^cleanup_unused_blocklists() {$/,/^########################Modified Version/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract blocklist cleanup function'
+sed -n '/^menu() {$/,/^read_input_dns() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract menu dispatch function'
+sed -n '/^menu_action_allowed() {$/,/^cli_action_requires_install_mode() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract CLI menu routing functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'blocklist helper extraction was empty'
 sed 's#/opt/bin/python3#${PYTHON3_BIN:-/opt/bin/python3}#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" ||
 	fail 'could not make Entware python3 path mockable'
@@ -57,6 +64,157 @@ mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update extract
 for helper in adguardhome_owner_account adguardhome_yaml_secure_file; do
 	grep -Fq "${helper}() {" "${FUNCTIONS_FILE}" || fail "blocklist helper extraction is missing ${helper}"
 done
+
+grep -Fq '"9" | "blocklists" | "unusedblocklists")' "${SCRIPT_PATH}" ||
+	fail 'menu dispatch no longer routes all blocklist cleanup aliases'
+grep -Fq 'if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then' "${SCRIPT_PATH}" ||
+	fail 'redirected single-argument CLI actions no longer enter menu dispatch'
+grep -Fq 'menu "$2"' "${SCRIPT_PATH}" ||
+	fail 'branch-qualified CLI actions no longer enter menu dispatch'
+
+# run_cleanup_pause_case runs cleanup with mocked dependencies and checks its status.
+# Arguments: case name, interactive flag (yes/no), analyzer status, expected status,
+# and optional dispatch kind (direct/menu/cli).
+# Captures output and end-operation calls in per-case files under TMP_ROOT.
+run_cleanup_pause_case() {
+	case_name="$1"
+	interactive="$2"
+	analyzer_status="$3"
+	expected_status="$4"
+	dispatch_kind="${5:-direct}"
+	output_file="${TMP_ROOT}/pause-${case_name}.out"
+	call_file="${TMP_ROOT}/pause-${case_name}.calls"
+	(
+		# shellcheck disable=SC1090
+		. "${FUNCTIONS_FILE}"
+		INPUT='Input:'
+		INFO='Info:'
+		WARNING='Warning:'
+		ERROR='Error:'
+		TARG_DIR="${TMP_ROOT}/${case_name}"
+		mkdir -p "${TARG_DIR}" || exit 1
+		AGH_FILE="${TARG_DIR}/AdGuardHome"
+		: >"${AGH_FILE}" || exit 1
+		BLOCKLIST_ANALYZER_SHA256='test-checksum'
+		# PTXT prints plain text, honoring -n so pause prompt ordering is observable.
+		PTXT() {
+			if [ "${1:-}" = "-n" ]; then
+				shift
+				printf '%s' "$*"
+			else
+				printf '%s\n' "$*"
+			fi
+		}
+		# ptxt_warn forwards warning text to the captured output without formatting.
+		ptxt_warn() { PTXT "$*"; }
+		# stty simulates terminal detection using the case's interactive flag.
+		stty() { [ "${interactive}" = "yes" ]; }
+		# read simulates BusyBox ash timed-read support while leaving the test
+		# runner's POSIX shell free to consume the supplied Enter key normally.
+		read() {
+			read_timeout=''
+			read_name=''
+			while [ "$#" -gt 0 ]; do
+				case "$1" in
+					-t)
+						shift
+						read_timeout="${1:-}"
+						;;
+					*) read_name="$1" ;;
+				esac
+				shift
+			done
+			[ "${TIMED_READ_SUPPORTED:-yes}" = "yes" ] || return 2
+			printf 'read-timeout:%s\n' "${read_timeout}" >>"${call_file}"
+			command read -r "${read_name}"
+		}
+		# install_blocklist_analyzer simulates successful installation without downloads.
+		install_blocklist_analyzer() {
+			printf '%s\n' 'cleanup-entered' >>"${call_file}"
+			return 0
+		}
+		# run_blocklist_analyzer emits a diagnostic and returns the configured status,
+		# creating the expected temporary files on success.
+		run_blocklist_analyzer() {
+			PTXT 'analyzer result or diagnostic'
+			if [ "${analyzer_status}" -eq 0 ]; then
+				BLOCKLIST_ANALYZER_IDS_FILE="${TARG_DIR}/ids"
+				BLOCKLIST_ANALYZER_OUTPUT_FILE="${TARG_DIR}/output"
+				: >"${BLOCKLIST_ANALYZER_IDS_FILE}"
+				: >"${BLOCKLIST_ANALYZER_OUTPUT_FILE}"
+			fi
+			return "${analyzer_status}"
+		}
+		# select_unused_blocklists_for_removal creates a selection file and succeeds.
+		select_unused_blocklists_for_removal() {
+			BLOCKLIST_ANALYZER_SELECTED_IDS_FILE="${TARG_DIR}/selected"
+			: >"${BLOCKLIST_ANALYZER_SELECTED_IDS_FILE}"
+			return 0
+		}
+		# remove_unused_blocklists_from_yaml reports success without editing YAML.
+		remove_unused_blocklists_from_yaml() {
+			PTXT 'cleanup succeeded'
+			return 0
+		}
+		# end_op_message records its status argument and emits an ordering marker.
+		end_op_message() {
+			printf 'end:%s\n' "$1" >>"${call_file}"
+			PTXT "end:$1"
+		}
+		case "${dispatch_kind}" in
+			direct) cleanup_unused_blocklists ;;
+			menu) menu unusedblocklists ;;
+			cli)
+				single_arg_menu_action unusedblocklists || exit 1
+				menu unusedblocklists
+				;;
+			*) exit 1 ;;
+		esac
+		status="$?"
+		[ "${status}" -eq "${expected_status}" ] || exit 1
+	) >"${output_file}" 2>&1
+}
+
+for dispatch_kind in menu cli; do
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-success" yes 0 0 "${dispatch_kind}" ||
+		fail "${dispatch_kind} successful cleanup pause regression failed"
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-no-unused" yes 2 0 "${dispatch_kind}" ||
+		fail "${dispatch_kind} no-unused cleanup pause regression failed"
+	printf '\n' | run_cleanup_pause_case "${dispatch_kind}-failure" yes 1 1 "${dispatch_kind}" ||
+		fail "${dispatch_kind} analyzer failure pause regression failed"
+	for result_kind in success no-unused failure; do
+		output_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.out"
+		call_file="${TMP_ROOT}/pause-${dispatch_kind}-${result_kind}.calls"
+		grep -q '^cleanup-entered$' "${call_file}" ||
+			fail "${dispatch_kind} ${result_kind} dispatch did not enter blocklist cleanup"
+		grep -q 'Press Enter to continue' "${output_file}" ||
+			fail "${dispatch_kind} ${result_kind} result did not pause interactively"
+		awk 'index($0, "Press Enter to continue") && index($0, "end:") && index($0, "Press Enter to continue") < index($0, "end:") { found = 1 } END { exit(found ? 0 : 1) }' "${output_file}" ||
+			fail "${dispatch_kind} ${result_kind} pause did not precede end_op_message"
+	done
+done
+
+run_cleanup_pause_case 'cli-redirected-success' no 0 0 </dev/null ||
+	fail 'redirected CLI cleanup waited for input or failed'
+if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-cli-redirected-success.out"; then
+	fail 'redirected CLI cleanup displayed an interactive pause prompt'
+fi
+
+TIMED_READ_SUPPORTED=no run_cleanup_pause_case 'timed-read-unavailable' yes 0 0 </dev/null ||
+	fail 'cleanup failed when timed read was unavailable'
+grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-timed-read-unavailable.out" ||
+	fail 'cleanup did not display the pause prompt before an unsupported timed read returned'
+
+if grep -q 'read-timeout:0' "${TMP_ROOT}"/pause-*.calls; then
+	fail 'cleanup used a potentially blocking zero-timeout read probe'
+fi
+
+AI_ASSUME_YES=1 run_cleanup_pause_case 'assume-yes' yes 0 0 </dev/null ||
+	fail 'assume-yes cleanup failed'
+if grep -q 'Press Enter to continue' "${TMP_ROOT}/pause-assume-yes.out" ||
+	grep -q 'read-timeout:' "${TMP_ROOT}/pause-assume-yes.calls"; then
+	fail 'assume-yes cleanup prompted for or read interactive input'
+fi
 
 (
 	# shellcheck disable=SC1090
