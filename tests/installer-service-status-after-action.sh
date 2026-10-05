@@ -278,6 +278,8 @@ MONITOR_COUNT='0'
 	PROCESS_COUNT='0'
 	CURRENT_PIDS=''
 	MONITOR_COUNT='1'
+	# Simulate a timed-out start wait that leaves a newly running daemon for
+	# the caller's final recheck; return 1 despite the updated process state.
 	agh_wait_started() {
 		PROCESS_STATE='running'
 		PROCESS_COUNT='1'
@@ -321,6 +323,8 @@ NEW_PID_AFTER_SLEEP=0
 	CURRENT_PIDS='111'
 	MONITOR_COUNT='1'
 	STATUS_CALLS=0
+	# Simulate failed restart waits, exposing a replacement PID on the second
+	# call so the caller's final recheck can observe it after the extended wait.
 	adguard_service_status_after_action() {
 		STATUS_CALLS="$((STATUS_CALLS + 1))"
 		if [ "${STATUS_CALLS}" -eq 2 ]; then
