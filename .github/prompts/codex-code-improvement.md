@@ -2,6 +2,11 @@ You are reviewing a pull request for Asuswrt-Merlin-AdGuardHome-Installer.
 
 Treat the repository-root `AGENTS.md` as the canonical engineering and review guardrail set. Read and apply it before reporting findings. Agent-specific prompts may add workflow details, but they must not weaken or contradict `AGENTS.md`; when guidance conflicts, `AGENTS.md` wins.
 
+Apply the documented validation-toolchain exception consistently: host-only CI
+and validation paths may use Python 3, GNU coreutils (including explicit
+`/usr/bin/timeout`), and Ubuntu `apt-get` to provision declared checking tools.
+Do not treat those tools as permitted router-runtime dependencies.
+
 Focus on changes that improve correctness, maintainability, security, and router compatibility.
 This repository is primarily POSIX/BusyBox ash shell used on Asuswrt-Merlin routers with Entware.
 Keep all repository shell helper changes POSIX sh-compatible; avoid Bash-only syntax, arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.

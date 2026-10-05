@@ -328,11 +328,13 @@ Validation hosts and CI runners, unlike router runtime scripts, explicitly allow
 
 * `python3` for validation helpers such as `.github/scripts/fix-sonar-shell-parse.py`.
 * GNU coreutils `timeout` at `/usr/bin/timeout` for bounding regression and lint commands. Do not use a PATH-resolved or BusyBox `timeout` substitute.
+* The CI runner's package manager. GitHub Actions uses Ubuntu, so validation workflows may use `sudo apt-get update` and `sudo apt-get install` to provision declared checking tools.
 * `bzip2`, XZ Utils (`xz-utils`), and Zstandard (`zstd`) for the tzdata package conversion regression.
 
 Install and verify them on Debian/Ubuntu validation hosts with:
 
 ```sh
+sudo apt-get update
 sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd
 python3 --version
 /usr/bin/timeout --version
@@ -341,7 +343,7 @@ bzip2 --help >/dev/null
 zstd --version
 ```
 
-These commands are validation-host exceptions only. They do not allow `python3`, GNU `timeout`, `bzip2`, XZ Utils, or Zstandard dependencies in router-runtime scripts, and they do not imply that these commands are available in the router stock PATH.
+These commands are validation-host exceptions only. They do not allow `python3`, GNU `timeout`, `apt-get`, `bzip2`, XZ Utils, or Zstandard dependencies in router-runtime scripts, and they do not imply that these commands are available in the router stock PATH. Agents and scanners must distinguish explicitly host-only validation paths from router-runtime paths.
 
 For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 

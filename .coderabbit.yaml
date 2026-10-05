@@ -88,6 +88,11 @@ reviews:
       instructions: |
         Treat the repository's AGENTS.md as the primary engineering standard.
 
+        Apply its validation-toolchain exception consistently: host-only CI and
+        validation paths may use Python 3, GNU coreutils (including explicit
+        `/usr/bin/timeout`), and Ubuntu `apt-get` to provision declared checking
+        tools. This exception never applies to router-runtime paths.
+
         For every changed shell file recognized by tools/list-shell-scripts.sh,
         including extensionless `installer`, `S99AdGuardHome`, and
         `rc.func.AdGuardHome`, apply these targeted runtime checks:

@@ -44,6 +44,7 @@ For a task-oriented operator guide, see the [`Github Wiki Pages`](https://github
 - [Troubleshooting and issue reports](#troubleshooting-and-issue-reports)
 - [Static AdGuardHome archive cache](#static-adguardhome-archive-cache)
 - [Development checks](#development-checks)
+  - [Validation toolchain](#validation-toolchain)
   - [Release validation](#release-validation)
 - [Project notes](#project-notes)
 - [Donate](#donate)
@@ -792,9 +793,32 @@ If CI reports `shfmt` formatting differences, you can also run the `Create shfmt
 
 Pull requests that change shell scripts, checksum files, tools, prompts, or workflows are also reviewed by the Codex Code Improvement workflow when the repository has an `OPENAI_API_KEY` Actions secret configured. The Codex prompt includes the local code-quality output so formatting failures can be reported with the same remediation steps shown in CI.
 
+### Validation toolchain
+
+Validation hosts and GitHub Actions runners are separate from the Asuswrt-Merlin router runtime. The repository explicitly permits the following host-only tools for CI, code-quality, parser, scanner, and regression checks:
+
+- Python 3 for validation helpers such as `.github/scripts/fix-sonar-shell-parse.py`.
+- GNU coreutils, including GNU `timeout` at the explicit `/usr/bin/timeout` path, for bounded validation commands.
+- The CI runner's package manager. The supported GitHub Actions jobs use Ubuntu and may run `sudo apt-get update` and `sudo apt-get install` to provision their declared validation packages.
+- `bzip2`, XZ Utils (`xz-utils`), and Zstandard (`zstd`) for tzdata package-conversion tests.
+
+On a Debian or Ubuntu validation host, install and verify these prerequisites with:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd
+python3 --version
+/usr/bin/timeout --version
+bzip2 --help >/dev/null
+/usr/bin/xz --version
+zstd --version
+```
+
+This permission is limited to development workstations and CI/validation runners. It does not make Python, GNU coreutils, `apt-get`, or the compression utilities router-runtime dependencies, does not make them available in the router stock `PATH`, and does not relax the POSIX `/bin/sh` and BusyBox `ash` requirements for installer and service scripts. AI reviewers and code scanners must distinguish explicitly host-only validation paths from router-runtime paths when checking dependencies.
+
 ### Release validation
 
-Release validation is a focused pre-tag pass from the repository root. It uses POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; it does not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware.
+Release validation is a focused pre-tag pass from the repository root. The required commands in this subsection use POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; this portable subset does not itself require Python, Perl, GNU coreutils, systemd, `apt-get`, or Entware. The broader CI and code-quality jobs may use the explicitly permitted host-only validation toolchain above.
 
 The release validation pass performs these actions:
 
@@ -852,7 +876,7 @@ if which shellcheck >/dev/null 2>&1; then
 fi
 ```
 
-ShellCheck is not a router dependency; it is an optional workstation check only. The required release validation commands above use POSIX `sh` and repository scripts, and they do not require Python, Perl, GNU coreutils, systemd, `apt`, or Entware. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI instead of requiring non-router dependencies.
+ShellCheck is not a router dependency; it is an optional workstation check only. The required release validation commands above use POSIX `sh` and repository scripts, and they do not require the broader host-only toolchain. CI may provision that toolchain for additional checks without changing router-runtime requirements. Router-sensitive tests that cannot run directly in a local environment belong in the same POSIX `sh` test environment used for CI.
 
 ## Project notes
 

@@ -50,7 +50,7 @@ rules:
     pattern-regex: '(?m)^[ \t]*(?:export[ \t]+)?PATH=[^\n#]*(?:\$PATH|\$\{PATH\}|\$\{PATH:\+\$PATH\})'
 
   - id: asuswrt-no-gnu-timeout-in-runtime
-    message: Router runtime code must not depend on GNU /usr/bin/timeout; CI-only tooling may use it.
+    message: Router runtime code must not depend on GNU /usr/bin/timeout; documented host-only validation may use Python 3, GNU coreutils, and the CI package manager.
     languages: [generic]
     severity: ERROR
     paths:
