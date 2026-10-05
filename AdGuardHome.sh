@@ -1514,7 +1514,8 @@ dnsmasq_publish_staged_config() (
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
-	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF PRE_START_HOOK
+	PRE_START_HOOK="${2:-}"
 	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
@@ -1561,11 +1562,13 @@ dnsmasq_params() {
 	[ -f "${CONFIG_FILE}" ] || return 0
 	[ ! -L "${CONFIG_FILE}" ] || return 1
 	# Firmware invokes postconf before starting the replacement dnsmasq process.
-	if adguard_lan_mode && ! adguard_dnsmasq_running &&
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		adguard_lan_mode && ! adguard_dnsmasq_running &&
 		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] && ! dns_handoff_is_active; then
 		return 0
 	fi
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
 		return 0
 	fi
 	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
@@ -1640,7 +1643,12 @@ dnsmasq_params() {
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
 dnsmasq_action_handler() {
-	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
+	local PRE_START_HOOK=""
+	case "${1:-}" in
+		/etc/dnsmasq*.conf) PRE_START_HOOK="pre_start" ;;
+	esac
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		case "${CONFIG_DNSMASQ_MODE:-auto}" in
 			enabled) ;;
 			*)
@@ -1651,7 +1659,7 @@ dnsmasq_action_handler() {
 		esac
 	fi
 	if [ -n "${1:-}" ]; then
-		dnsmasq_params "${1}"
+		dnsmasq_params "${1}" "${PRE_START_HOOK}"
 	else
 		dnsmasq_params
 	fi
