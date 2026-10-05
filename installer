@@ -2406,7 +2406,11 @@ configure_runtime_defaults() {
 			;;
 		upgrade)
 			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
-			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"legacy\"" || return 1
+			case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
+				wan | lan) NETCHECK_MODE="${ADGUARD_INSTALL_MODE_DETECTION}" ;;
+				*) NETCHECK_MODE="legacy" ;;
+			esac
+			write_conf_if_absent ADGUARD_NETCHECK_MODE "\"${NETCHECK_MODE}\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_OPTIMIZE "\"YES\"" || return 1
 			write_conf_if_absent ADGUARD_PROC_PROFILE "\"aggressive\"" || return 1
 			PTXT "${INFO} Existing runtime defaults were retained for compatibility." \
