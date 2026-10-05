@@ -2999,7 +2999,14 @@ restart_adguardhome() {
 	start_adguardhome restart
 }
 
-# start_monitor supervises AdGuardHome, restarting it when requested or when health checks detect a failure, and stopping it on request.
+# start_monitor runs the AdGuardHome supervision loop with no arguments.
+# Uses ADGUARDHOME_BINARY and PROCS to detect the executable and daemon, and
+# performs the configured LAN/WAN readiness wait before the first launch.
+# Retries a missing executable or daemon and performs periodic DNS health checks.
+# USR1 requests daemon shutdown and loop exit; USR2 requests a restart through
+# the service lock and DNS handoff. Other trapped termination signals are ignored
+# until shutdown restores their default handlers. Runs until a stop request and
+# returns 0 after leaving the loop; this is not a daemon-readiness result.
 start_monitor() {
 	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
