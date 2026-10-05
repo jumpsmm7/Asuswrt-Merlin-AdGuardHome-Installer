@@ -262,6 +262,37 @@ run_service_wait_terminal_test() {
 	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'service_wait retried a terminal failure'
 }
 
+run_service_wait_mode_test() {
+	: >"${CALLS_FILE}"
+	(
+		# shellcheck disable=SC1090
+		. "${SERVICE_WAIT_FILE}"
+		timezone() { :; }
+		nvram() { printf '%s\n' 1; }
+		pidof() { [ "${DAEMON_RUNNING}" -eq 1 ] && printf '%s\n' 1234; }
+		sleep() { :; }
+		agh_log() { :; }
+		adguard_lan_mode() { [ "${INSTALL_MODE}" = lan ]; }
+		netcheck() { printf '%s\n' wan >>"${CALLS_FILE}"; [ "${INSTALL_MODE}" = wan ]; }
+		netcheck_lan_dns() { printf '%s\n' lan-dns >>"${CALLS_FILE}"; [ "${LAN_DNS_READY}" -eq 1 ]; }
+		INSTALL_MODE=lan
+		DAEMON_RUNNING=0
+		LAN_DNS_READY=1
+		service_wait netcheck 0 || fail 'LAN startup waited for WAN, NTP, or local DNS before daemon launch'
+		DAEMON_RUNNING=1
+		service_wait netcheck 0 || fail 'LAN startup did not accept local DNS after daemon launch'
+		INSTALL_MODE=wan
+		DAEMON_RUNNING=0
+		service_wait netcheck 0 || fail 'WAN startup did not use its existing netcheck'
+		INSTALL_MODE=lan
+		DAEMON_RUNNING=1
+		LAN_DNS_READY=0
+		if service_wait netcheck 0; then fail 'LAN startup accepted failed local DNS'; fi
+	) || fail 'service_wait mode regression failed'
+	[ "$(cat "${CALLS_FILE}")" = "$(printf '%s\n' lan-dns wan lan-dns)" ] ||
+		fail 'service_wait ran the wrong LAN or WAN readiness probe'
+}
+
 run_interrupt_cleanup_test() {
 	DESCRIPTION="$1"
 	START_STATUS="$2"
@@ -284,6 +315,7 @@ DNSMASQ_MANAGED_STATUS=0
 DNSMASQ_UNMANAGED_AFTER_START=0
 
 run_service_wait_terminal_test
+run_service_wait_mode_test
 
 INSTALL_MODE=lan
 LAN_BIND_REFRESH_STATUS=1

@@ -2863,7 +2863,8 @@ lower_script() {
 	esac
 }
 
-# service_wait waits for a service readiness check to succeed, a terminal failure to occur, or the configured timeout to elapse.
+# service_wait waits for service readiness, using firmware readiness before a
+# LAN/AP/Bridge daemon launch and local DNS afterward; WAN keeps its netcheck.
 service_wait() {
 	umask 022
 	local maxwait
@@ -2896,7 +2897,16 @@ service_wait() {
 			while [ "${elapsed}" -le "${maxwait}" ]; do
 				if [ "$(nvram get success_start_service)" = '1' ]; then
 					SERVICE_WAIT_TERMINAL_FAILURE="0"
-					"$1"
+					if [ "$1" = "netcheck" ] && adguard_lan_mode; then
+						# LAN/AP/Bridge needs no WAN or NTP probe before the daemon starts.
+						if pidof AdGuardHome >/dev/null 2>&1; then
+							netcheck_lan_dns
+						else
+							true
+						fi
+					else
+						"$1"
+					fi
 					status="$?"
 					if [ "${status}" -eq 0 ] || [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ]; then break; fi
 				fi
