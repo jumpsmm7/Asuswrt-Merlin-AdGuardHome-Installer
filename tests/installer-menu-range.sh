@@ -16,6 +16,11 @@ grep -q '8) Enable/Disable AdGuardHome IPSET Integration' "${SCRIPT_PATH}" || fa
 grep -q 'm) Migrate Runtime Defaults' "${SCRIPT_PATH}" || fail 'installed-state menu does not advertise runtime migration'
 grep -q '9) Analyze and remove unused blocklists' "${SCRIPT_PATH}" || fail 'installed-state menu does not advertise option 9'
 
+if ! sed -n '/^menu() {$/,/^read_input_dns() {$/p' "${SCRIPT_PATH}" |
+	awk '/9\) Analyze and remove unused blocklists/ { nine = NR } /m\) Migrate Runtime Defaults/ { migrate = NR } END { exit(!(nine > 0 && nine < migrate)) }'; then
+	fail 'installed-state menu does not display option 9 before option m'
+fi
+
 INSTALLED_RANGES="$(sed -n '/^menu() {$/,/^read_input_dns() {$/p' "${SCRIPT_PATH}" | grep 'read_input_num "Please enter the number that designates your selection:" 1 9 b' || true)"
 RANGE_COUNT="$(printf '%s\n' "${INSTALLED_RANGES}" | awk 'NF { count++ } END { print count + 0 }')"
 

@@ -36,6 +36,27 @@ logger() {
 	:
 }
 
+# adguard_lan_mode reports whether the installation is configured for LAN mode.
+adguard_lan_mode() {
+	[ "${INSTALL_MODE:-wan}" = "lan" ]
+}
+
+# adguard_ipset_allowed determines whether IPSet handling is permitted for the current installation mode and WAN NAT state.
+adguard_ipset_allowed() {
+	case "${INSTALL_MODE:-wan}" in
+		wan) return 0 ;;
+		lan | ap | bridge) [ "${WAN_NAT_ACTIVE:-0}" -eq 1 ] ;;
+		*) return 1 ;;
+	esac
+}
+
+# IPSet_Disable_Managed records that managed IP set handling was disabled for the test.
+IPSet_Disable_Managed() {
+	printf '%s\n' disabled >"${TEST_DIR}/disabled"
+	return 0
+}
+
+# IPSet_Collect_Yaml collects IP set configuration from the YAML file.
 IPSet_Collect_Yaml() {
 	return 0
 }
@@ -109,5 +130,15 @@ IPSet_Migrate || fail 'migration rejected a managed block-scalar ipset_file'
 _expected="$(printf '%s\n' 'dns:' '  ipset_file: '"${IPSET_FILE}" '  upstream_dns:' '    - 1.1.1.1' '  ipset: []')"
 _actual="$(cat "${YAML_FILE}")"
 [ "${_actual}" = "${_expected}" ] || fail "migration left block-scalar content in YAML:\n${_actual}"
+
+INSTALL_MODE=lan
+cat >"${YAML_FILE}" <<EOF_YAML
+dns:
+  ipset_file: ${IPSET_FILE}
+EOF_YAML
+rm -f "${TEST_DIR}/disabled"
+IPSet_Migrate || fail 'LAN migration returned failure'
+[ -f "${TEST_DIR}/disabled" ] || fail 'LAN migration did not remove managed ipset_file'
+INSTALL_MODE=wan
 
 printf '%s\n' 'PASS: IPSet_Current_File handles YAML null and block scalars safely'

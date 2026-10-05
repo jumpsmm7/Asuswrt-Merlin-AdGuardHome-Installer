@@ -24,8 +24,10 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/base" "${TMP_ROOT}/target" "${TMP_ROOT}/addon" || fail 'could not create test directories'
 sed -n '/^adguard_restart_after_install_abort() {$/,/^}/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract restart helper'
-sed -n '/^inst_AdGuardHome() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
-	fail 'could not extract installer function'
+sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract pending mode-migration helpers'
+sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" ||
+	fail 'could not extract installer functions'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'installer function extraction was empty'
 
 cat >"${TMP_ROOT}/target/AdGuardHome" <<'EOF_AGH'
@@ -34,6 +36,9 @@ printf '%s\n' 'AdGuard Home, version test'
 EOF_AGH
 chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuardHome executable'
 
+# run_update_path exercises the mocked upgrade path for the specified mode and runtime-default configuration result.
+# _mode selects a service-refresh-only or package upgrade.
+# _configure_result determines whether runtime-default configuration succeeds.
 run_update_path() {
 	_mode="$1"
 	_configure_result="$2"
@@ -82,6 +87,7 @@ run_update_path() {
 			return 0
 		}
 		agh_is_running() { [ "${RUNNING}" -eq 1 ]; }
+		agh_wait_started() { [ "${RUNNING}" -eq 1 ]; }
 		agh_start() {
 			printf '%s\n' 'start' >>"${CALLS_FILE}"
 			RUNNING=1
@@ -107,6 +113,8 @@ run_update_path() {
 			printf '%s\n' "end:$*" >>"${CALLS_FILE}"
 		}
 		rollback_result_write() { :; }
+		# rollback_result_notice suppresses an unused rollback notification in this update-path fixture.
+		rollback_result_notice() { :; }
 		PTXT() { :; }
 		ptxt_phase() { PTXT "$1"; }
 		ptxt_step() { PTXT "$1"; }
@@ -124,7 +132,6 @@ run_update_path refresh pass
 EXPECTED_REFRESH_PASS="$(printf '%s\n' \
 	'create_dir' \
 	'configure:upgrade' \
-	'cleanup_legacy_firewall' \
 	'download:755:https://example.invalid/AdGuardHome.sh' \
 	'end:1 update')"
 ACTUAL_REFRESH_PASS="$(cat "${CALLS_FILE}")"
@@ -147,7 +154,6 @@ EXPECTED_PACKAGE_PASS="$(printf '%s\n' \
 	'ln' \
 	'create_dir' \
 	'configure:upgrade' \
-	'cleanup_legacy_firewall' \
 	'download:755:https://example.invalid/AdGuardHome.sh' \
 	'start' \
 	'end:1 update')"

@@ -1,0 +1,113 @@
+name: Update Tz-data packages
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - dev
+      - 'dev/**'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    paths:
+      - .github/workflows/update-tzdata.yml
+      - tests/update-tzdata-package-info.sh
+      - tools/tzdata-package-info.sh
+      - tools/update-tzdata.sh
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update; defaults to the branch selected when starting the workflow
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-tzdata-${{ inputs.target_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  update-tzdata:
+    name: Update ARM tzdata packages
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve target branch
+        id: branch
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = 'workflow_dispatch' ] && [ -n "${INPUT_TARGET_BRANCH}" ]; then
+            target_branch="${INPUT_TARGET_BRANCH}"
+          else
+            target_branch="${GITHUB_REF_NAME}"
+          fi
+
+          case "${target_branch}" in
+            ''|*..*|/*|*[^A-Za-z0-9._/-]*|*'~'*|*'^'*|*':'*|*'?'*|*'['*|*'\'*)
+              printf 'Invalid target branch: %s\n' "${target_branch}" >&2
+              exit 1
+              ;;
+          esac
+          if ! git check-ref-format --branch "${target_branch}" >/dev/null 2>&1; then
+            printf 'Invalid target branch: %s\n' "${target_branch}" >&2
+            exit 1
+          fi
+
+          printf 'target=%s\n' "${target_branch}" >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout target branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ steps.branch.outputs.target }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install conversion tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bzip2 xz-utils zstd
+
+      - name: Run tzdata package conversion regression
+        run: sh tests/update-tzdata-package-info.sh
+
+      - name: Download current packages
+        env:
+          CURL_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+          MIRROR_HOSTS: >-
+            ca.us.mirror.archlinuxarm.org
+            nj.us.mirror.archlinuxarm.org
+            fl.us.mirror.archlinuxarm.org
+            mirror.archlinuxarm.org
+          SIGNING_KEY_FINGERPRINT: 68B3537F39A313B3E574D06777193F152BDBE6A6
+        run: sh tools/update-tzdata.sh .
+
+      - name: Commit package updates
+        shell: bash
+        env:
+          PUSH_TARGET: ${{ steps.branch.outputs.target }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(git status --porcelain -- installer installer.md5sum installer.sha256sum 'tzdata-*')" ]; then
+            echo 'tzdata packages are already current.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- installer installer.md5sum installer.sha256sum
+          # The quoted Git pathspec intentionally stages new files and tracked removals.
+          git add -A -- 'tzdata-*'
+          git commit -m 'chore: update tzdata packages'
+          git push origin "HEAD:${PUSH_TARGET}"
