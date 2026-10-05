@@ -1655,7 +1655,7 @@ dnsmasq_action_handler() {
 				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
 				return 0
 				;;
-			esac
+		esac
 	fi
 	if [ "${PRE_START_HOOK}" = "pre_start" ]; then
 		dnsmasq_params "" "${PRE_START_HOOK}"
