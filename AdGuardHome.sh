@@ -2051,6 +2051,12 @@ netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
 	case "${mode}" in
+		lan | LAN)
+			# LAN/AP/Bridge needs no WAN or NTP probe before the daemon starts.
+			# LAN mode skips public WAN and NTP probes. Local DNS responsiveness is checked
+			# separately after AdGuardHome is expected to be serving DNS.
+			return 0
+			;;
 		legacy | LEGACY | "")
 			netcheck_legacy
 			return "$?"
@@ -2073,13 +2079,6 @@ netcheck() {
 		sleep 1
 		waited="$((waited + 1))"
 	done
-	case "${mode}" in
-		lan | LAN)
-			# LAN mode skips public WAN probes. Local DNS responsiveness is checked
-			# separately after AdGuardHome is expected to be serving DNS.
-			return 0
-			;;
-	esac
 	# Intentionally split hosts on shell IFS so ADGUARD_NETCHECK_HOSTS stays a simple
 	# space-delimited POSIX/ash setting.
 	set -- ${hosts}
@@ -2897,16 +2896,7 @@ service_wait() {
 			while [ "${elapsed}" -le "${maxwait}" ]; do
 				if [ "$(nvram get success_start_service)" = '1' ]; then
 					SERVICE_WAIT_TERMINAL_FAILURE="0"
-					if [ "$1" = "netcheck" ] && adguard_lan_mode; then
-						# LAN/AP/Bridge needs no WAN or NTP probe before the daemon starts.
-						if pidof AdGuardHome >/dev/null 2>&1; then
-							netcheck_lan_dns
-						else
-							true
-						fi
-					else
-						"$1"
-					fi
+					"$1"
 					status="$?"
 					if [ "${status}" -eq 0 ] || [ "${SERVICE_WAIT_TERMINAL_FAILURE}" -eq 1 ]; then break; fi
 				fi
