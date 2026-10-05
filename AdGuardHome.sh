@@ -1562,8 +1562,12 @@ dnsmasq_params() {
 	[ ! -L "${CONFIG_FILE}" ] || return 1
 	# Firmware invokes postconf before starting the replacement dnsmasq process.
 	if adguard_lan_mode && ! adguard_dnsmasq_running &&
-		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] && ! dns_handoff_is_active; then
-		return 0
+		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] &&
+		! dns_handoff_is_active; then
+		case "${DNSMASQ_POSTCONF_HOOK:-0}:${CONFIG_DNSMASQ_MODE:-auto}" in
+			1:auto) ;;
+			*) return 0 ;;
+		esac
 	fi
 	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
 		return 0
@@ -1640,9 +1644,18 @@ dnsmasq_params() {
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
 dnsmasq_action_handler() {
+	DNSMASQ_POSTCONF_HOOK=0
+	[ -n "${1:-}" ] && DNSMASQ_POSTCONF_HOOK=1
 	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		case "${CONFIG_DNSMASQ_MODE:-auto}" in
 			enabled) ;;
+			auto)
+				[ "${DNSMASQ_POSTCONF_HOOK}" = "1" ] || {
+					dnsmasq_resolv_conf_cleanup
+					agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
+					return 0
+				}
+				;;
 			*)
 				dnsmasq_resolv_conf_cleanup
 				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"

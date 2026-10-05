@@ -496,6 +496,9 @@ for target_kind in missing directory symlink; do
 done
 
 # Firmware postconf runs before the replacement dnsmasq process exists.
+ADGUARD_INSTALL_MODE='lan'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 for failure in none staging editing refresh publication; do
 	reset_case
 	(
