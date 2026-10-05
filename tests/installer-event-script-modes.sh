@@ -151,10 +151,8 @@ grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not use the shared dnsmasq hook addition helper'
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
-grep -q "{ del_jffs_script /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' >/dev/null; } || failed=1" "${TMP_FILE}.remove-helper" ||
-	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
 grep -q '{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null; } || failed=1' "${TMP_FILE}.remove-helper" ||
-	fail 'dnsmasq hook cleanup does not remove the legacy primary hook'
+	fail 'dnsmasq hook cleanup does not remove the primary hook variants'
 grep -q "{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null; } || failed=1" "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
 if grep -q "nvram get rc_support.*mtlancfg" "${TMP_FILE}.remove-helper"; then

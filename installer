@@ -7278,7 +7278,6 @@ remove_dnsmasq_event_scripts() {
 		rm -rf "${SNAPSHOT_DIR}" 2>/dev/null || true
 		return 1
 	}
-	{ del_jffs_script /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' >/dev/null; } || failed=1
 	{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null; } || failed=1
 	{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' >/dev/null; } || failed=1
 	if [ "${failed}" -eq 0 ]; then
