@@ -4,7 +4,7 @@
 
 set -u
 
-BASE_URL="https://static.adguard.com/adguardhome"
+BASE_URL="https://static.adtidy.org/adguardhome"
 HTTPS_PROTOCOL="=https"
 OUT_DIR="${1:-.}"
 FAILED=0
@@ -196,9 +196,15 @@ download_arch() {
 		return 1
 	}
 
-	download_one "${_folder}" stable release "${_adguard_arch}" || true
-	download_one "${_folder}" beta beta "${_adguard_arch}" || true
-	download_one "${_folder}" edge edge "${_adguard_arch}" || true
+	if ! download_one "${_folder}" stable release "${_adguard_arch}" ||
+		! download_one "${_folder}" beta beta "${_adguard_arch}" ||
+		! download_one "${_folder}" edge edge "${_adguard_arch}"; then
+		# Never replace complete metadata with missing channel rows on failure.
+		rm -f "${_dest_dir}/VERSION.txt.tmp" "${_dest_dir}/checksum.txt.tmp"
+		FAILED=1
+		release_metadata_publication_lock "${_dest_dir}"
+		return 1
+	fi
 
 	if ! chmod 644 "${_dest_dir}/VERSION.txt.tmp" "${_dest_dir}/checksum.txt.tmp"; then
 		rm -f "${_dest_dir}/VERSION.txt.tmp" "${_dest_dir}/checksum.txt.tmp"
@@ -225,7 +231,7 @@ download_one() {
 	_adguard_arch="$4"
 	_adguard_tar="AdGuardHome_${_adguard_arch}.tar.gz"
 	_url="${BASE_URL}/${_remote_channel}/${_adguard_tar}"
-	_version_url="${BASE_URL}/${_remote_channel}/version.txt"
+	_version_url="${BASE_URL}/${_remote_channel}/version.json"
 	_dest_dir="${OUT_DIR}/${_folder}"
 	_dest_file="${_dest_dir}/AdGuardHome_${_channel_name}_${_adguard_arch}.tar.gz"
 	_dest_name="${_dest_file##*/}"
@@ -240,7 +246,8 @@ download_one() {
 		FAILED=1
 		return 1
 	}
-	_version="$(printf '%s\n' "${_version_response}" | awk 'NF {print $1; found = 1; exit} END {if (!found) exit 1}')" || {
+	# version.txt is legacy metadata and can lag behind current edge builds.
+	_version="$(printf '%s\n' "${_version_response}" | jq -er '.version | select(type == "string" and length > 0)')" || {
 		printf '%s\n' "Error: invalid version metadata from ${_version_url}" >&2
 		FAILED=1
 		return 1
@@ -257,6 +264,16 @@ download_one() {
 			return 1
 			;;
 	esac
+	case "${_version}" in
+		v[0-9]*) ;;
+		*)
+			printf '%s\n' "Error: invalid version metadata from ${_version_url}" >&2
+			FAILED=1
+			return 1
+			;;
+	esac
+	# Preserve the existing manifest format consumed by installer releases.
+	_version="version=${_version}"
 	printf '%s\n' "Downloading ${_url} -> ${_dest_file}"
 	ACTIVE_DOWNLOAD_TMP="${_tmp_file}"
 	if ! curl -fL --proto "${HTTPS_PROTOCOL}" --proto-redir "${HTTPS_PROTOCOL}" --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 -o "${_tmp_file}" "${_url}"; then
@@ -847,6 +864,7 @@ write_sha256sum_file() {
 require_cmd awk
 require_cmd curl
 require_cmd gzip
+require_cmd jq
 require_cmd ln
 require_cmd md5sum
 require_cmd sha256sum

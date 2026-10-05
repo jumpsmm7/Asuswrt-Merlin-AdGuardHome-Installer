@@ -740,7 +740,7 @@ Attach `AdGuardHome.tar` to the issue report.
 
 This repository includes a scheduled GitHub Actions workflow that refreshes local static copies of upstream AdGuardHome archives four times per day: 00:00, 06:00, 12:00, and 18:00 UTC.
 
-The workflow downloads stable, beta, and edge archives from `https://static.adguard.com/adguardhome/<channel>/AdGuardHome_<platform>_<architecture>.tar.gz` and saves them by router architecture folder:
+The workflow downloads stable, beta, and edge archives from `https://static.adtidy.org/adguardhome/<channel>/AdGuardHome_<platform>_<architecture>.tar.gz` and saves them by router architecture folder:
 
 - `armv8/` stores `linux_arm64` archives.
 - `armv7/` stores `linux_armv7` archives.
@@ -750,12 +750,14 @@ Archives are written with channel-based local filenames, such as `AdGuardHome_st
 
 Each architecture folder also gets generated metadata:
 
-- `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.txt`.
+- `VERSION.txt` lists each archive, local channel name, upstream channel name, and AdGuardHome version from upstream `version.json`. The legacy upstream `version.txt` can contain an older Edge version and is not used by the cache downloader.
 - `checksum.txt` lists each archive with its channel, version, MD5 checksum, and SHA-256 checksum.
 - `*.tar.gz.sha256sum` sidecar files contain the preferred SHA-256 integrity checksum for the matching compressed archive.
 - `*.tar.gz.md5sum` sidecar files are retained as compatibility metadata for older installer flows and mirrors that do not have SHA-256 sidecars yet.
 
 The local stable filenames use `stable`, while the upstream static AdGuardHome channel path remains `release` to match the installer branch naming.
+
+The cache downloader requires `jq` to validate upstream JSON metadata. The workflow stages archives, checksum sidecars, and metadata together before checking for changes, including files recreated after removal from Git.
 
 ## Download integrity compatibility policy
 

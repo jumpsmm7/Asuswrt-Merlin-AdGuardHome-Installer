@@ -16,7 +16,7 @@ concurrency:
 jobs:
   cache-static-archives:
     name: Download static AdGuardHome archives
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.ref_type == 'branch'
     permissions:
       contents: write
@@ -38,16 +38,17 @@ jobs:
           sh tools/download-adguardhome-static.sh .
 
       - name: Commit archive updates
-        shell: bash
+        shell: sh
         run: |
-          set -euo pipefail
+          set -eu
 
-          if git diff --quiet -- armv8 armv7 armv5; then
+          # Stage first so newly created archives and sidecars count as updates.
+          git add -- armv8 armv7 armv5
+          if git diff --cached --quiet -- armv8 armv7 armv5; then
             echo "No AdGuardHome archive updates needed."
             exit 0
           fi
 
           git status --short
-          git add -- armv8 armv7 armv5
           git commit -m "chore: update AdGuardHome static archives"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin "HEAD:${GITHUB_REF_NAME}"
