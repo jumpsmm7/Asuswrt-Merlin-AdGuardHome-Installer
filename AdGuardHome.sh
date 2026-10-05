@@ -2046,7 +2046,10 @@ netcheck_legacy() {
 	done
 }
 
-# netcheck verifies system time and configured network connectivity, including optional DNS, ping, and HTTP checks. In LAN mode, it waits for system time and skips public network probes. Returns success when the required checks pass.
+# netcheck checks readiness using the configured mode and takes no arguments.
+# LAN returns 0 without time or public network probes; legacy delegates to
+# netcheck_legacy. WAN waits for system time, requires DNS or ping success, and
+# probes HTTP when configured. Returns 0 on readiness or 1 on a failed check.
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"

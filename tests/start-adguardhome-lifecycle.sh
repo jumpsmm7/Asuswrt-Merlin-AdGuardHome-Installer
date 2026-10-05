@@ -246,13 +246,18 @@ run_test() {
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "${DESCRIPTION}: unexpected lifecycle: ${ACTUAL}"
 }
 
+# run_service_wait_terminal_test verifies that a terminal readiness failure returns
+# status 1 immediately without retrying the probe.
 run_service_wait_terminal_test() {
 	: >"${CALLS_FILE}"
 	(
 		# shellcheck disable=SC1090
 		. "${SERVICE_WAIT_FILE}"
+		# timezone suppresses router timezone setup during the readiness test.
 		timezone() { :; }
+		# nvram reports firmware readiness so service_wait reaches the probe.
 		nvram() { printf '%s\n' 1; }
+		# terminal_failure records the probe and marks its failure as non-retryable.
 		terminal_failure() {
 			printf '%s\n' called >>"${CALLS_FILE}"
 			SERVICE_WAIT_TERMINAL_FAILURE="1"
@@ -265,6 +270,8 @@ run_service_wait_terminal_test() {
 	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'service_wait retried a terminal failure'
 }
 
+# run_netcheck_mode_test verifies that LAN bypasses time and network probes while
+# WAN requires system time readiness followed by a successful DNS probe.
 run_netcheck_mode_test() {
 	: >"${CALLS_FILE}"
 	(
@@ -275,23 +282,31 @@ run_netcheck_mode_test() {
 		DEFAULT_ADGUARD_NETCHECK_HOSTS=example.com
 		DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP=NO
 		DEFAULT_ADGUARD_NETCHECK_TIMEOUT=1
+		# netcheck_config prints NETCHECK_MODE for the mode key in $1, otherwise
+		# the default value supplied in $2, without reading router configuration.
 		netcheck_config() {
 			case "$1" in
 				ADGUARD_NETCHECK_MODE) printf '%s\n' "${NETCHECK_MODE}" ;;
 				*) printf '%s\n' "$2" ;;
 			esac
 		}
+		# system_time_ready records a clock probe and succeeds only when NTP_READY is 1.
 		system_time_ready() {
 			printf '%s\n' clock >>"${CALLS_FILE}"
 			[ "${NTP_READY}" -eq 1 ]
 		}
+		# netcheck_dns_ok records a DNS probe and succeeds without network access.
 		netcheck_dns_ok() {
 			printf '%s\n' dns >>"${CALLS_FILE}"
 			return 0
 		}
+		# netcheck_ping_ok fails the test if DNS success still triggers a ping probe.
 		netcheck_ping_ok() { fail 'WAN netcheck pinged after DNS succeeded'; }
+		# netcheck_http_ok fails the test if disabled HTTP probing is invoked.
 		netcheck_http_ok() { fail 'WAN netcheck required HTTP without configuration'; }
+		# sleep skips real delays while netcheck advances its timeout counter.
 		sleep() { :; }
+		# agh_log discards diagnostic messages from the expected WAN timeout.
 		agh_log() { :; }
 		NETCHECK_MODE=lan
 		NTP_READY=0
