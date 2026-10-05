@@ -424,8 +424,14 @@ done
 # Router operations are stubbed, but argument forwarding and dispatch are real.
 RUNTIME_PATH="${SCRIPT_PATH%/*}/AdGuardHome.sh"
 [ "${SCRIPT_PATH}" != "${SCRIPT_PATH%/*}" ] || RUNTIME_PATH=AdGuardHome.sh
-grep -q 'service_wait netcheck' "${RUNTIME_PATH}" ||
-	fail 'runtime monitor no longer performs the mode-aware startup readiness check'
+START_MONITOR_BODY="$(sed -n '/^start_monitor() {$/,/^}$/p' "${RUNTIME_PATH}")"
+case "${START_MONITOR_BODY}" in
+	*'service_wait netcheck'*) ;;
+	*) fail 'start_monitor no longer performs the mode-aware startup readiness check' ;;
+esac
+case "${START_MONITOR_BODY}" in
+	*'service_wait true'*) fail 'start_monitor bypasses its mode-aware startup readiness check' ;;
+esac
 DISPATCH_FILE="${TEST_ROOT}/dispatch.sh"
 INIT_FILE="${TEST_ROOT}/S99AdGuardHome"
 STATE_FILE="${TEST_ROOT}/state"

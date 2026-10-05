@@ -3011,9 +3011,9 @@ start_monitor() {
 	trap '' HUP INT QUIT ABRT TERM TSTP
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
-	# Wait for the firmware service framework, not DNS, before the first launch.
-	# A DNS probe cannot succeed through AdGuardHome until this monitor starts it.
-	{ service_wait true; }
+	# Use the configured LAN/WAN netcheck while waiting for the firmware service
+	# framework. LAN mode skips public WAN probes before the first launch.
+	{ service_wait netcheck; }
 	agh_log info start_monitor "state=${MONITOR_STATE} action=start_monitor reason=init result=started"
 	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck reason=init result=enabled interval=${MONITOR_HEALTHCHECK_INTERVAL}"
 	while true; do
