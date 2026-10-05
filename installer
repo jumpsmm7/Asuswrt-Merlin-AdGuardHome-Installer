@@ -3855,11 +3855,15 @@ agh_request_start() {
 	adguard_service_status_after_action start "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback
 }
 
-# agh_request_restart applies the same completion check to firmware restart
-# events. An active monitor gets the full startup budget after the initial
-# firmware grace period because it may still be finishing its sleep interval
-# and DNS handoff before it can replace the daemon. The direct init script is
-# used only while the requested replacement daemon is still absent.
+# agh_request_restart requests a firmware restart and verifies daemon replacement.
+# $1 is the optional whitespace-separated pre-restart PID list; when empty,
+# observing any running AdGuardHome daemon is sufficient for completion.
+# After the initial firmware grace period, an active managed monitor gets an
+# additional ADGUARDHOME_WAIT_TIMEOUT seconds to finish its sleep and DNS handoff.
+# Recheck completion after each wait before falling back to direct init with x,
+# which prevents dispatching another firmware event. Return 0 on completion,
+# or 1 if direct init fails or its ADGUARDHOME_WAIT_TIMEOUT-second poll expires.
+# DNS/WebUI readiness is checked separately by the caller.
 agh_request_restart() {
 	local old_pids
 	old_pids="${1:-}"
