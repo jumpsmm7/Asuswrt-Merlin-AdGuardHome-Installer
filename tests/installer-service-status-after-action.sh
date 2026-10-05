@@ -270,6 +270,26 @@ grep -q 'Firmware service start is still in progress' "${CALLS_FILE}" ||
 	fail 'start request did not wait through the managed monitor startup budget'
 MONITOR_COUNT='0'
 
+# The start wait has the same timeout-boundary race: accept a daemon observed
+# by the final recheck rather than duplicating the monitor through direct init.
+(
+	: >"${CALLS_FILE}"
+	PROCESS_STATE='stopped'
+	PROCESS_COUNT='0'
+	CURRENT_PIDS=''
+	MONITOR_COUNT='1'
+	agh_wait_started() {
+		PROCESS_STATE='running'
+		PROCESS_COUNT='1'
+		CURRENT_PIDS='222'
+		return 1
+	}
+	agh_request_start || fail 'start request missed a daemon at the timeout boundary'
+	! grep -q '^/opt/etc/init.d/S99AdGuardHome start x$' "${CALLS_FILE}" ||
+		fail 'start request used direct init after the monitor launched the daemon at the timeout boundary'
+) || fail 'managed monitor start timeout-boundary regression failed'
+MONITOR_COUNT='0'
+
 # A firmware restart monitor can spend up to one sleep interval before it sees
 # the signal, then perform DNS handoff. Give that active transition the full
 # startup budget instead of invoking the direct init fallback at 15 seconds.
@@ -291,6 +311,28 @@ MONITOR_COUNT='0'
 ) || fail 'managed monitor restart wait regression failed'
 MONITOR_COUNT='0'
 NEW_PID_AFTER_SLEEP=0
+
+# A replacement can appear immediately after the extended wait's final poll.
+# Recheck the PID transition before dispatching the direct restart fallback.
+(
+	: >"${CALLS_FILE}"
+	PROCESS_STATE='running'
+	PROCESS_COUNT='1'
+	CURRENT_PIDS='111'
+	MONITOR_COUNT='1'
+	STATUS_CALLS=0
+	adguard_service_status_after_action() {
+		STATUS_CALLS="$((STATUS_CALLS + 1))"
+		if [ "${STATUS_CALLS}" -eq 2 ]; then
+			CURRENT_PIDS='222'
+		fi
+		return 1
+	}
+	agh_request_restart '111' || fail 'restart request missed a replacement at the timeout boundary'
+	[ "${STATUS_CALLS}" -eq 2 ] || fail 'restart request did not reach the extended monitor wait'
+	! grep -q '^/opt/etc/init.d/S99AdGuardHome restart x$' "${CALLS_FILE}" ||
+		fail 'restart request used direct init after the monitor replaced the daemon at the timeout boundary'
+) || fail 'managed monitor restart timeout-boundary regression failed'
 
 # A managed monitor that never creates the daemon must still fall back after
 # the bounded managed-start wait expires.
@@ -382,8 +424,8 @@ done
 # Router operations are stubbed, but argument forwarding and dispatch are real.
 RUNTIME_PATH="${SCRIPT_PATH%/*}/AdGuardHome.sh"
 [ "${SCRIPT_PATH}" != "${SCRIPT_PATH%/*}" ] || RUNTIME_PATH=AdGuardHome.sh
-grep -q 'service_wait true' "${RUNTIME_PATH}" ||
-	fail 'runtime monitor still gates its first daemon launch on a DNS netcheck'
+grep -q 'service_wait netcheck' "${RUNTIME_PATH}" ||
+	fail 'runtime monitor no longer performs the mode-aware startup readiness check'
 DISPATCH_FILE="${TEST_ROOT}/dispatch.sh"
 INIT_FILE="${TEST_ROOT}/S99AdGuardHome"
 STATE_FILE="${TEST_ROOT}/state"

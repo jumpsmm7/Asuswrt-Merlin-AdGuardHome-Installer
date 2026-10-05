@@ -3847,6 +3847,7 @@ agh_request_start() {
 			if agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
 				return 0
 			fi
+			agh_is_running && return 0
 		fi
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."
 	fi
@@ -3872,6 +3873,7 @@ agh_request_restart() {
 			if adguard_service_status_after_action restart "${old_pids}" "${ADGUARDHOME_WAIT_TIMEOUT}"; then
 				return 0
 			fi
+			agh_restart_transition_complete "${old_pids}" && return 0
 		fi
 		ptxt_step "Firmware service restart did not replace the daemon; trying the init script directly."
 	fi
