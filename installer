@@ -3847,6 +3847,7 @@ agh_request_start() {
 			if agh_wait_started "${ADGUARDHOME_WAIT_TIMEOUT}"; then
 				return 0
 			fi
+			agh_is_running && return 0
 		fi
 		ptxt_step "Firmware service start did not create the daemon; trying the init script directly."
 	fi
@@ -3854,9 +3855,15 @@ agh_request_start() {
 	adguard_service_status_after_action start "" "${ADGUARDHOME_WAIT_TIMEOUT}" fallback
 }
 
-# agh_request_restart applies the same completion check to firmware restart
-# events and uses the direct init script only while the requested replacement
-# daemon is still absent.
+# agh_request_restart requests a firmware restart and verifies daemon replacement.
+# $1 is the optional whitespace-separated pre-restart PID list; when empty,
+# observing any running AdGuardHome daemon is sufficient for completion.
+# After the initial firmware grace period, an active managed monitor gets an
+# additional ADGUARDHOME_WAIT_TIMEOUT seconds to finish its sleep and DNS handoff.
+# Recheck completion after each wait before falling back to direct init with x,
+# which prevents dispatching another firmware event. Return 0 on completion,
+# or 1 if direct init fails or its ADGUARDHOME_WAIT_TIMEOUT-second poll expires.
+# DNS/WebUI readiness is checked separately by the caller.
 agh_request_restart() {
 	local old_pids
 	old_pids="${1:-}"
@@ -3865,6 +3872,13 @@ agh_request_restart() {
 			return 0
 		fi
 		agh_restart_transition_complete "${old_pids}" && return 0
+		if agh_start_transition_active; then
+			ptxt_step "Firmware service restart is still in progress; waiting for the managed monitor to replace the daemon."
+			if adguard_service_status_after_action restart "${old_pids}" "${ADGUARDHOME_WAIT_TIMEOUT}"; then
+				return 0
+			fi
+			agh_restart_transition_complete "${old_pids}" && return 0
+		fi
 		ptxt_step "Firmware service restart did not replace the daemon; trying the init script directly."
 	fi
 	adguard_service_without_nvram_lock_fd /opt/etc/init.d/S99AdGuardHome restart x || return 1
