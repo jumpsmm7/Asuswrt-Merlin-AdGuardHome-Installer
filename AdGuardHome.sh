@@ -1514,7 +1514,8 @@ dnsmasq_publish_staged_config() (
 
 # dnsmasq_params configures dnsmasq for the LAN or specified SDN interface, including DNS routing, reverse zones, and optional IPSet refresh.
 dnsmasq_params() {
-	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF
+	local BRIDGE_OPTIONS_STAGE CONFIG CONFIG_FILE CONFIG_STAGE IPSET_SNAPSHOT_DIR IPV6_REVERSE NET_ADDR NET_ADDR6 LAN_IF LAN_IF_SDN NIVARS NDVARS RC_SUPPORT DHCP_IF PRE_START_HOOK
+	PRE_START_HOOK="${2:-}"
 	if adguard_lan_mode && [ "${CONFIG_DNSMASQ_MODE:-auto}" = "disabled" ] && ! dns_handoff_is_active; then
 		agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_disabled"
 		return 0
@@ -1561,15 +1562,14 @@ dnsmasq_params() {
 	[ -f "${CONFIG_FILE}" ] || return 0
 	[ ! -L "${CONFIG_FILE}" ] || return 1
 	# Firmware invokes postconf before starting the replacement dnsmasq process.
-	if adguard_lan_mode && ! adguard_dnsmasq_running &&
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		adguard_lan_mode && ! adguard_dnsmasq_running &&
 		[ "${CONFIG_DNSMASQ_MODE:-auto}" != "enabled" ] &&
 		! dns_handoff_is_active; then
-		case "${DNSMASQ_POSTCONF_HOOK:-0}:${CONFIG_DNSMASQ_MODE:-auto}" in
-			1:auto) ;;
-			*) return 0 ;;
-		esac
+		return 0
 	fi
-	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
 		return 0
 	fi
 	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
@@ -1644,26 +1644,22 @@ dnsmasq_params() {
 
 # dnsmasq_action_handler applies the requested dnsmasq configuration action, or skips it in LAN mode when dnsmasq is inactive and unmanaged.
 dnsmasq_action_handler() {
-	DNSMASQ_POSTCONF_HOOK=0
-	[ -n "${1:-}" ] && DNSMASQ_POSTCONF_HOOK=1
-	if adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
+	local PRE_START_HOOK=""
+	[ "${1:-}" = "pre_start" ] && PRE_START_HOOK="pre_start"
+	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
+		adguard_lan_mode && ! adguard_dnsmasq_running && ! dns_handoff_is_active; then
 		case "${CONFIG_DNSMASQ_MODE:-auto}" in
 			enabled) ;;
-			auto)
-				[ "${DNSMASQ_POSTCONF_HOOK}" = "1" ] || {
-					dnsmasq_resolv_conf_cleanup
-					agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
-					return 0
-				}
-				;;
 			*)
 				dnsmasq_resolv_conf_cleanup
 				agh_log info dnsmasq "state=skip reason=lan_mode_dnsmasq_not_running"
 				return 0
 				;;
-		esac
+			esac
 	fi
-	if [ -n "${1:-}" ]; then
+	if [ "${PRE_START_HOOK}" = "pre_start" ]; then
+		dnsmasq_params "" "${PRE_START_HOOK}"
+	elif [ -n "${1:-}" ]; then
 		dnsmasq_params "${1}"
 	else
 		dnsmasq_params

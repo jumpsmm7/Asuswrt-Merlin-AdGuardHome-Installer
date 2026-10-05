@@ -55,14 +55,20 @@ publication_targets_remove() {
 }
 
 publication_target_present() {
-	[ -e "$1" ] || [ -L "$1" ]
+	local target
+	target="$1"
+	[ -e "${target}" ] || [ -L "${target}" ]
 }
 
 publication_backup_create() {
-	if [ -L "$1" ]; then
-		ln -s "$(readlink "$1")" "$2"
+	local backup link_target source
+	source="$1"
+	backup="$2"
+	if [ -L "${source}" ]; then
+		link_target="$(readlink "${source}")"
+		ln -s "${link_target}" "${backup}"
 	else
-		cp -p "$1" "$2"
+		cp -p "${source}" "${backup}"
 	fi
 }
 
