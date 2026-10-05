@@ -39,7 +39,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 umask 077
 mkdir "${TEST_ROOT}" || fail 'could not create test workspace'
 
-sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p; /^monitor_process_matches() {$/,/^}$/p; /^stop_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p; /^monitor_process_matches() {$/,/^}$/p; /^adguard_monitor_pids() {$/,/^}$/p; /^stop_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract monitor configuration helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'monitor configuration helper extraction was empty'
 [ "$(grep -c 'CONFIG_DNSMASQ_MODE="enabled"' "${FUNCTIONS_FILE}")" -eq 2 ] ||
@@ -75,9 +75,14 @@ adguardhome_run() {
 	esac
 	return 0
 }
+# Return fixed daemon or monitor PIDs for the expected process-name queries;
+# fail for any other query so the test detects incorrect discovery arguments.
 pidof() {
-	[ "${1:-}" = "${PROCS}" ] || return 1
-	printf '%s\n' 123
+	case "$*" in
+		"AdGuardHome") printf '%s\n' 123 ;;
+		"S99AdGuardHome AdGuardHome.sh rc.func.AdGuardHome") printf '%s\n' 456 ;;
+		*) return 1 ;;
+	esac
 }
 timezone() { :; }
 adguard_lan_mode() { return 1; }
@@ -94,6 +99,8 @@ kill -USR1 "${MONITOR_TEST_PID}" || fail 'could not request monitor stop'
 wait_for_file "${MODE_FILE}" || fail 'monitor did not execute its stop path'
 wait "${MONITOR_TEST_PID}" || fail 'monitor stop path returned failure'
 MONITOR_TEST_PID=""
+
+[ "$(adguard_monitor_pids)" = 456 ] || fail 'monitor discovery did not include legacy service entry points'
 
 [ "$(cat "${MODE_FILE}")" = enabled ] ||
 	fail 'malformed monitor stop configuration did not force dnsmasq restoration'

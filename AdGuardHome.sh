@@ -2046,11 +2046,20 @@ netcheck_legacy() {
 	done
 }
 
-# netcheck verifies system time and configured network connectivity, including optional DNS, ping, and HTTP checks. In LAN mode, it waits for system time and skips public network probes. Returns success when the required checks pass.
+# netcheck checks readiness using the configured mode and takes no arguments.
+# LAN returns 0 without time or public network probes; legacy delegates to
+# netcheck_legacy. WAN waits for system time, requires DNS or ping success, and
+# probes HTTP when configured. Returns 0 on readiness or 1 on a failed check.
 netcheck() {
 	local dns_ok dns_server hosts http_required mode ping_ok timeout waited
 	mode="$(netcheck_config ADGUARD_NETCHECK_MODE "${DEFAULT_ADGUARD_NETCHECK_MODE}")"
 	case "${mode}" in
+		lan | LAN)
+			# LAN/AP/Bridge needs no WAN or NTP probe before the daemon starts.
+			# LAN mode skips public WAN and NTP probes. Local DNS responsiveness is checked
+			# separately after AdGuardHome is expected to be serving DNS.
+			return 0
+			;;
 		legacy | LEGACY | "")
 			netcheck_legacy
 			return "$?"
@@ -2073,13 +2082,6 @@ netcheck() {
 		sleep 1
 		waited="$((waited + 1))"
 	done
-	case "${mode}" in
-		lan | LAN)
-			# LAN mode skips public WAN probes. Local DNS responsiveness is checked
-			# separately after AdGuardHome is expected to be serving DNS.
-			return 0
-			;;
-	esac
 	# Intentionally split hosts on shell IFS so ADGUARD_NETCHECK_HOSTS stays a simple
 	# space-delimited POSIX/ash setting.
 	set -- ${hosts}
@@ -2863,7 +2865,8 @@ lower_script() {
 	esac
 }
 
-# service_wait waits for a service readiness check to succeed, a terminal failure to occur, or the configured timeout to elapse.
+# service_wait waits for service readiness, using firmware readiness before a
+# LAN/AP/Bridge daemon launch and local DNS afterward; WAN keeps its netcheck.
 service_wait() {
 	umask 022
 	local maxwait
@@ -2999,7 +3002,14 @@ restart_adguardhome() {
 	start_adguardhome restart
 }
 
-# start_monitor supervises AdGuardHome, restarting it when requested or when health checks detect a failure, and stopping it on request.
+# start_monitor runs the AdGuardHome supervision loop with no arguments.
+# Uses ADGUARDHOME_BINARY and PROCS to detect the executable and daemon, and
+# performs the configured LAN/WAN readiness wait before the first launch.
+# Retries a missing executable or daemon and performs periodic DNS health checks.
+# USR1 requests daemon shutdown and loop exit; USR2 requests a restart through
+# the service lock and DNS handoff. Other trapped termination signals are ignored
+# until shutdown restores their default handlers. Runs until a stop request and
+# returns 0 after leaving the loop; this is not a daemon-readiness result.
 start_monitor() {
 	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
 	MONITOR_BINARY_RETRY_INTERVAL="10"
@@ -3011,6 +3021,8 @@ start_monitor() {
 	trap '' HUP INT QUIT ABRT TERM TSTP
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
+	# Use the configured LAN/WAN netcheck while waiting for the firmware service
+	# framework. LAN mode skips public WAN probes before the first launch.
 	{ service_wait netcheck; }
 	agh_log info start_monitor "state=${MONITOR_STATE} action=start_monitor reason=init result=started"
 	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck reason=init result=enabled interval=${MONITOR_HEALTHCHECK_INTERVAL}"
@@ -3296,6 +3308,32 @@ monitor_process_matches() {
 	esac
 	[ -r "/proc/${PID}/cmdline" ] || return 1
 	awk '{ print }' "/proc/${PID}/cmdline" 2>/dev/null | grep -q 'monitor-start'
+}
+
+# adguard_monitor_pids lists monitor processes regardless of which managed
+# entry point launched them.  Older upgrades can leave a monitor named after
+# the addon or lower service script instead of S99AdGuardHome.
+adguard_monitor_pids() {
+	pidof "S99${PROCS}" "AdGuardHome.sh" "rc.func.${PROCS}" 2>/dev/null
+}
+
+# Stop every matching monitor left by an earlier service entry point.  A
+# single stop request must not leave another monitor able to respawn the daemon.
+stop_all_monitors() {
+	local FOUND PID STOP_STATUS
+	FOUND=0
+	STOP_STATUS=0
+	for PID in $(adguard_monitor_pids); do
+		[ "${PID}" != "$$" ] || continue
+		monitor_process_matches "${PID}" || continue
+		FOUND=1
+		MON_PID="${PID}"
+		stop_monitor "$$" || STOP_STATUS=1
+	done
+	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ]; then
+		adguardhome_run stop_adguardhome || STOP_STATUS=1
+	fi
+	return "${STOP_STATUS}"
 }
 
 # stop_monitor requests the monitor's normal USR1 shutdown, waits for procfs
@@ -4584,7 +4622,7 @@ if [ -f "${UPPER_SCRIPT}" ]; then { if { [ "$(canonical_path "${UPPER_SCRIPT}" 2
 	exec "${UPPER_SCRIPT}" "$@"
 	exit
 }; fi; }; else { if [ -z "${PROCS}" ]; then exit; fi; }; fi
-{ for PID in $(pidof "S99${PROCS}"); do if { awk '{ print }' "/proc/${PID}/cmdline" | grep -q monitor-start; } && [ "${PID}" != "$$" ]; then { MON_PID="${PID}"; }; fi; done; }
+{ for PID in $(adguard_monitor_pids); do if monitor_process_matches "${PID}" && [ "${PID}" != "$$" ]; then { MON_PID="${PID}"; }; fi; done; }
 
 unset TZ
 case "$1" in
@@ -4615,7 +4653,7 @@ case "$1" in
 				;;
 			"services-stop")
 				proc_restore
-				{ stop_monitor "$$"; }
+				{ stop_all_monitors; }
 				;;
 		esac
 		;;

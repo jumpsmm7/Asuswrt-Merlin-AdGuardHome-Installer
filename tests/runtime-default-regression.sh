@@ -191,19 +191,47 @@ grep -q 'Existing runtime defaults were retained for compatibility' "${TMP_ROOT}
 grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing.out" ||
 	fail 'upgrade did not print migration command'
 
+CONF_FILE="${TMP_ROOT}/upgrade-missing-lan.config"
+: >"${CONF_FILE}"
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_INSTALL_MODE_DETECTION="lan"
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing-lan.out" || fail 'confirmed LAN upgrade defaults failed'
+grep -q '^ADGUARD_NETCHECK_MODE="lan"$' "${CONF_FILE}" || fail 'confirmed LAN upgrade did not select LAN netcheck mode'
+
+CONF_FILE="${TMP_ROOT}/upgrade-unknown-mode.config"
+printf '%s\n' 'ADGUARD_INSTALL_MODE="lan"' >"${CONF_FILE}" || fail 'could not seed persisted LAN mode'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_INSTALL_MODE_DETECTION="unknown"
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-unknown-mode.out" || fail 'unknown-mode upgrade defaults failed'
+grep -q '^ADGUARD_INSTALL_MODE="lan"$' "${CONF_FILE}" || fail 'unknown router mode overwrote persisted LAN mode'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'unknown router mode did not retain legacy netcheck default'
+
+CONF_FILE="${TMP_ROOT}/upgrade-unset-mode.config"
+: >"${CONF_FILE}"
+unset ADGUARD_INSTALL_MODE ADGUARD_INSTALL_MODE_DETECTION
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-unset-mode.out" || fail 'unset-mode upgrade defaults failed'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'unset router mode did not retain legacy netcheck default'
+
+CONF_FILE="${TMP_ROOT}/upgrade-explicit-netcheck.config"
+printf '%s\n' 'ADGUARD_NETCHECK_MODE="legacy"' >"${CONF_FILE}" || fail 'could not seed explicit netcheck mode'
+ADGUARD_INSTALL_MODE="lan"
+ADGUARD_INSTALL_MODE_DETECTION="lan"
+configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-explicit-netcheck.out" || fail 'explicit netcheck upgrade defaults failed'
+grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'confirmed LAN upgrade overwrote explicit netcheck mode'
+
 CONF_FILE="${TMP_ROOT}/upgrade-missing.config"
 : >"${CONF_FILE}"
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_INSTALL_MODE_DETECTION="wan"
 configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing.out" || fail 'upgrade missing-default pin failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade missing policy did not pin legacy DNS cleanup'
-grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade missing netcheck did not pin legacy mode'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'confirmed WAN upgrade did not select WAN netcheck mode'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade missing optimize did not pin legacy enablement'
 grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'upgrade missing profile did not pin aggressive compatibility'
 cli_migrate_runtime_defaults --dry-run >"${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
 	fail 'upgrade migration dry-run failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote legacy DNS cleanup'
-grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote legacy netcheck mode'
+grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote WAN netcheck mode'
 grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
 	fail 'upgrade migration dry-run did not report planned safer defaults'
 cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/upgrade-missing-migrate.out" ||
@@ -233,4 +261,4 @@ fi
 manager_default="$(sed -n 's/^DEFAULT_ADGUARD_PROC_OPTIMIZE="\([^"]*\)"$/\1/p' "${MANAGER_PATH}" | sed -n '1p')"
 [ "${manager_default}" = 'NO' ] || fail 'manager no-config proc optimization fallback is not disabled'
 
-printf '%s\n' 'PASS: runtime defaults preserve upgrades and use aggressive proc compatibility defaults'
+printf '%s\n' 'PASS: runtime defaults preserve explicit values and select mode-aware upgrade defaults'
