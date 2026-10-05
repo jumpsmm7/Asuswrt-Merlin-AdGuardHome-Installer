@@ -6,12 +6,13 @@ set -u
 SCRIPT_PATH="${1:-AdGuardHome.sh}"
 FUNCTION_FILE="${TMPDIR:-/tmp}/start-adguardhome-function.$$"
 SERVICE_WAIT_FILE="${TMPDIR:-/tmp}/service-wait-function.$$"
+NETCHECK_FILE="${TMPDIR:-/tmp}/netcheck-function.$$"
 CALLS_FILE="${TMPDIR:-/tmp}/start-adguardhome-calls.$$"
 DATABASE_LINK_CALLS_FILE=""
 
 # cleanup removes temporary files created by the test script.
 cleanup() {
-	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${CALLS_FILE}"
+	rm -f "${FUNCTION_FILE}" "${SERVICE_WAIT_FILE}" "${NETCHECK_FILE}" "${CALLS_FILE}"
 	[ -n "${DATABASE_LINK_CALLS_FILE}" ] && rm -f "${DATABASE_LINK_CALLS_FILE}"
 }
 
@@ -79,6 +80,8 @@ sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^adguard_restart_
 [ -s "${FUNCTION_FILE}" ] || fail 'startup lifecycle functions were not found'
 sed -n '/^service_wait() {$/,/^}$/p' "${SCRIPT_PATH}" >"${SERVICE_WAIT_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${SERVICE_WAIT_FILE}" ] || fail 'service-wait function was not found'
+sed -n '/^netcheck() {$/,/^}$/p' "${SCRIPT_PATH}" >"${NETCHECK_FILE}" || fail "could not read ${SCRIPT_PATH}"
+[ -s "${NETCHECK_FILE}" ] || fail 'netcheck function was not found'
 
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
@@ -262,35 +265,50 @@ run_service_wait_terminal_test() {
 	[ "$(wc -l <"${CALLS_FILE}")" -eq 1 ] || fail 'service_wait retried a terminal failure'
 }
 
-run_service_wait_mode_test() {
+run_netcheck_mode_test() {
 	: >"${CALLS_FILE}"
 	(
 		# shellcheck disable=SC1090
-		. "${SERVICE_WAIT_FILE}"
-		timezone() { :; }
-		nvram() { printf '%s\n' 1; }
-		pidof() { [ "${DAEMON_RUNNING}" -eq 1 ] && printf '%s\n' 1234; }
+		. "${NETCHECK_FILE}"
+		DEFAULT_ADGUARD_NETCHECK_MODE=wan
+		DEFAULT_ADGUARD_NETCHECK_DNS=127.0.0.1
+		DEFAULT_ADGUARD_NETCHECK_HOSTS=example.com
+		DEFAULT_ADGUARD_NETCHECK_REQUIRE_HTTP=NO
+		DEFAULT_ADGUARD_NETCHECK_TIMEOUT=1
+		netcheck_config() {
+			case "$1" in
+				ADGUARD_NETCHECK_MODE) printf '%s\n' "${NETCHECK_MODE}" ;;
+				*) printf '%s\n' "$2" ;;
+			esac
+		}
+		system_time_ready() {
+			printf '%s\n' clock >>"${CALLS_FILE}"
+			[ "${NTP_READY}" -eq 1 ]
+		}
+		netcheck_dns_ok() {
+			printf '%s\n' dns >>"${CALLS_FILE}"
+			return 0
+		}
+		netcheck_ping_ok() { fail 'WAN netcheck pinged after DNS succeeded'; }
+		netcheck_http_ok() { fail 'WAN netcheck required HTTP without configuration'; }
 		sleep() { :; }
 		agh_log() { :; }
-		adguard_lan_mode() { [ "${INSTALL_MODE}" = lan ]; }
-		netcheck() { printf '%s\n' wan >>"${CALLS_FILE}"; [ "${INSTALL_MODE}" = wan ]; }
-		netcheck_lan_dns() { printf '%s\n' lan-dns >>"${CALLS_FILE}"; [ "${LAN_DNS_READY}" -eq 1 ]; }
-		INSTALL_MODE=lan
-		DAEMON_RUNNING=0
-		LAN_DNS_READY=1
-		service_wait netcheck 0 || fail 'LAN startup waited for WAN, NTP, or local DNS before daemon launch'
-		DAEMON_RUNNING=1
-		service_wait netcheck 0 || fail 'LAN startup did not accept local DNS after daemon launch'
-		INSTALL_MODE=wan
-		DAEMON_RUNNING=0
-		service_wait netcheck 0 || fail 'WAN startup did not use its existing netcheck'
-		INSTALL_MODE=lan
-		DAEMON_RUNNING=1
-		LAN_DNS_READY=0
-		if service_wait netcheck 0; then fail 'LAN startup accepted failed local DNS'; fi
-	) || fail 'service_wait mode regression failed'
-	[ "$(cat "${CALLS_FILE}")" = "$(printf '%s\n' lan-dns wan lan-dns)" ] ||
-		fail 'service_wait ran the wrong LAN or WAN readiness probe'
+		NETCHECK_MODE=lan
+		NTP_READY=0
+		netcheck || fail 'LAN netcheck waited for NTP or public network readiness'
+		NETCHECK_MODE=LAN
+		netcheck || fail 'uppercase LAN netcheck waited for NTP or public network readiness'
+		[ ! -s "${CALLS_FILE}" ] || fail 'LAN netcheck ran NTP or public network probes'
+		NETCHECK_MODE=wan
+		if netcheck; then fail 'WAN netcheck skipped system time readiness'; fi
+		grep -q '^clock$' "${CALLS_FILE}" || fail 'WAN netcheck did not check system time'
+		! grep -q '^dns$' "${CALLS_FILE}" || fail 'WAN netcheck reached DNS before system time was ready'
+		: >"${CALLS_FILE}"
+		NTP_READY=1
+		netcheck || fail 'WAN netcheck failed after time and DNS became ready'
+		[ "$(cat "${CALLS_FILE}")" = "$(printf '%s\n' clock dns)" ] ||
+			fail 'WAN netcheck did not run system time and DNS checks'
+	) || fail 'netcheck mode regression failed'
 }
 
 run_interrupt_cleanup_test() {
@@ -315,7 +333,7 @@ DNSMASQ_MANAGED_STATUS=0
 DNSMASQ_UNMANAGED_AFTER_START=0
 
 run_service_wait_terminal_test
-run_service_wait_mode_test
+run_netcheck_mode_test
 
 INSTALL_MODE=lan
 LAN_BIND_REFRESH_STATUS=1
@@ -504,4 +522,4 @@ lower_script start'
 [ "$(cat "${DATABASE_LINK_CALLS_FILE}")" = "/tmp/stats.db -> ${WORK_DIR}/data/stats.db
 /tmp/sessions.db -> ${WORK_DIR}/data/sessions.db" ] || fail 'startup delegated incorrect optional database link pairs'
 
-printf '%s\n' 'PASS: startup treats IPSET integration as optional and preserves lifecycle recovery'
+printf '%s\n' 'PASS: startup lifecycle and LAN/WAN netcheck behavior'
