@@ -120,7 +120,7 @@ grep -q 'all_event_scripts_transaction_rollback' "${TMP_FILE}.lan" ||
 	fail 'event-hook orchestration does not restore the aggregate hook snapshot after failure'
 grep -q 'pidof dnsmasq >/dev/null 2>&1 || \[ ! -f /etc/dnsmasq.conf \]' "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not require running dnsmasq and /etc/dnsmasq.conf'
-grep -q 'write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq' "${TMP_FILE}.add-helper" ||
+grep -q "write_manager_script /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start'" "${TMP_FILE}.add-helper" ||
 	fail 'WAN branch does not install dnsmasq.postconf when dnsmasq is available'
 grep -q 'add_firewall_event_scripts || failed=1' "${TMP_FILE}.wan-helper" ||
 	fail 'WAN branch does not transactionally install firewall-start'
@@ -152,7 +152,7 @@ grep -q 'add_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 grep -q 'remove_dnsmasq_event_scripts' "${TMP_FILE}.lan" ||
 	fail 'LAN branch does not remove only the installer-managed dnsmasq.postconf hook when dnsmasq is stopped'
 grep -q '{ del_jffs_script /jffs/scripts/dnsmasq.postconf dnsmasq >/dev/null; } || failed=1' "${TMP_FILE}.remove-helper" ||
-	fail 'dnsmasq hook cleanup does not propagate primary hook removal failures'
+	fail 'dnsmasq hook cleanup does not remove the primary hook variants'
 grep -q "{ del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn \$2' >/dev/null; } || failed=1" "${TMP_FILE}.remove-helper" ||
 	fail 'LAN branch does not remove the installer-managed SDN dnsmasq hook when dnsmasq is stopped'
 if grep -q "nvram get rc_support.*mtlancfg" "${TMP_FILE}.remove-helper"; then

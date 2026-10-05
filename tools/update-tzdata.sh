@@ -54,6 +54,24 @@ publication_targets_remove() {
 		installer installer.md5sum installer.sha256sum
 }
 
+publication_target_present() {
+	local target
+	target="$1"
+	[ -e "${target}" ] || [ -L "${target}" ]
+}
+
+publication_backup_create() {
+	local backup link_target source
+	source="$1"
+	backup="$2"
+	if [ -L "${source}" ]; then
+		link_target="$(readlink "${source}")"
+		ln -s "${link_target}" "${backup}"
+	else
+		cp -p "${source}" "${backup}"
+	fi
+}
+
 publication_state_valid() {
 	local backup_file name presence
 	[ -f "${transaction_dir}/original.list" ] || return 1
@@ -62,7 +80,7 @@ publication_state_valid() {
 			present:tzdata-*-aarch64.pkg.tar.bz2 | present:tzdata-*-aarch64.pkg.tar.bz2.md5sum | present:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
 				present:tzdata-*-arm.pkg.tar.bz2 | present:tzdata-*-arm.pkg.tar.bz2.md5sum | present:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
 				present:installer | present:installer.md5sum | present:installer.sha256sum)
-				[ -f "${backup_dir}/${name}" ] && [ ! -L "${backup_dir}/${name}" ] || return 1
+				publication_target_present "${backup_dir}/${name}" || return 1
 				;;
 			absent:tzdata-*-aarch64.pkg.tar.bz2 | absent:tzdata-*-aarch64.pkg.tar.bz2.md5sum | absent:tzdata-*-aarch64.pkg.tar.bz2.sha256sum | \
 				absent:tzdata-*-arm.pkg.tar.bz2 | absent:tzdata-*-arm.pkg.tar.bz2.md5sum | absent:tzdata-*-arm.pkg.tar.bz2.sha256sum | \
@@ -71,8 +89,7 @@ publication_state_valid() {
 		esac
 	done <"${transaction_dir}/original.list"
 	for backup_file in "${backup_dir}"/*; do
-		[ -e "${backup_file}" ] || continue
-		[ -f "${backup_file}" ] && [ ! -L "${backup_file}" ] || return 1
+		publication_target_present "${backup_file}" || continue
 		name="${backup_file##*/}"
 		grep -Fqx "present ${name}" "${transaction_dir}/original.list" || return 1
 	done
@@ -86,9 +103,22 @@ publication_rollback() {
 		rollback_status=1
 	fi
 	for backup_file in "${backup_dir}"/*; do
-		[ -f "${backup_file}" ] || continue
+		publication_target_present "${backup_file}" || continue
 		restore_stage=".${backup_file##*/}.tzdata-restore.$$"
-		if ! cp -p "${backup_file}" "${restore_stage}" || ! mv -f "${restore_stage}" "${backup_file##*/}"; then
+		rm -f "${restore_stage}"
+		if [ -L "${backup_file}" ]; then
+			if ! ln -s "$(readlink "${backup_file}")" "${restore_stage}"; then
+				rm -f "${restore_stage}"
+				printf 'Rollback could not restore %s; backups retained at %s\n' "${backup_file##*/}" "${backup_dir}" >&2
+				rollback_status=1
+				continue
+			fi
+		elif ! cp -p "${backup_file}" "${restore_stage}"; then
+			printf 'Rollback could not restore %s; backups retained at %s\n' "${backup_file##*/}" "${backup_dir}" >&2
+			rollback_status=1
+			continue
+		fi
+		if ! mv -f "${restore_stage}" "${backup_file##*/}"; then
 			rm -f "${restore_stage}" || true
 			printf 'Rollback could not restore %s; backups retained at %s\n' "${backup_file##*/}" "${backup_dir}" >&2
 			rollback_status=1
@@ -408,8 +438,8 @@ printf '%s\n' preparing >"${transaction_dir}/state" || exit 1
 for published_file in tzdata-*-aarch64.pkg.tar.bz2 tzdata-*-aarch64.pkg.tar.bz2.md5sum tzdata-*-aarch64.pkg.tar.bz2.sha256sum \
 	tzdata-*-arm.pkg.tar.bz2 tzdata-*-arm.pkg.tar.bz2.md5sum tzdata-*-arm.pkg.tar.bz2.sha256sum \
 	installer installer.md5sum installer.sha256sum; do
-	[ -f "${published_file}" ] || continue
-	cp -p "${published_file}" "${backup_dir}/${published_file##*/}" || exit 1
+	publication_target_present "${published_file}" || continue
+	publication_backup_create "${published_file}" "${backup_dir}/${published_file##*/}" || exit 1
 	printf 'present %s\n' "${published_file##*/}" >>"${transaction_dir}/original.list" || exit 1
 done
 for staged_file in \
@@ -421,7 +451,7 @@ for staged_file in \
 	"${stage_dir}/tzdata-${arm_version}-arm.pkg.tar.bz2.sha256sum" \
 	"${stage_dir}/installer" "${stage_dir}/installer.md5sum" "${stage_dir}/installer.sha256sum"; do
 	published_file="${staged_file##*/}"
-	[ -e "${published_file}" ] || printf 'absent %s\n' "${published_file}" >>"${transaction_dir}/original.list" || exit 1
+	publication_target_present "${published_file}" || printf 'absent %s\n' "${published_file}" >>"${transaction_dir}/original.list" || exit 1
 done
 
 printf '%s\n' active >"${transaction_dir}/state.tmp" || exit 1

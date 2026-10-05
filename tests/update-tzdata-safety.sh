@@ -26,7 +26,7 @@ grep -Fq "trap 'exit 129' HUP" "${SCRIPT_PATH}" || fail 'HUP publication rollbac
 grep -Fq "trap 'exit 130' INT" "${SCRIPT_PATH}" || fail 'INT publication rollback trap is missing'
 grep -Fq "trap 'exit 143' TERM" "${SCRIPT_PATH}" || fail 'TERM publication rollback trap is missing'
 
-sed -n '/^download_verified_pair() {$/,/^}$/p; /^discover_package_filename() {$/,/^}$/p; /^publication_targets_remove() {$/,/^}$/p; /^publication_rollback() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^download_verified_pair() {$/,/^}$/p; /^discover_package_filename() {$/,/^}$/p; /^publication_targets_remove() {$/,/^}$/p; /^publication_target_present() {$/,/^}$/p; /^publication_backup_create() {$/,/^}$/p; /^publication_rollback() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract updater helpers'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -90,6 +90,11 @@ printf '%s\n' old-aarch64 >tzdata-old-aarch64.pkg.tar.bz2
 printf '%s\n' old-arm >tzdata-old-arm.pkg.tar.bz2
 printf '%s\n' old-installer >installer
 cp -p tzdata-old-aarch64.pkg.tar.bz2 tzdata-old-arm.pkg.tar.bz2 installer "${backup_dir}/"
+printf '%s\n' linked-content >"${TMP_ROOT}/linked-target"
+ln -s "${TMP_ROOT}/linked-target" tzdata-linked-aarch64.pkg.tar.bz2
+ln -s "${TMP_ROOT}/missing-target" tzdata-linked-arm.pkg.tar.bz2
+publication_backup_create tzdata-linked-aarch64.pkg.tar.bz2 "${backup_dir}/tzdata-linked-aarch64.pkg.tar.bz2" || fail 'valid symlink backup failed'
+publication_backup_create tzdata-linked-arm.pkg.tar.bz2 "${backup_dir}/tzdata-linked-arm.pkg.tar.bz2" || fail 'dangling symlink backup failed'
 printf '%s\n' new-aarch64 >tzdata-new-aarch64.pkg.tar.bz2
 printf '%s\n' new-sidecar >tzdata-new-aarch64.pkg.tar.bz2.md5sum
 publication_active=1
@@ -98,6 +103,11 @@ publication_rollback || fail 'publication rollback failed'
 [ "$(cat tzdata-old-aarch64.pkg.tar.bz2)" = old-aarch64 ] || fail 'rollback did not restore aarch64 package'
 [ "$(cat tzdata-old-arm.pkg.tar.bz2)" = old-arm ] || fail 'rollback did not restore ARM package'
 [ "$(cat installer)" = old-installer ] || fail 'rollback did not restore installer'
+[ -L tzdata-linked-aarch64.pkg.tar.bz2 ] || fail 'rollback did not restore valid symlink'
+[ "$(readlink tzdata-linked-aarch64.pkg.tar.bz2)" = "${TMP_ROOT}/linked-target" ] || fail 'valid symlink target changed'
+[ "$(cat tzdata-linked-aarch64.pkg.tar.bz2)" = linked-content ] || fail 'valid symlink target content changed'
+[ -L tzdata-linked-arm.pkg.tar.bz2 ] || fail 'rollback did not restore dangling symlink'
+[ "$(readlink tzdata-linked-arm.pkg.tar.bz2)" = "${TMP_ROOT}/missing-target" ] || fail 'dangling symlink target changed'
 [ ! -e tzdata-new-aarch64.pkg.tar.bz2 ] || fail 'rollback retained a newly introduced package'
 [ ! -e tzdata-new-aarch64.pkg.tar.bz2.md5sum ] || fail 'rollback retained a newly introduced sidecar'
 

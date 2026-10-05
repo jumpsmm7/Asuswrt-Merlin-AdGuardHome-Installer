@@ -496,6 +496,9 @@ for target_kind in missing directory symlink; do
 done
 
 # Firmware postconf runs before the replacement dnsmasq process exists.
+ADGUARD_INSTALL_MODE='lan'
+ADGUARD_DNSMASQ_MODE='auto'
+CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 for failure in none staging editing refresh publication; do
 	reset_case
 	(
@@ -515,7 +518,7 @@ for failure in none staging editing refresh publication; do
 				;;
 		esac
 		printf '%s\n' 'original ipset' >"${IPSET_FILE}"
-		if dnsmasq_action_handler /etc/dnsmasq.conf; then
+		if dnsmasq_action_handler pre_start; then
 			[ "${failure}" = none ] || fail "postconf hid ${failure} failure"
 			[ "$(grep -c '^port=553$' "${DNSMASQ_CONF_FILE}")" -eq 1 ] || fail 'postconf port missing or duplicated'
 		else

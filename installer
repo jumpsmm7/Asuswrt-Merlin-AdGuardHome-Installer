@@ -3658,7 +3658,7 @@ doctor() {
 	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
 	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
 	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
-	doctor_managed_script_state "/jffs/scripts/dnsmasq.postconf" "dnsmasq" || true
+	doctor_managed_script_state "/jffs/scripts/dnsmasq.postconf" "dnsmasq pre_start" || true
 	doctor_managed_script_state "/jffs/scripts/firewall-start" 'firewall "$1"' || true
 	doctor_file_state "/opt/etc/init.d/S99AdGuardHome" "-rwxr-xr-x" || true
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
@@ -7304,7 +7304,7 @@ add_dnsmasq_event_scripts() {
 		return 1
 	}
 	RESTORE_STATUS=0
-	write_manager_script /jffs/scripts/dnsmasq.postconf dnsmasq || RESTORE_STATUS=1
+	write_manager_script /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' || RESTORE_STATUS=1
 	if [ "${RESTORE_STATUS}" -eq 0 ] && nvram get rc_support | grep -q 'mtlancfg'; then
 		write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' || RESTORE_STATUS=1
 	elif [ "${RESTORE_STATUS}" -eq 0 ]; then
