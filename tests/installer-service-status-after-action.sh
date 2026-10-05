@@ -270,6 +270,28 @@ grep -q 'Firmware service start is still in progress' "${CALLS_FILE}" ||
 	fail 'start request did not wait through the managed monitor startup budget'
 MONITOR_COUNT='0'
 
+# A firmware restart monitor can spend up to one sleep interval before it sees
+# the signal, then perform DNS handoff. Give that active transition the full
+# startup budget instead of invoking the direct init fallback at 15 seconds.
+(
+	: >"${CALLS_FILE}"
+	PROCESS_STATE='running'
+	PROCESS_COUNT='1'
+	CURRENT_PIDS='111'
+	MONITOR_COUNT='1'
+	NEW_PID_AFTER_SLEEP="$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + 2))"
+	SLEEP_CALLS=0
+	agh_request_restart '111' || fail 'restart request rejected an active firmware monitor'
+	! grep -q '^/opt/etc/init.d/S99AdGuardHome restart x$' "${CALLS_FILE}" ||
+		fail 'restart request duplicated an active firmware monitor with direct init'
+	grep -q 'Firmware service restart is still in progress' "${CALLS_FILE}" ||
+		fail 'restart request did not report the active firmware monitor'
+	[ "${SLEEP_CALLS}" -eq "$((ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT + 2))" ] ||
+		fail 'restart request did not extend the active monitor startup budget'
+) || fail 'managed monitor restart wait regression failed'
+MONITOR_COUNT='0'
+NEW_PID_AFTER_SLEEP=0
+
 # A managed monitor that never creates the daemon must still fall back after
 # the bounded managed-start wait expires.
 (
@@ -360,6 +382,8 @@ done
 # Router operations are stubbed, but argument forwarding and dispatch are real.
 RUNTIME_PATH="${SCRIPT_PATH%/*}/AdGuardHome.sh"
 [ "${SCRIPT_PATH}" != "${SCRIPT_PATH%/*}" ] || RUNTIME_PATH=AdGuardHome.sh
+grep -q 'service_wait true' "${RUNTIME_PATH}" ||
+	fail 'runtime monitor still gates its first daemon launch on a DNS netcheck'
 DISPATCH_FILE="${TEST_ROOT}/dispatch.sh"
 INIT_FILE="${TEST_ROOT}/S99AdGuardHome"
 STATE_FILE="${TEST_ROOT}/state"
