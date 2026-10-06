@@ -25,10 +25,10 @@ dns_port_owner_process_name() { printf '%s\n' dnsmasq; }
 dnsmasq_process_config() {
 	grep -qx "$1" "${LIVE}" || return 1
 	case "$1" in
-	11) printf '%s\n' /etc/dnsmasq.conf ;;
-	12) printf '%s\n' /etc/dnsmasq-1.conf ;;
-	13) printf '%s\n' /etc/dnsmasq-2.conf ;;
-	*) return 1 ;;
+		11) printf '%s\n' /etc/dnsmasq.conf ;;
+		12) printf '%s\n' /etc/dnsmasq-1.conf ;;
+		13) printf '%s\n' /etc/dnsmasq-2.conf ;;
+		*) return 1 ;;
 	esac
 }
 dnsmasq_process_start_time() {
@@ -59,11 +59,11 @@ dns_socket_snapshot() {
 service() {
 	printf '%s\n' "service $*" >>"${CALLS}"
 	case "$1" in
-	stop_dnsmasq) [ "${STOP_FAIL:-0}" = 0 ] ;;
-	restart_dnsmasq)
-		[ "${RESTART_FAIL:-0}" = 0 ] || return 1
-		printf '%s\n' 11 12 13 >"${LIVE}"
-		;;
+		stop_dnsmasq) [ "${STOP_FAIL:-0}" = 0 ] ;;
+		restart_dnsmasq)
+			[ "${RESTART_FAIL:-0}" = 0 ] || return 1
+			printf '%s\n' 11 12 13 >"${LIVE}"
+			;;
 	esac
 }
 kill() {

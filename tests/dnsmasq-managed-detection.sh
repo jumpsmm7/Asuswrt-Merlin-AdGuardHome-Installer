@@ -10,9 +10,13 @@ sed -n '/^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$
 PROCS=AdGuardHome
 nvram() { printf '%s\n' "${CAPABILITY:-mtlancfg}"; }
 pidof() { printf '%s\n' '11 12 13 14 15 16 17 18'; }
-kill() { printf '%s\n' 'FAIL: detection sent a signal' >&2; exit 1; }
+kill() {
+	printf '%s\n' 'FAIL: detection sent a signal' >&2
+	exit 1
+}
 fixture() {
-	pid="$1"; shift
+	pid="$1"
+	shift
 	mkdir -p "${ROOT}/proc/${pid}"
 	ln -s /usr/sbin/dnsmasq "${ROOT}/proc/${pid}/exe"
 	printf '%s\n' dnsmasq >"${ROOT}/proc/${pid}/comm"
