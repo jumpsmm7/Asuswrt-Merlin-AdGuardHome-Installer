@@ -14,6 +14,8 @@ The initial `wan_handoff` failure under an unprivileged shell is an environment 
 - An unknown conflicting port owner aborts default startup with diagnostics; explicit legacy policy remains available.
 - Startup failure restores native DNS; interruption must not leave handoff markers or stopped managed services behind.
 - Local Cache is a preference. Router resolver routing changes only after services are ready, and native routing returns on shutdown or failure.
+- Explicit SDN disablement during handoff updates readiness requirements; a missing configuration or uncertain topology does not remove a required service.
+- A monitor forced to exit during a slow readiness query still triggers daemon shutdown and native DNS restoration.
 
 ## Router release checkpoint
 
@@ -36,6 +38,8 @@ For every row, record firmware/model, enabled networks, cache setting, observed 
 Reviewed upstream Merlin `release/src/router/rc/services.c` and `sdn.c` on 2026-10-06. The `dnsmasq` service handler dispatches a command without indices to `ALL_SDN`; stop uses all dnsmasq instances and start regenerates the main and enabled SDN configurations. SDN launch uses `dnsmasq -C /etc/dnsmasq-<index>.conf --log-async`. Therefore the installer retains `service stop_dnsmasq` / `service restart_dnsmasq`, rather than introducing an unsupported SDN-specific service name. The firmware's own stop is broad; installer escalation is restricted to verified conflicting managed processes under refusal policy.
 
 The firmware also configures a DHCP script. dnsmasq forks a persistent helper with the same executable and arguments but closes its DNS sockets. Readiness therefore checks every verified PID for a configuration and requires one to own both TCP and UDP listeners; process enumeration order cannot make a helper substitute for the listening daemon.
+
+BusyBox 1.25's `nslookup` and the Merlin 386.14 implementation resolve names through libc. A bare `localhost` probe can succeed from `/etc/hosts` without a DNS packet. The cache readiness probe uses `localhost.` instead: supported uClibc hosts-file matching preserves the trailing dot, while DNS lookup treats it as an absolute name. This checks the local DNS path without requiring WAN connectivity. uClibc's DNS retry budget can exceed the monitor shutdown grace period, so parent-side shutdown completes daemon and DNS restoration after monitor escalation.
 
 Sources: [helper.c](https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/dnsmasq/src/helper.c), [services.c](https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/rc/services.c), [sdn.c](https://github.com/RMerl/asuswrt-merlin.ng/blob/main/release/src/router/rc/sdn.c). Installed firmware must still be validated on hardware.
 

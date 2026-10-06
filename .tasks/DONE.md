@@ -1,5 +1,19 @@
 # Done
 
+## TASK-010: Deep review PR 1030 and finalize readiness
+
+**Priority:** P1 | **Tags:** dns, lifecycle, review
+
+### Checkpoint
+
+- Six independent reviews covered the complete PR diff and nearest process-identity, DNS handoff/recovery, Local Cache, lock/security, installer/policy/documentation/CI, and regression paths. Only concrete reproduced findings were changed.
+- Separate commits correct SDN disablement during handoff, older BusyBox/libc hosts-file bypass of the cache probe, and missing daemon/DNS restoration after forced monitor termination. New regressions fail against the preceding implementations; focused BusyBox ash checks and independent lifecycle reviews pass.
+- The complete root Docker quality suite passes for the three fixes. Concurrent CodeRabbit helper comments were merged without changing executable lines in its 16 edited shell files; combined BusyBox syntax, ShellCheck, formatting, focused regressions and all eight runtime checksums pass. Preserved CodeRabbit's TASK-009 and assigned this review TASK-010.
+- Release notes and validation guidance are updated. Current-head hosted checks and review status are recorded on PR #1030. No formal Codex Security server scan was available in this session; the independent source review includes the changed security and ownership paths.
+- Hardware validation remains skipped as requested. Master is unchanged and the user retains PR merge ownership.
+
+---
+
 ## TASK-009: Resolve PR #1030 docstring coverage
 
 **Priority:** P2 | **Tags:** documentation, validation
