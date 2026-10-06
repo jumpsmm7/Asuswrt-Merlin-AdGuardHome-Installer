@@ -690,7 +690,33 @@ prepare_dns_handoff_marker() {
 
 # Include configured managed services even if their original PIDs are absent.
 dnsmasq_handoff_configs() {
-	local config index
+	local config index topology disabled_indexes
+	disabled_indexes=""
+	# A disappearing config is not proof of disablement. Only successful firmware
+	# topology output with an explicit disabled record can retire a requirement.
+	if topology="$(get_mtlan 2>/dev/null)"; then
+		disabled_indexes="$(printf '%s\n' "${topology}" | awk '
+			/^[[:space:]]*\|-enable:/ {
+				enabled=""
+				start=index($0, "[")
+				endpos=index($0, "]")
+				if (start > 0 && endpos > start) enabled=substr($0, start + 1, endpos - start - 1)
+			}
+			/^[[:space:]]*\|-sdn_idx:/ {
+				start=index($0, "[")
+				endpos=index($0, "]")
+				if (start > 0 && endpos > start) {
+					sdn=substr($0, start + 1, endpos - start - 1)
+					if (sdn ~ /^[0-9]+$/ && sdn > 0) {
+						if (enabled == "0") disabled[sdn]=1
+						else uncertain[sdn]=1
+					}
+				}
+				enabled=""
+			}
+			END { for (sdn in disabled) if (!uncertain[sdn]) print sdn }
+		')"
+	fi
 	{
 		# Preserve earlier requirements if firmware temporarily replaces a config.
 		printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS:-}"
@@ -711,7 +737,24 @@ dnsmasq_handoff_configs() {
 					;;
 			esac
 		fi
-	} | awk 'NF && !seen[$0]++'
+	} | awk -v disabled_indexes="${disabled_indexes}" '
+		BEGIN {
+			count=split(disabled_indexes, indexes, "\n")
+			for (i=1; i<=count; i++) disabled[indexes[i]]=1
+		}
+		{
+			for (field=1; field<=NF; field++) {
+				config=$field
+				if (config ~ /^\/etc\/dnsmasq-[0-9]+\.conf$/) {
+					sdn=config
+					sub(/^\/etc\/dnsmasq-/, "", sdn)
+					sub(/\.conf$/, "", sdn)
+					if (sdn in disabled) continue
+				}
+				if (!seen[config]++) print config
+			}
+		}
+	'
 }
 
 # Verify each expected managed configuration has replacement TCP/UDP DNS.

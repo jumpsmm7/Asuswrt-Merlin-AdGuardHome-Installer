@@ -76,7 +76,8 @@ service() {
 				: >"${ROOT}/etc/dnsmasq-1.conf"
 				: >"${ROOT}/etc/dnsmasq-2.conf"
 			fi
-			printf '%s\n' 11 12 13 >"${LIVE}"
+			printf '%s\n' 11 12 >"${LIVE}"
+			[ "${SDN2_ENABLED:-1}" != 1 ] || printf '%s\n' 13 >>"${LIVE}"
 			;;
 	esac
 }
@@ -156,8 +157,26 @@ agh_conf_value() {
 	esac
 }
 nvram() { printf '%s\n' mtlancfg; }
+get_mtlan() {
+	case "${TOPOLOGY_STATE:-valid}" in
+		incomplete)
+			printf '%s\n' '|-enable: [1]' '|-sdn_idx: [1]'
+			return 0
+			;;
+		malformed)
+			printf '%s\n' '|-enable: [0]' '|-sdn_idx: [3]' '|-sdn_idx: [2]'
+			return 0
+			;;
+		conflicting) printf '%s\n' '|-enable: [1]' '|-sdn_idx: [2]' ;;
+	esac
+	printf '%s\n' '|-enable: [1]' '|-sdn_idx: [1]' "|-enable: [${SDN2_ENABLED:-1}]" '|-sdn_idx: [2]'
+	[ "${TOPOLOGY_STATE:-valid}" != failed ]
+}
 sdn_bridge_for_index() {
-	case "$1" in 1 | 2) printf 'br%s\n' "$1" ;; esac
+	case "$1" in
+		1) printf 'br%s\n' "$1" ;;
+		2) [ "${SDN2_ENABLED:-1}" != 1 ] || printf 'br%s\n' "$1" ;;
+	esac
 }
 ensure_adguardhome_work_dir_permissions() { :; }
 adguardhome_config_valid() { :; }
@@ -213,6 +232,44 @@ printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS}" | grep -qx /etc/dnsmasq-2.conf
 MISSING_SDN=0
 post_start_failure_adguardhome
 [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = 0 ]
+# A topology update can disable an SDN between capture and service restoration.
+: >"${LIVE}"
+: >"${ROOT}/etc/dnsmasq-2.conf"
+SDN2_ENABLED=1
+PORT=53
+pre_start_adguardhome
+printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS}" | grep -qx /etc/dnsmasq-2.conf
+SDN2_ENABLED=0
+PORT=553
+post_start_adguardhome
+! printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS}" | grep -qx /etc/dnsmasq-2.conf
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = 0 ]
+# Failure recovery likewise restores only the networks that remain enabled.
+ADGUARDHOME_DNSMASQ_CONFIGS='/etc/dnsmasq.conf /etc/dnsmasq-1.conf /etc/dnsmasq-2.conf'
+ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
+PORT=53
+post_start_failure_adguardhome
+! printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS}" | grep -qx /etc/dnsmasq-2.conf
+[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = 0 ]
+# Failed, incomplete or ambiguous topology must never silently drop an SDN.
+for topology in failed incomplete malformed conflicting; do
+	: >"${LIVE}"
+	SDN2_ENABLED=1
+	TOPOLOGY_STATE=valid
+	PORT=53
+	pre_start_adguardhome
+	SDN2_ENABLED=0
+	TOPOLOGY_STATE="${topology}"
+	PORT=553
+	if post_start_adguardhome; then exit 1; fi
+	printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS}" | grep -qx /etc/dnsmasq-2.conf
+	[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE}" = 1 ]
+	TOPOLOGY_STATE=valid
+	PORT=53
+	post_start_failure_adguardhome
+	[ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = 0 ]
+done
+SDN2_ENABLED=1
 # Disabled integration and unmanaged LAN handoff do not invent requirements.
 : >"${LIVE}"
 MODE=disabled
@@ -227,4 +284,4 @@ PORT=53
 pre_start_adguardhome
 [ -z "${ADGUARDHOME_DNSMASQ_CONFIGS}" ]
 post_start_adguardhome
-printf '%s\n' 'PASS: all-SDN cleanup, PID reuse, empty-inventory readiness, and failed-restart recovery'
+printf '%s\n' 'PASS: all-SDN cleanup, PID reuse, topology-aware readiness, and failed-restart recovery'
