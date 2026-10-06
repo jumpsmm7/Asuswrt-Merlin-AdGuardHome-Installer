@@ -739,7 +739,9 @@ adguardhome_run_flock() {
 	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
 	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	rm -f "${pid_file}"
-	adguardhome_run_execute "${action}" "${pid_file}" "$$"
+	IFS= read -r owner </proc/self/stat || return 1
+	owner="${owner%% *}"
+	adguardhome_run_execute "${action}" "${pid_file}" "${owner}"
 	status="$?"
 	adguardhome_run_flock_cleanup "${pid_file}"
 	adguardhome_run_flock_restore_traps "${saved_traps}"
@@ -984,22 +986,37 @@ dnsmasq_resolv_conf_cleanup_locked() {
 	}; fi
 }
 
+# Probe in a subshell so checking descriptor locks cannot replace the caller's fd 9.
+adguard_local_cache_service_active() {
+	(
+		adguardhome_run_legacy_mkdir_active && exit 0
+		if have_cmd flock && flock_supports_fd; then
+			adguardhome_run_flock_active
+		else
+			exit 1
+		fi
+	)
+}
+
 # Router resolver switching is optional and follows DNS readiness, never postconf.
 adguard_local_cache_ready() {
 	local ADGUARDHOME_DNSMASQ_CONFIGS config index capability
 	ADGUARDHOME_DNSMASQ_CONFIGS=""
 	dns_handoff_is_active && return 1
 	# A manager start/stop operation must finish before routing through AGH.
-	adguardhome_run_legacy_mkdir_active && return 1
+	adguard_local_cache_service_active && return 1
 	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || return 1
 	# ROM resolver routing uses loopback, so verify the actual loopback path.
-	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || return 1
+	if [ "${1:-}" != no-lookup ]; then
+		nslookup localhost 127.0.0.1 >/dev/null 2>&1 || return 1
+	fi
 	if agh_dnsmasq_managed; then
 		[ -f /etc/dnsmasq.conf ] || return 1
 		ADGUARDHOME_DNSMASQ_CONFIGS="/etc/dnsmasq.conf"
 		capability="$(nvram get rc_support 2>/dev/null)"
 		case " ${capability} " in
 			*" mtlancfg "*)
+				# Intentional pathname expansion enumerates firmware SDN configs.
 				for config in /etc/dnsmasq-[0-9]*.conf; do
 					[ -f "${config}" ] || continue
 					index="${config#/etc/dnsmasq-}"
@@ -1015,7 +1032,20 @@ adguard_local_cache_ready() {
 }
 
 adguard_local_cache_sync() {
-	adguard_local_cache_lock adguard_local_cache_sync_locked
+	local status
+	# DNS queries may wait for a timeout; never keep shutdown's resolver lock
+	# while probing. Status 2 requests a full readiness check outside the lock.
+	if adguard_local_cache_lock adguard_local_cache_sync_locked "${1:-check}"; then
+		return 0
+	else
+		status="$?"
+	fi
+	[ "${status}" -eq 2 ] || return "${status}"
+	if ! adguard_local_cache_ready; then
+		dnsmasq_resolv_conf_cleanup || return 1
+		return 1
+	fi
+	adguard_local_cache_lock adguard_local_cache_sync_locked activate
 }
 
 adguard_local_cache_sync_locked() {
@@ -1030,17 +1060,31 @@ adguard_local_cache_sync_locked() {
 	fi
 	# A ROM-backed resolver is already firmware-managed and cannot be switched.
 	resolv_conf_uses_rom && return 0
-	if ! adguard_local_cache_ready; then
+	if dns_handoff_is_active || adguard_local_cache_service_active; then
 		dnsmasq_resolv_conf_cleanup_locked || return 1
 		return 1
 	fi
-	resolv_conf_is_tmp_mount && return 0
+	if resolv_conf_is_tmp_mount; then
+		# Activation verified listeners. Between lifecycle changes, a cheap
+		# process check avoids repeating socket/SDN inventories every 10 seconds.
+		if ! pidof "${PROCS}" >/dev/null 2>&1; then
+			dnsmasq_resolv_conf_cleanup_locked || return 1
+			return 1
+		fi
+		[ "${1:-check}" != verify ] || return 2
+		return 0
+	fi
+	[ "${1:-check}" = activate ] || return 2
+	# Recheck listeners and service state before committing, without a DNS query.
+	adguard_local_cache_ready no-lookup || return 1
+	# Readiness may enumerate several SDNs; observe a stop that began meanwhile.
+	if dns_handoff_is_active || adguard_local_cache_service_active; then return 1; fi
 	if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
 		agh_log warning adguard_local_cache_sync "state=cache action=bind_resolver result=failed native_resolver_retained=1"
 		return 1
 	fi
 	# Recheck after the switch; a concurrent restart must leave native routing.
-	if ! adguard_local_cache_ready; then
+	if ! adguard_local_cache_ready no-lookup; then
 		dnsmasq_resolv_conf_cleanup_locked || return 1
 		return 1
 	fi
@@ -2599,10 +2643,10 @@ proc_lock_claim_matches() {
 proc_lock_claim_acquire() {
 	local attempts claim_owner claim_pid claim_start current_start reaper self_start
 	self_start="$1"
-	reaper="${PROC_LOCK_DIR}.claim.reap.$$"
+	reaper="${PROC_LOCK_DIR}.claim.reap.${PROC_LOCK_PID:-$$}"
 	rm -f "${reaper}"
 	attempts=0
-	while ! ln -s "$$ ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
+	while ! ln -s "${PROC_LOCK_PID:-$$} ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
 		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
 		claim_pid="${claim_owner%% *}"
 		claim_start="${claim_owner#* }"
@@ -2627,20 +2671,20 @@ proc_lock_claim_acquire() {
 		[ "${attempts}" -lt 100 ] || return 1
 		if which usleep >/dev/null 2>&1; then usleep 100000; else sleep 1; fi
 	done
-	proc_lock_claim_matches "$$" "${self_start}"
+	proc_lock_claim_matches "${PROC_LOCK_PID:-$$}" "${self_start}"
 }
 
 # proc_lock_claim_release removes the publication claim only while it still belongs to this process.
 proc_lock_claim_release() {
-	proc_lock_claim_matches "$$" "$1" || return 1
+	proc_lock_claim_matches "${PROC_LOCK_PID:-$$}" "$1" || return 1
 	rm -f "${PROC_LOCK_DIR}.claim"
 }
 
 # proc_lock_mkdir_cleanup removes the procfs lock directory when it is owned by the current process.
 proc_lock_mkdir_cleanup() {
 	local current_start owner owner_start
-	current_start="$(proc_process_start_time "$$")" || return 1
-	proc_lock_claim_matches "$$" "${current_start}" || proc_lock_claim_acquire "${current_start}" || return 1
+	current_start="$(proc_process_start_time "${PROC_LOCK_PID:-$$}")" || return 1
+	proc_lock_claim_matches "${PROC_LOCK_PID:-$$}" "${current_start}" || proc_lock_claim_acquire "${current_start}" || return 1
 	if [ ! -d "${PROC_LOCK_DIR}" ] || [ -L "${PROC_LOCK_DIR}" ]; then
 		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
@@ -2657,7 +2701,7 @@ proc_lock_mkdir_cleanup() {
 		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
 	}
-	if [ "${owner}" != "$$" ] || [ "${owner_start}" != "${current_start}" ]; then
+	if [ "${owner}" != "${PROC_LOCK_PID:-$$}" ] || [ "${owner_start}" != "${current_start}" ]; then
 		proc_lock_claim_release "${current_start}" 2>/dev/null
 		return 1
 	fi
@@ -2676,7 +2720,7 @@ proc_lock_mkdir_cleanup() {
 # holder to block service shutdown indefinitely.  Descriptor locking uses the
 # same bounded retry budget as the process-validated mkdir fallback.
 proc_lock_run() {
-	local attempts current_start has_usleep owner owner_start reaper self_start status
+	local attempts current_start has_usleep owner owner_start PROC_LOCK_PID reaper self_start self_stat status
 	if [ "${PROC_LOCK_FORCE_MKDIR:-0}" != 1 ] && have_cmd flock && flock_supports_fd; then
 		(
 			mkdir -p "${WORK_DIR}" 2>/dev/null || exit 1
@@ -2712,24 +2756,27 @@ proc_lock_run() {
 		return $?
 	fi
 	(
+		IFS= read -r self_stat </proc/self/stat || exit 1
+		PROC_LOCK_PID="${self_stat%% *}"
+		case "${PROC_LOCK_PID}" in "" | *[!0-9]*) exit 1 ;; esac
 		attempts=0
 		if which usleep >/dev/null 2>&1; then has_usleep=1; else has_usleep=0; fi
-		reaper="${PROC_LOCK_DIR}.reap.$$"
+		reaper="${PROC_LOCK_DIR}.reap.${PROC_LOCK_PID:-$$}"
 		rm -rf "${reaper}"
-		self_start="$(proc_process_start_time "$$")" || exit 1
+		self_start="$(proc_process_start_time "${PROC_LOCK_PID:-$$}")" || exit 1
 		while :; do
 			proc_lock_claim_acquire "${self_start}" || exit 1
 			if mkdir "${PROC_LOCK_DIR}" 2>/dev/null; then
 				trap 'proc_lock_mkdir_cleanup; exit 1' HUP INT QUIT ABRT TERM TSTP
-				proc_lock_claim_matches "$$" "${self_start}" || {
+				proc_lock_claim_matches "${PROC_LOCK_PID:-$$}" "${self_start}" || {
 					proc_lock_mkdir_cleanup
 					exit 1
 				}
-				printf '%s %s\n' "$$" "${self_start}" >"${PROC_LOCK_DIR}/pid" || {
+				printf '%s %s\n' "${PROC_LOCK_PID:-$$}" "${self_start}" >"${PROC_LOCK_DIR}/pid" || {
 					proc_lock_mkdir_cleanup
 					exit 1
 				}
-				proc_lock_claim_matches "$$" "${self_start}" || {
+				proc_lock_claim_matches "${PROC_LOCK_PID:-$$}" "${self_start}" || {
 					proc_lock_mkdir_cleanup
 					exit 1
 				}
@@ -2940,7 +2987,13 @@ lower_script() {
 	case "$1" in
 		stop | restart | kill)
 			# Restore native resolution before the daemon receives any stop signal.
-			dnsmasq_resolv_conf_cleanup || return 1
+			if ! dnsmasq_resolv_conf_cleanup; then
+				# A manager operation prevents new activation. Native routing can
+				# proceed despite contention; unguarded direct callers must wait.
+				if ! resolv_conf_uses_rom; then
+					if resolv_conf_is_tmp_mount || ! adguard_local_cache_service_active; then return 1; fi
+				fi
+			fi
 			;;
 	esac
 	case "$1" in
@@ -3113,7 +3166,9 @@ start_monitor() {
 	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck reason=init result=enabled interval=${MONITOR_HEALTHCHECK_INTERVAL}"
 	while true; do
 		# Postconf restores native routing. Retry cache only after replacements answer.
-		adguard_local_cache_sync || true
+		case "${MONITOR_STATE}" in
+			"running") adguard_local_cache_sync || true ;;
+		esac
 		case "${MONITOR_STATE}" in
 			"running" | "stop")
 				check_dns_environment "${MONITOR_STATE}"
@@ -3171,6 +3226,8 @@ start_monitor() {
 							if ! load_operation_config monitor-healthcheck; then
 								agh_log warning start_monitor "state=running action=load_config reason=invalid_snapshot result=retained"
 							fi
+							# Periodic verification recovers native DNS on a readiness failure.
+							adguard_local_cache_sync verify || true
 							if adguard_lan_mode; then
 								if ! adguard_refresh_lan_bind_addresses; then
 									agh_log warning start_monitor "state=running action=refresh_lan_bind_addresses reason=periodic_sync result=failed"
@@ -3322,7 +3379,11 @@ post_stop_dnsmasq_ready() {
 stop_adguardhome() {
 	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
-	dnsmasq_resolv_conf_cleanup || STOP_STATUS="1"
+	if ! dnsmasq_resolv_conf_cleanup; then
+		if ! resolv_conf_uses_rom; then
+			if resolv_conf_is_tmp_mount || ! adguard_local_cache_service_active; then STOP_STATUS="1"; fi
+		fi
+	fi
 	DNSMASQ_WAS_MANAGED="0"
 	DNSMASQ_RESTART_ELAPSED="0"
 	if adguard_dnsmasq_managed; then

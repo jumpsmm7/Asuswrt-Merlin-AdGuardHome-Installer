@@ -61,7 +61,7 @@ PAUSE_LOCK_RELEASE="${TMP_ROOT}/lock-publication-release"
 PID_RECORD_WRITE_FAIL=0
 # printf can fail the fallback-lock owner publication without affecting other test output.
 printf() {
-	if [ "${PID_RECORD_WRITE_FAIL}" = 1 ] && [ "$1" = '%s %s\n' ] && [ "${2:-}" = "$$" ] && [ -d "${PROC_LOCK_DIR}" ]; then
+	if [ "${PID_RECORD_WRITE_FAIL}" = 1 ] && [ "$1" = '%s %s\n' ] && [ "${2:-}" = "${PROC_LOCK_PID:-$$}" ] && [ -d "${PROC_LOCK_DIR}" ]; then
 		return 1
 	fi
 	command printf "$@"
@@ -468,9 +468,24 @@ lock_holder() {
 }
 # lock_waiter records execution after the holder releases the lock.
 lock_waiter() { printf '%s\n' second >>"${LOCK_EVENTS}"; }
+# detached_holder remains active after the launcher exits, like monitor-start.
+detached_holder() {
+	printf '%s\n' first-start >>"${LOCK_EVENTS}"
+	while [ ! -e "${DETACHED_RELEASE}" ]; do command sleep 1; done
+	printf '%s\n' first-end >>"${LOCK_EVENTS}"
+}
 case "$1" in
 	holder) proc_lock_run lock_holder ;;
 	waiter) proc_lock_run lock_waiter ;;
+	detached)
+		printf '%s\n' "$$" >"${DETACHED_PARENT}"
+		(
+			while [ ! -e "${DETACHED_BEGIN}" ]; do command sleep 1; done
+			proc_lock_run detached_holder || exit 1
+			: >"${DETACHED_DONE}"
+		) >/dev/null 2>&1 &
+		printf '%s\n' "$!" >"${DETACHED_PID}"
+		;;
 	*) exit 2 ;;
 esac
 EOF
@@ -552,6 +567,46 @@ fi
 [ "$(sed -n '1p' "${LOCK_EVENTS}")" = first-start ] || fail 'lock holder did not start first'
 [ "$(sed -n '2p' "${LOCK_EVENTS}")" = first-end ] || fail 'lock waiter overlapped holder'
 [ "$(sed -n '3p' "${LOCK_EVENTS}")" = second ] || fail 'lock waiter did not run after holder'
+
+# An async monitor outlives the script that launched it; $$ still names the
+# exited launcher. The actual lock-owning subshell must remain non-reapable.
+rm -f "${LOCK_EVENTS}"
+DETACHED_PARENT="${TMP_ROOT}/detached-parent"
+DETACHED_BEGIN="${TMP_ROOT}/detached-begin"
+DETACHED_RELEASE="${TMP_ROOT}/detached-release"
+DETACHED_DONE="${TMP_ROOT}/detached-done"
+DETACHED_PID="${TMP_ROOT}/detached-pid"
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" DETACHED_PARENT="${DETACHED_PARENT}" DETACHED_BEGIN="${DETACHED_BEGIN}" DETACHED_RELEASE="${DETACHED_RELEASE}" DETACHED_DONE="${DETACHED_DONE}" DETACHED_PID="${DETACHED_PID}" \
+	sh "${LOCK_WORKER}" detached || fail 'detached monitor launcher failed'
+BACKGROUND_PID="$(cat "${DETACHED_PID}")"
+[ ! -e "/proc/$(cat "${DETACHED_PARENT}")/stat" ] || fail 'detached monitor parent did not exit'
+: >"${DETACHED_BEGIN}"
+detached_waits=0
+while [ ! -e "${LOCK_EVENTS}" ] && [ "${detached_waits}" -lt 5 ]; do
+	command sleep 1
+	detached_waits="$((detached_waits + 1))"
+done
+[ -e "${LOCK_EVENTS}" ] || fail 'detached monitor did not acquire fallback lock'
+IFS=' ' read -r detached_owner detached_start <"${PROC_LOCK_DIR}/pid" || fail 'detached owner was not published'
+[ "${detached_owner}" != "$(cat "${DETACHED_PARENT}")" ] || fail 'detached lock retained the exited parent PID'
+[ "$(proc_process_start_time "${detached_owner}")" = "${detached_start}" ] || fail 'detached lock owner is not a current process'
+FUNCTION_FILE="${FUNCTION_FILE}" PROC_LOCK_DIR="${PROC_LOCK_DIR}" PROC_LOCK_FILE="${PROC_LOCK_FILE}" WORK_DIR="${WORK_DIR}" \
+	LOCK_EVENTS="${LOCK_EVENTS}" sh "${LOCK_WORKER}" waiter &
+waiter_pid="$!"
+command sleep 1
+[ "$(cat "${LOCK_EVENTS}")" = first-start ] || fail 'waiter reaped the live detached owner'
+: >"${DETACHED_RELEASE}"
+wait "${waiter_pid}" || fail 'waiter did not resume after detached owner released'
+detached_waits=0
+while [ ! -e "${DETACHED_DONE}" ] && [ "${detached_waits}" -lt 5 ]; do
+	command sleep 1
+	detached_waits="$((detached_waits + 1))"
+done
+[ -e "${DETACHED_DONE}" ] || fail 'detached lock cleanup failed'
+BACKGROUND_PID=""
+[ "$(cat "${LOCK_EVENTS}")" = "$(printf '%s\n' first-start first-end second)" ] || fail 'detached fallback locking did not serialize workers'
+[ ! -d "${PROC_LOCK_DIR}" ] || fail 'detached fallback locking retained lock directory'
 
 # Descriptor locking must fail within a bounded retry budget if an orphaned
 # holder keeps the persistent lock inode busy after a service transition.

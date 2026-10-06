@@ -9733,8 +9733,8 @@ menu() {
 					end_op_message 1
 					return 1
 				fi
-				if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
-					"${TARG_DIR}/AdGuardHome.sh" local-cache x >/dev/null 2>&1 ||
+				if [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+					"${ADDON_DIR}/AdGuardHome.sh" local-cache x >/dev/null 2>&1 ||
 						PTXT "${INFO} Preference saved; Local Cache activation is deferred until DNS services are ready."
 				fi
 				PTXT "${INFO} Local Cache is applied after AdGuardHome and dnsmasq are ready; the monitor retries after service restarts."

@@ -16,7 +16,9 @@ CONFIG_LOCAL=YES
 # Cross-process locking and persisted preference are covered by serialization test.
 adguard_local_cache_lock() { "$@"; }
 load_operation_config() { :; }
-adguardhome_run_legacy_mkdir_active() { [ "${SERVICE_ACTIVE:-0}" = 1 ]; }
+adguard_local_cache_service_active() { [ "${SERVICE_ACTIVE:-0}" = 1 ]; }
+PROCS=AdGuardHome
+pidof() { [ "${PROCESS_READY:-1}" = 1 ]; }
 MOUNTED=0
 HANDOFF=1
 DNS_READY=0
@@ -28,7 +30,10 @@ agh_log() { printf '%s\n' "$*" >>"${CALLS}"; }
 dns_handoff_is_active() { [ "${HANDOFF}" = 1 ]; }
 adguardhome_dns_bind_scope() { printf '%s\n' global; }
 adguardhome_owns_dns() { [ "${DNS_READY}" = 1 ]; }
-nslookup() { [ "${LOOKUP_READY}" = 1 ]; }
+nslookup() {
+	printf '%s\n' lookup >>"${CALLS}"
+	[ "${LOOKUP_READY}" = 1 ]
+}
 agh_dnsmasq_managed() { [ "${MANAGED}" = 1 ]; }
 nvram() { printf '%s\n' mtlancfg; }
 sdn_bridge_for_index() { printf 'br%s\n' "$1"; }
@@ -71,6 +76,25 @@ adguard_local_cache_sync
 [ "${MOUNTED}" = 1 ]
 adguard_local_cache_sync
 [ "$(grep -c '^mount ' "${CALLS}")" -eq 1 ]
+SERVICE_ACTIVE=1
+if adguard_local_cache_sync; then exit 1; fi
+[ "${MOUNTED}" = 0 ]
+SERVICE_ACTIVE=0
+adguard_local_cache_sync
+# An active cache avoids repeated full probes, but periodic verification recovers.
+before="$(grep -c '^lookup$' "${CALLS}")"
+LOOKUP_READY=0
+adguard_local_cache_sync
+[ "${MOUNTED}" = 1 ]
+[ "$(grep -c '^lookup$' "${CALLS}")" -eq "${before}" ]
+if adguard_local_cache_sync verify; then exit 1; fi
+[ "${MOUNTED}" = 0 ]
+LOOKUP_READY=1
+adguard_local_cache_sync
+PROCESS_READY=0
+if adguard_local_cache_sync; then exit 1; fi
+[ "${MOUNTED}" = 0 ]
+PROCESS_READY=1
 # Loss of readiness, disablement, failed switching and concurrent restart.
 DNS_READY=0
 if adguard_local_cache_sync; then exit 1; fi
