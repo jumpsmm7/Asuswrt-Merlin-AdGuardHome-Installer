@@ -24,7 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$/,/^}$/p; /^dnsmasq_managed_instances() {$/,/^}$/p; /^dns_port_owner_actions() {$/,/^}$/p; /^dnsmasq_instances_ready() {$/,/^}$/p; /^wait_for_dnsmasq_instances() {$/,/^}$/p;  /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
+	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$/,/^}$/p; /^dnsmasq_managed_instances() {$/,/^}$/p; /^dns_port_owner_actions() {$/,/^}$/p; /^dnsmasq_handoff_configs() {$/,/^}$/p; /^dnsmasq_instances_ready() {$/,/^}$/p; /^wait_for_dnsmasq_instances() {$/,/^}$/p;  /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 DNS lifecycle functions were not found'
 grep -q '^pre_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'pre-start helper was not found'
@@ -36,6 +36,12 @@ grep -q '^post_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'post-start h
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
 dnsmasq_resolv_conf_cleanup() { :; }
+# Replacement listener readiness is exercised in dnsmasq-sdn-lifecycle.sh.
+# These mode fixtures intentionally start with no recognized original PIDs.
+dnsmasq_managed_instances() { :; }
+wait_for_dnsmasq_instances() { :; }
+# Isolate firmware capabilities; SDN config traversal has its own fixture.
+nvram() { printf '%s\n' ''; }
 
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
@@ -238,6 +244,13 @@ run_case() {
 	DNS_PORT_AVAILABLE=1
 	unset ADGUARDHOME_DNS_HANDOFF_ACTIVE ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_SKIP_DNSMASQ_RESTART ADGUARDHOME_DNS_GUARD_PID ADGUARDHOME_DNS_BIND_SCOPE
 	pre_start_adguardhome || fail "${case_name}: pre-start failed"
+	if [ "${expect_handoff}" = 1 ] && [ "${dnsmasq_mode}" != disabled ]; then
+		[ "${ADGUARDHOME_DNSMASQ_CONFIGS}" = /etc/dnsmasq.conf ] ||
+			fail "${case_name}: empty initial inventory omitted required main dnsmasq"
+	else
+		[ -z "${ADGUARDHOME_DNSMASQ_CONFIGS}" ] ||
+			fail "${case_name}: unmanaged/disabled mode forced dnsmasq readiness"
+	fi
 	post_start_adguardhome || fail "${case_name}: post-start failed"
 	assert_count '^handoff_dependencies$' "${expect_handoff}" "${case_name}: handoff dependency check count mismatch"
 	assert_count '^enable_dns_handoff$' "${expect_handoff}" "${case_name}: dnsmasq handoff call count mismatch"
@@ -249,8 +262,16 @@ run_case() {
 }
 
 run_case 'WAN mode' wan 0 global 0 1 1
+run_case 'WAN mode with dnsmasq disabled' wan 0 global 0 1 1 disabled
 run_case 'LAN mode with dnsmasq running' lan 1 192.168.50.1 1 1 1
 run_case 'LAN mode without dnsmasq' lan 0 192.168.50.1 1 0 0
 run_case 'LAN mode with dnsmasq disabled but running' lan 1 192.168.50.1 1 0 0 disabled
 
+# Failed expected-config capture must abort before any handoff mutation.
+(
+	: >"${CALLS_FILE}"
+	dnsmasq_handoff_configs() { return 1; }
+	if pre_start_adguardhome; then fail 'failed expected-config capture allowed startup'; fi
+	! grep -q '^enable_dns_handoff$' "${CALLS_FILE}" || fail 'failed config capture prepared handoff'
+) || fail 'expected-config capture failure regression'
 printf '%s\n' 'PASS: S99 DNS handoff lifecycle honors WAN/LAN dnsmasq mode'

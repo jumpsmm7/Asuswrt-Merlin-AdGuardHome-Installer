@@ -688,13 +688,41 @@ prepare_dns_handoff_marker() {
 	return 0
 }
 
-# Verify each previously managed configuration has replacement TCP/UDP DNS.
+# Include configured managed services even if their original PIDs are absent.
+dnsmasq_handoff_configs() {
+	local config index
+	{
+		# Preserve earlier requirements if firmware temporarily replaces a config.
+		printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS:-}"
+		dnsmasq_managed_instances | awk '{ print $3 }'
+		if [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = 1 ] &&
+			[ "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" != disabled ]; then
+			printf '%s\n' /etc/dnsmasq.conf
+			case " $(nvram get rc_support 2>/dev/null) " in
+				*" mtlancfg "*)
+					for config in /etc/dnsmasq-[0-9]*.conf; do
+						[ -f "${config}" ] || continue
+						index="${config#/etc/dnsmasq-}"
+						index="${index%.conf}"
+						case "${index}" in "" | *[!0-9]*) continue ;; esac
+						[ -n "$(sdn_bridge_for_index "${index}")" ] || continue
+						printf '%s\n' "${config}"
+					done
+					;;
+			esac
+		fi
+	} | awk 'NF && !seen[$0]++'
+}
+
+# Verify each expected managed configuration has replacement TCP/UDP DNS.
 dnsmasq_instances_ready() {
 	local port inventory config pids tcp_udp
 	port="$1"
 	[ -n "${ADGUARDHOME_DNSMASQ_CONFIGS:-}" ] || return 0
 	dns_socket_snapshot || return 1
 	inventory="$(dnsmasq_managed_instances)"
+	# Intentional field splitting: identity/firmware checks restrict these paths
+	# to /etc/dnsmasq.conf and numeric /etc/dnsmasq-<index>.conf names.
 	for config in ${ADGUARDHOME_DNSMASQ_CONFIGS}; do
 		# dnsmasq's DHCP script helper shares its config/argv but owns no sockets.
 		pids="$(printf '%s\n' "${inventory}" | awk -v config="${config}" '$3 == config { print $1 }')"
@@ -727,7 +755,14 @@ wait_for_dnsmasq_instances() {
 	port="$1"
 	attempts=0
 	limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_READY_RETRIES:-}" 30)"
-	until dnsmasq_instances_ready "${port}"; do
+	while :; do
+		if [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = 1 ] &&
+			[ "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" != disabled ]; then
+			# A firmware restart can create SDN configs absent from the initial
+			# inventory. Include them before validating replacement listeners.
+			ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_handoff_configs)" || return 1
+		fi
+		dnsmasq_instances_ready "${port}" && return 0
 		attempts="$((attempts + 1))"
 		[ "${attempts}" -lt "${limit}" ] || {
 			agh_log ERROR wait_for_dnsmasq_instances "Managed main/SDN dnsmasq readiness timed out on port ${port}: ${ADGUARDHOME_DNSMASQ_CONFIGS:-none}."
@@ -735,7 +770,6 @@ wait_for_dnsmasq_instances() {
 		}
 		sleep 1
 	done
-	return 0
 }
 
 enable_dns_handoff() {
@@ -2078,7 +2112,7 @@ ensure_adguardhome_work_dir_permissions() {
 
 pre_start_adguardhome() {
 	dnsmasq_resolv_conf_cleanup || return 1
-	ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_managed_instances | awk '!seen[$3]++ { print $3 }')"
+	ADGUARDHOME_DNSMASQ_CONFIGS=""
 	export ADGUARDHOME_DNSMASQ_CONFIGS
 	_dns_stop_attempts="0"
 	_dns_snapshot_failed="0"
@@ -2099,6 +2133,7 @@ pre_start_adguardhome() {
 		_agh_dnsmasq_state="running"
 	fi
 	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+	ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_handoff_configs)" || return 1
 	if [ "${_agh_install_mode}" != "lan" ]; then
 		_agh_dnsmasq_state="running"
 	fi
