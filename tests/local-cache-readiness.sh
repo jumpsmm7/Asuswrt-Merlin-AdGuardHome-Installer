@@ -32,7 +32,12 @@ adguardhome_dns_bind_scope() { printf '%s\n' global; }
 adguardhome_owns_dns() { [ "${DNS_READY}" = 1 ]; }
 nslookup() {
 	printf '%s\n' lookup >>"${CALLS}"
-	[ "${LOOKUP_READY}" = 1 ]
+	# BusyBox 1.25 uses libc: bare localhost can succeed only from /etc/hosts.
+	case "${1:-}" in
+		localhost) return 0 ;;
+		localhost.) [ "${2:-}" = 127.0.0.1 ] && [ "${LOOKUP_READY}" = 1 ] ;;
+		*) return 1 ;;
+	esac
 }
 agh_dnsmasq_managed() { [ "${MANAGED}" = 1 ]; }
 nvram() { printf '%s\n' mtlancfg; }
@@ -63,7 +68,9 @@ if adguard_local_cache_sync; then exit 1; fi
 HANDOFF=0
 if adguard_local_cache_sync; then exit 1; fi
 DNS_READY=1
+SDN_READY=1
 if adguard_local_cache_sync; then exit 1; fi
+SDN_READY=0
 LOOKUP_READY=1
 if adguard_local_cache_sync; then exit 1; fi
 ! grep -q '^mount ' "${CALLS}"

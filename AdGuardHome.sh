@@ -1006,9 +1006,10 @@ adguard_local_cache_ready() {
 	# A manager start/stop operation must finish before routing through AGH.
 	adguard_local_cache_service_active && return 1
 	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || return 1
+	# The absolute name bypasses libc's /etc/hosts shortcut in older nslookup.
 	# ROM resolver routing uses loopback, so verify the actual loopback path.
 	if [ "${1:-}" != no-lookup ]; then
-		nslookup localhost 127.0.0.1 >/dev/null 2>&1 || return 1
+		nslookup localhost. 127.0.0.1 >/dev/null 2>&1 || return 1
 	fi
 	if agh_dnsmasq_managed; then
 		[ -f /etc/dnsmasq.conf ] || return 1
