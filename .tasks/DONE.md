@@ -1,5 +1,17 @@
 # Done
 
+## TASK-009: Resolve PR #1030 docstring coverage
+
+**Priority:** P2 | **Tags:** documentation, validation
+
+### Checkpoint
+
+- Confirmed PR #1030 and checkout at c6a8aff37ff28a2ce8e186481c3c04ea7d48d440. Added function comments for undocumented runtime and fixture helpers; regenerated all four runtime artifacts' MD5/SHA-256 sidecars.
+- Local comment audit covers 137/137 touched shell definitions, including fixtures; the hosted CodeRabbit percentage still requires a remote rerun. All 16 edited shell files contain only full-line comment additions. Syntax, eight digests, and 11 focused regressions pass under host sh.
+- DNS handoff regression fails at the same successful-start assertion on both unchanged HEAD and this patch under the host shell. BusyBox ash and ShellCheck are unavailable; router behavior was not exercised.
+
+---
+
 ## TASK-008: Resolve PR 1030 CI failures and agent review threads
 
 **Priority:** P1 | **Tags:** dns, lifecycle, ci

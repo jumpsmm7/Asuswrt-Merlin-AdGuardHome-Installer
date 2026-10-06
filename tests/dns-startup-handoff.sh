@@ -80,6 +80,7 @@ fi
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
 dnsmasq_resolv_conf_cleanup() { :; }
 
 PROCS=AdGuardHome
@@ -320,7 +321,9 @@ dns_handoff_set_current_identity ||
 dnsmasq_process_config() {
 	case "$1:${DNS_STATE:-}" in 123:* | 234:busy_alt_dnsmasq) printf '%s\n' /etc/dnsmasq.conf ;; *) return 1 ;; esac
 }
+# dnsmasq_process_start_time prints a fixed process start time for the isolated owner fixtures.
 dnsmasq_process_start_time() { printf '%s\n' 1234; }
+# dnsmasq_managed_instances returns an empty managed inventory; SDN discovery has a separate fixture.
 dnsmasq_managed_instances() { :; }
 # Replacement listener coverage uses the multi-instance firmware fixture.
 wait_for_dnsmasq_instances() { :; }

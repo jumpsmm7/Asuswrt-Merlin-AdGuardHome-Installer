@@ -58,6 +58,7 @@ DEFAULT_ADGUARD_PROC_PROFILE='aggressive'
 ADGUARDHOME_BINARY=/bin/sh
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
 dnsmasq_resolv_conf_cleanup() { :; }
 
 PROCS=AdGuardHome
@@ -142,7 +143,9 @@ stop_monitor "$$" || fail 'stuck monitor escalation failed'
 # Ending that monitor must still stop the daemon and restore native DNS.
 RECOVERY_CALLS=0
 RECOVERY_STATUS=0
+# adguard_monitor_pids returns the monitor selected by the escalation fixture.
 adguard_monitor_pids() { printf '%s\n' 12345; }
+# adguardhome_run counts final daemon/DNS restorations and injects failure.
 adguardhome_run() {
 	[ "$1" = stop_adguardhome ] || fail 'unexpected forced monitor recovery action'
 	RECOVERY_CALLS="$((RECOVERY_CALLS + 1))"

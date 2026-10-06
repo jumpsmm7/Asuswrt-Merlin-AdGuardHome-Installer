@@ -8,12 +8,16 @@ sed -n '/^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$
 	sed 's|"/proc/${pid}/|"${ROOT}/proc/${pid}/|g; s|\[ -f "${config}" \] \&\& \[ ! -L "${config}" \]|[ -f "${ROOT}${config}" ] \&\& [ ! -L "${ROOT}${config}" ]|' >"${ROOT}/functions"
 . "${ROOT}/functions"
 PROCS=AdGuardHome
+# nvram prints CAPABILITY, defaulting to SDN support, for firmware detection.
 nvram() { printf '%s\n' "${CAPABILITY:-mtlancfg}"; }
+# pidof lists the synthetic PIDs, including a missing process, for identity checks.
 pidof() { printf '%s\n' '11 12 13 14 15 16 17 18'; }
+# kill fails the test if read-only process detection attempts to send a signal.
 kill() {
 	printf '%s\n' 'FAIL: detection sent a signal' >&2
 	exit 1
 }
+# fixture creates synthetic procfs identity for PID $1 with the remaining arguments as its command line.
 fixture() {
 	pid="$1"
 	shift

@@ -16,6 +16,7 @@ sed -n '/^dnsmasq_handoff_configs() {$/,/^}$/p' S99AdGuardHome |
 . "${ROOT}/functions"
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
 dnsmasq_resolv_conf_cleanup() { :; }
 
 PROCS=AdGuardHome
@@ -28,9 +29,13 @@ printf '%s\n' 11 12 13 >"${LIVE}"
 ADGUARDHOME_DNSMASQ_CONFIGS='/etc/dnsmasq.conf /etc/dnsmasq-1.conf /etc/dnsmasq-2.conf'
 ADGUARDHOME_DNSMASQ_READY_RETRIES=2
 PORT=53
+# agh_log suppresses service logging while lifecycle calls are asserted separately.
 agh_log() { :; }
+# dns_port_owner_command prints a dnsmasq command name for the synthetic socket owner.
 dns_port_owner_command() { printf '%s\n' dnsmasq; }
+# dns_port_owner_process_name prints the dnsmasq process name for the synthetic socket owner.
 dns_port_owner_process_name() { printf '%s\n' dnsmasq; }
+# dnsmasq_process_config prints the managed config for a live fixture PID in $1, or fails for unknown PIDs.
 dnsmasq_process_config() {
 	grep -qx "$1" "${LIVE}" || return 1
 	case "$1" in
@@ -40,9 +45,11 @@ dnsmasq_process_config() {
 		*) return 1 ;;
 	esac
 }
+# dnsmasq_process_start_time simulates PID reuse after classification when REUSE is enabled.
 dnsmasq_process_start_time() {
 	if [ "${REUSE:-0}" = 1 ] && [ -f "${ROOT}/classified" ]; then printf '%s\n' 999; else printf '%s\n' 123; fi
 }
+# dnsmasq_managed_instances prints live fixture identities, optionally preceding them with socketless DHCP helpers.
 dnsmasq_managed_instances() {
 	# Persistent DHCP script helpers share daemon identity but own no sockets.
 	[ "${HELPERS_FIRST:-0}" = 0 ] || printf '%s\n' '21 123 /etc/dnsmasq.conf' '22 123 /etc/dnsmasq-1.conf' '23 123 /etc/dnsmasq-2.conf'
@@ -51,6 +58,7 @@ dnsmasq_managed_instances() {
 		printf '%s 123 %s\n' "${pid}" "${config}"
 	done
 }
+# dns_socket_snapshot builds synthetic TCP/UDP listeners and optionally retires owners before identity checks.
 dns_socket_snapshot() {
 	DNS_SOCKET_SNAPSHOT="$(while read -r pid; do
 		[ "${pid}" != 13 ] || [ "${MISSING_SDN:-0}" != 1 ] || continue
@@ -66,6 +74,7 @@ dns_socket_snapshot() {
 		EXIT_BEFORE_IDENTITY=0
 	fi
 }
+# service records firmware actions, injects requested failures, and repopulates instances on restart.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS}"
 	case "$1" in
@@ -81,11 +90,13 @@ service() {
 			;;
 	esac
 }
+# kill records a signal and removes the targeted PID in $3 from the synthetic live set.
 kill() {
 	printf '%s\n' "kill $*" >>"${CALLS}"
 	grep -vx "$3" "${LIVE}" >"${LIVE}.new" || true
 	mv "${LIVE}.new" "${LIVE}"
 }
+# sleep records readiness retries without delaying the fixture.
 sleep() { printf '%s\n' wait >>"${CALLS}"; }
 # A firmware stop failure still permits verified, deduplicated survivor cleanup.
 STOP_FAIL=1
@@ -113,6 +124,7 @@ if kill_dns_port_owners; then exit 1; else [ "$?" -eq 2 ]; fi
 # PID changes between classification and escalation never receive a signal.
 printf '%s\n' 11 >"${LIVE}"
 : >"${CALLS}"
+# dns_port_owner_command marks classification complete so the next identity check simulates PID reuse.
 dns_port_owner_command() { : >"${ROOT}/classified"; }
 REUSE=1
 kill_dns_port_owners
@@ -122,10 +134,15 @@ REUSE=0
 rm "${ROOT}/classified"
 # Post-start restoration gates completion on every SDN, not just main LAN.
 wait_for_adguardhome_dns() { printf '%s\n' agh-ready >>"${CALLS}"; }
+# wait_for_adguardhome_startup_checks reports successful startup checks to isolate dnsmasq replacement readiness.
 wait_for_adguardhome_startup_checks() { return 0; }
+# stop_dns_port_guard skips guard teardown because this fixture creates no background guard.
 stop_dns_port_guard() { :; }
+# resume_dns_watchdog skips watchdog signals in the isolated lifecycle fixture.
 resume_dns_watchdog() { :; }
+# disable_dns_handoff records handoff cleanup without changing router files.
 disable_dns_handoff() { printf '%s\n' clear-handoff >>"${CALLS}"; }
+# log_adguardhome_start_failure suppresses diagnostics for intentionally failed startup cases.
 log_adguardhome_start_failure() { :; }
 ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 PORT=553
@@ -150,13 +167,16 @@ HELPERS_FIRST=0
 : >"${LIVE}"
 MODE=auto
 INSTALL_MODE=wan
+# agh_conf_value prints the selected dnsmasq or installation mode for the requested config key.
 agh_conf_value() {
 	case "$1" in
 		ADGUARD_DNSMASQ_MODE) printf '%s\n' "${MODE}" ;;
 		ADGUARD_INSTALL_MODE) printf '%s\n' "${INSTALL_MODE}" ;;
 	esac
 }
+# nvram advertises firmware SDN support to exercise enabled-network discovery.
 nvram() { printf '%s\n' mtlancfg; }
+# get_mtlan exposes current enablement or uncertain topology for readiness checks.
 get_mtlan() {
 	case "${TOPOLOGY_STATE:-valid}" in
 		incomplete)
@@ -172,24 +192,38 @@ get_mtlan() {
 	printf '%s\n' '|-enable: [1]' '|-sdn_idx: [1]' "|-enable: [${SDN2_ENABLED:-1}]" '|-sdn_idx: [2]'
 	[ "${TOPOLOGY_STATE:-valid}" != failed ]
 }
+# sdn_bridge_for_index maps currently enabled fixture networks to their bridges.
 sdn_bridge_for_index() {
 	case "$1" in
 		1) printf 'br%s\n' "$1" ;;
 		2) [ "${SDN2_ENABLED:-1}" != 1 ] || printf 'br%s\n' "$1" ;;
 	esac
 }
+# ensure_adguardhome_work_dir_permissions accepts fixture permissions without modifying host ownership.
 ensure_adguardhome_work_dir_permissions() { :; }
+# adguardhome_config_valid accepts the synthetic configuration to isolate DNS lifecycle checks.
 adguardhome_config_valid() { :; }
+# adguardhome_dns_bind_scope selects global DNS binding for the lifecycle cases.
 adguardhome_dns_bind_scope() { printf '%s\n' global; }
+# dns_handoff_dependencies_available reports fixture handoff dependencies as available.
 dns_handoff_dependencies_available() { :; }
+# enable_dns_handoff accepts handoff preparation without invoking firmware commands.
 enable_dns_handoff() { :; }
+# pidof reports no running processes to exercise startup with an empty inventory.
 pidof() { return 1; }
+# which reports optional router commands unavailable in this fixture.
 which() { return 1; }
+# save_dns_watchdog_traps accepts trap capture without changing the test shell handlers.
 save_dns_watchdog_traps() { :; }
+# restore_dns_watchdog_traps leaves the test shell handlers intact during simulated recovery.
 restore_dns_watchdog_traps() { :; }
+# launch_dns_port_guard reports guard readiness without starting a background process.
 launch_dns_port_guard() { :; }
+# remove_inactive_dns_handoff_marker accepts stale-marker cleanup without touching router paths.
 remove_inactive_dns_handoff_marker() { :; }
+# dns_handoff_marker_is_active reports no preexisting handoff marker.
 dns_handoff_marker_is_active() { return 1; }
+# prepare_dns_handoff_marker accepts marker preparation without creating router state.
 prepare_dns_handoff_marker() { :; }
 for missing in main sdn; do
 	: >"${LIVE}"

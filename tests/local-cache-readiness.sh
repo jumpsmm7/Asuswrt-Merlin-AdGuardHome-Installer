@@ -15,9 +15,12 @@ CALLS="${ROOT}/calls"
 CONFIG_LOCAL=YES
 # Cross-process locking and persisted preference are covered by serialization test.
 adguard_local_cache_lock() { "$@"; }
+# load_operation_config preserves the in-memory preference selected by the readiness case.
 load_operation_config() { :; }
+# adguard_local_cache_service_active reports a manager operation only when SERVICE_ACTIVE is set.
 adguard_local_cache_service_active() { [ "${SERVICE_ACTIVE:-0}" = 1 ]; }
 PROCS=AdGuardHome
+# pidof reports the simulated daemon as running unless PROCESS_READY is cleared.
 pidof() { [ "${PROCESS_READY:-1}" = 1 ]; }
 MOUNTED=0
 HANDOFF=1
@@ -26,10 +29,15 @@ LOOKUP_READY=0
 SDN_READY=0
 NATIVE_ROM=0
 MANAGED=1
+# agh_log appends service diagnostics to the fixture call log.
 agh_log() { printf '%s\n' "$*" >>"${CALLS}"; }
+# dns_handoff_is_active returns success while the simulated handoff is active.
 dns_handoff_is_active() { [ "${HANDOFF}" = 1 ]; }
+# adguardhome_dns_bind_scope selects global DNS binding for the readiness fixture.
 adguardhome_dns_bind_scope() { printf '%s\n' global; }
+# adguardhome_owns_dns reports listener ownership according to DNS_READY.
 adguardhome_owns_dns() { [ "${DNS_READY}" = 1 ]; }
+# nslookup records a loopback lookup and succeeds only when LOOKUP_READY is set.
 nslookup() {
 	printf '%s\n' lookup >>"${CALLS}"
 	# BusyBox 1.25 uses libc: bare localhost can succeed only from /etc/hosts.
@@ -39,9 +47,13 @@ nslookup() {
 		*) return 1 ;;
 	esac
 }
+# agh_dnsmasq_managed reports managed dnsmasq integration according to MANAGED.
 agh_dnsmasq_managed() { [ "${MANAGED}" = 1 ]; }
+# nvram advertises SDN capability for the synthetic configurations.
 nvram() { printf '%s\n' mtlancfg; }
+# sdn_bridge_for_index prints the enabled bridge name for fixture index $1.
 sdn_bridge_for_index() { printf 'br%s\n' "$1"; }
+# dnsmasq_instances_ready checks the requested port and expected configs, then returns the simulated SDN readiness.
 dnsmasq_instances_ready() {
 	[ "$1" = 553 ]
 	if [ "${MANAGED}" = 1 ]; then
@@ -49,8 +61,11 @@ dnsmasq_instances_ready() {
 	fi
 	[ "${SDN_READY}" = 1 ]
 }
+# resolv_conf_uses_rom reports whether native resolver routing already uses the ROM file.
 resolv_conf_uses_rom() { [ "${NATIVE_ROM}" = 1 ]; }
+# resolv_conf_is_tmp_mount reports the simulated resolver bind state.
 resolv_conf_is_tmp_mount() { [ "${MOUNTED}" = 1 ]; }
+# mount records a resolver bind, optionally failing or starting a handoff during the switch.
 mount() {
 	printf '%s\n' "mount $*" >>"${CALLS}"
 	[ "${MOUNT_FAIL:-0}" = 0 ] || return 1
@@ -58,6 +73,7 @@ mount() {
 	[ "${RESTART_DURING_SWITCH:-0}" = 0 ] || HANDOFF=1
 	return 0
 }
+# umount records resolver cleanup and clears MOUNTED unless failure is requested.
 umount() {
 	printf '%s\n' "umount $*" >>"${CALLS}"
 	[ "${UNMOUNT_FAIL:-0}" = 0 ] || return 1

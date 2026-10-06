@@ -2383,6 +2383,9 @@ adguard_install_feature_defaults() {
 	return 0
 }
 
+# configure_runtime_defaults saves missing runtime preferences for $1=new-install
+# or upgrade, preserving explicit choices. New installs require wan/lan in $2;
+# invalid install mode or a failed preference write returns 1.
 configure_runtime_defaults() {
 	local NETCHECK_MODE
 	case "${1:-}" in
@@ -9632,6 +9635,9 @@ end_op_message() {
 	exit $?
 }
 
+# menu displays interactive choices when $1 is empty or dispatches the supplied
+# action, including persisted Local Cache selection and immediate activation.
+# Failed preference saves abort the action; readiness deferral retains the choice.
 menu() {
 	local IPSET_SELECTION LOCAL_CACHE_SELECTION
 	trap - HUP INT QUIT ABRT TERM
