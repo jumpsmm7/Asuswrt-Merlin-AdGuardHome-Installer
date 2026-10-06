@@ -231,6 +231,7 @@ run_check 'Installer event-script transaction regression' sh tests/installer-eve
 run_check 'Installer lock-release retry regression' sh tests/installer-lock-release-retry.sh
 run_check 'WAN NAT predicate parity regression' sh tests/wan-nat-predicate-parity.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
+run_check 'Installer DNS port policy defaults regression' sh tests/installer-dns-port-policy-defaults.sh
 run_check 'Installer post-replacement restart regression' sh tests/installer-post-replace-restart.sh
 run_check 'Installer update re-exec lock regression' sh tests/installer-update-reexec-lock.sh
 run_check 'Installer reaper owner publication regression' sh tests/installer-reaper-owner-publication.sh
@@ -304,6 +305,10 @@ run_check 'AdGuardHome S99 startup readiness regression' sh tests/s99-startup-re
 run_check 'AdGuardHome S99 usleep fallback regression' sh tests/s99-usleep-fallback.sh
 run_check 'AdGuardHome stop failure regression' sh tests/stop-adguardhome-failure.sh
 run_check 'AdGuardHome dnsmasq adaptive readiness regression' sh tests/dnsmasq-adaptive-readiness.sh
+run_check 'AdGuardHome managed dnsmasq detection regression' sh tests/dnsmasq-managed-detection.sh
+run_check 'AdGuardHome SDN dnsmasq lifecycle regression' sh tests/dnsmasq-sdn-lifecycle.sh
+run_check 'AdGuardHome Local Cache readiness regression' sh tests/local-cache-readiness.sh
+run_check 'AdGuardHome Local Cache serialization regression' sh tests/local-cache-serialization.sh
 run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
 run_check 'AdGuardHome restart stop-failure propagation regression' sh tests/rc-restart-stop-failure.sh
 run_check 'AdGuardHome monitor stop config fallback regression' sh tests/monitor-stop-config-fallback.sh

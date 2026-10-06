@@ -176,20 +176,22 @@ configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-existing-netcheck
 grep -q '^ADGUARD_INSTALL_MODE="wan"$' "${CONF_FILE}" || fail 'new install existing netcheck did not save wan install mode'
 grep -q '^ADGUARD_NETCHECK_MODE="legacy"$' "${CONF_FILE}" || fail 'new install overwrote existing netcheck mode'
 
-CONF_FILE="${TMP_ROOT}/upgrade-existing.config"
-cat >"${CONF_FILE}" <<'CONFIG'
-ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
+for saved_policy in 0 1; do
+	CONF_FILE="${TMP_ROOT}/upgrade-existing-${saved_policy}.config"
+	printf 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="%s"\n' "${saved_policy}" >"${CONF_FILE}"
+	cat >>"${CONF_FILE}" <<'CONFIG'
 ADGUARD_NETCHECK_MODE="lan"
 ADGUARD_PROC_OPTIMIZE="NO"
 ADGUARD_PROC_PROFILE="safe"
 CONFIG
-before="$(cat "${CONF_FILE}")"
-configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-existing.out" || fail 'upgrade preservation failed'
-[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'upgrade overwrote existing runtime defaults'
-grep -q 'Existing runtime defaults were retained for compatibility' "${TMP_ROOT}/upgrade-existing.out" ||
-	fail 'upgrade did not print retention guidance'
-grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing.out" ||
-	fail 'upgrade did not print migration command'
+	before="$(cat "${CONF_FILE}")"
+	configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-existing-${saved_policy}.out" || fail 'upgrade preservation failed'
+	[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'upgrade overwrote existing runtime defaults'
+	grep -q 'Existing runtime defaults were retained for compatibility' "${TMP_ROOT}/upgrade-existing-${saved_policy}.out" ||
+		fail 'upgrade did not print retention guidance'
+	grep -q 'migrate-runtime-defaults --yes' "${TMP_ROOT}/upgrade-existing-${saved_policy}.out" ||
+		fail 'upgrade did not print migration command'
+done
 
 CONF_FILE="${TMP_ROOT}/upgrade-missing-lan.config"
 : >"${CONF_FILE}"
@@ -224,16 +226,18 @@ CONF_FILE="${TMP_ROOT}/upgrade-missing.config"
 ADGUARD_INSTALL_MODE="wan"
 ADGUARD_INSTALL_MODE_DETECTION="wan"
 configure_runtime_defaults upgrade >"${TMP_ROOT}/upgrade-missing.out" || fail 'upgrade missing-default pin failed'
-grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade missing policy did not pin legacy DNS cleanup'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'upgrade missing policy did not refuse unknown DNS owners'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'confirmed WAN upgrade did not select WAN netcheck mode'
 grep -q '^ADGUARD_PROC_OPTIMIZE="YES"$' "${CONF_FILE}" || fail 'upgrade missing optimize did not pin legacy enablement'
 grep -q '^ADGUARD_PROC_PROFILE="aggressive"$' "${CONF_FILE}" || fail 'upgrade missing profile did not pin aggressive compatibility'
+before="$(cat "${CONF_FILE}")"
 cli_migrate_runtime_defaults --dry-run >"${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
 	fail 'upgrade migration dry-run failed'
-grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote legacy DNS cleanup'
+[ "$(cat "${CONF_FILE}")" = "${before}" ] || fail 'upgrade migration dry-run rewrote runtime defaults'
+grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'upgrade migration dry-run changed DNS owner refusal'
 grep -q '^ADGUARD_NETCHECK_MODE="wan"$' "${CONF_FILE}" || fail 'upgrade migration dry-run rewrote WAN netcheck mode'
-grep -q 'Dry-run: would write v2.6.0 safer runtime defaults' "${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
-	fail 'upgrade migration dry-run did not report planned safer defaults'
+grep -q 'Runtime defaults already use v2.6.0 safer values or custom overrides' "${TMP_ROOT}/upgrade-missing-migrate-dry-run.out" ||
+	fail 'upgrade migration dry-run did not report the current defaults'
 cli_migrate_runtime_defaults --yes >"${TMP_ROOT}/upgrade-missing-migrate.out" ||
 	fail 'upgrade migration apply failed'
 grep -q '^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"$' "${CONF_FILE}" || fail 'upgrade migration did not enable DNS owner refusal'
