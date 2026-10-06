@@ -1,12 +1,12 @@
 # In Progress
 
-## TASK-003: Identify managed main and SDN dnsmasq instances
+## TASK-004: Coordinate DNS handoff and recovery
 **Priority:** P1 | **Tags:** dns, lifecycle
 
-Part 3 of the six-part implementation. Keep changes off master; commit and validate separately.
+Part 4 of the six-part implementation. Keep changes off master; commit and validate separately.
 
 ### Plan
 
-- Verify process identity and managed configuration paths; enumerate conflicting listeners; test multiple SDN PIDs and unknown owners.
+- Stop managed instances; verify release; restore main and SDN DNS/DHCP after startup or failure; test bounded recovery.
 
 ---

@@ -1106,6 +1106,116 @@ adguardhome_dns_bind_scope() {
 	' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null
 }
 
+# Verify router-managed dnsmasq identity, including independent SDN processes.
+# Never classify from the netstat display name alone.
+dnsmasq_process_config() {
+	local pid executable config index args
+	pid="${1:-}"
+	case "${pid}" in "" | *[!0-9]*) return 1 ;; esac
+	[ "${pid}" -gt 1 ] || return 1
+	executable="$(readlink "/proc/${pid}/exe" 2>/dev/null)" || return 1
+	case "${executable}" in /usr/sbin/dnsmasq | /sbin/dnsmasq) ;; *) return 1 ;; esac
+	[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ] || return 1
+	args="$(tr '\000' '\n' <"/proc/${pid}/cmdline" 2>/dev/null)" || return 1
+	config="$(printf '%s\n' "${args}" | awk '
+		NR == 1 { next }
+		need_config { config=$0; need_config=0; count++; next }
+		$0 == "-C" || $0 == "--conf-file" { need_config=1; next }
+		/^--conf-file=/ { config=substr($0, 13); count++; next }
+		/^-C./ { config=substr($0, 3); count++; next }
+		$0 == "-7" || /^-7./ || /^--conf-dir/ { invalid=1 }
+		END {
+			if (need_config || count > 1 || invalid) exit 1
+			if (count == 0) print "/etc/dnsmasq.conf"
+			else print config
+		}')" || return 1
+	case "${config}" in
+		/etc/dnsmasq.conf) ;;
+		/etc/dnsmasq-*.conf)
+			index="${config#/etc/dnsmasq-}"
+			index="${index%.conf}"
+			case "${index}" in "" | *[!0-9]*) return 1 ;; esac
+			case " $(nvram get rc_support 2>/dev/null) " in *" mtlancfg "*) ;; *) return 1 ;; esac
+			;;
+		*) return 1 ;;
+	esac
+	[ -f "${config}" ] && [ ! -L "${config}" ] || return 1
+	printf '%s\n' "${config}"
+}
+
+dnsmasq_process_start_time() {
+	local pid start
+	pid="${1:-}"
+	case "${pid}" in "" | *[!0-9]*) return 1 ;; esac
+	start="$(awk '{ sub(/^.*\) /, ""); print $20 }' "/proc/${pid}/stat" 2>/dev/null)" || return 1
+	case "${start}" in "" | *[!0-9]*) return 1 ;; esac
+	printf '%s\n' "${start}"
+}
+
+# Read-only inventory: PID, start time and managed configuration.
+dnsmasq_managed_instances() {
+	local pid config start
+	for pid in $(pidof dnsmasq 2>/dev/null); do
+		start="$(dnsmasq_process_start_time "${pid}")" || continue
+		config="$(dnsmasq_process_config "${pid}")" || continue
+		[ "$(dnsmasq_process_start_time "${pid}")" = "${start}" ] || continue
+		printf '%s %s %s\n' "${pid}" "${start}" "${config}"
+	done
+}
+
+# Map only conflicting socket owners. Inventory/detection never sends signals.
+dns_port_owner_actions() {
+	local scope table actions pid kind name config start
+	scope="${1:-global}"
+	table="$2"
+	actions="$(printf '%s\n' "${table}" | awk -v proc="${PROCS}" -v scope="${scope}" '
+		function scoped(local_address,    count, idx, scope_values) {
+			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
+			count = split(scope, scope_values, " ")
+			for (idx = 1; idx <= count; idx++) {
+				if (scope_values[idx] != "" && local_address == scope_values[idx] ":53") return 1
+			}
+			return 0
+		}
+		$0 ~ /^(tcp|udp)6?[[:space:]]+/ && $0 ~ /:53[[:space:]]/ && scoped($4) && $0 !~ "/" proc "([[:space:]]|$)" {
+			owner_pid = ""
+			owner_name = "unknown"
+			owner_key = ""
+			owner_type = "unknown"
+			for (field = 1; field <= NF; field++) {
+				if ($field ~ /^[0-9]+\/[^[:space:]]+$/) {
+					split($field, owner_parts, "/")
+					owner_pid = owner_parts[1]
+					owner_name = owner_parts[2]
+					break
+				}
+			}
+			if (owner_pid != "" && owner_pid <= 1) next
+			if (owner_pid != "") owner_key = owner_pid
+			else owner_key = "unavailable:" $1 ":" $4
+			if (seen[owner_key]++) next
+			if (owner_name == "dnsmasq") owner_type = "dnsmasq"
+			if (owner_pid == "") owner_pid = "-"
+			print owner_pid " " owner_type " " owner_name
+		}
+	')"
+	printf '%s\n' "${actions}" | while read -r pid kind name; do
+		[ -n "${pid}" ] || continue
+		kind=unknown
+		config=-
+		start=-
+		if start="$(dnsmasq_process_start_time "${pid}")" &&
+			config="$(dnsmasq_process_config "${pid}")" &&
+			[ "$(dnsmasq_process_start_time "${pid}")" = "${start}" ]; then
+			kind=dnsmasq
+		else
+			config=-
+			start=-
+		fi
+		printf '%s %s %s %s %s\n' "${pid}" "${kind}" "${name}" "${start}" "${config}"
+	done
+}
+
 dns_port_unknown_refusal_enabled() {
 	_dns_refuse_unknown="${ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL:-}"
 	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then

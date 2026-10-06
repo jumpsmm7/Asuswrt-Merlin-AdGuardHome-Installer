@@ -24,3 +24,14 @@ Part 2 of the six-part implementation. Keep changes off master; commit and valid
 - Missing install/upgrade policies default to refusal; explicit 0/1 and both CLI selections tested. Upgrade and migration regressions pass. Checksums regenerated.
 
 ---
+
+## TASK-003: Identify managed main and SDN dnsmasq instances
+**Priority:** P1 | **Tags:** dns, lifecycle
+
+Part 3 of the six-part implementation. Keep changes off master; commit and validate separately.
+
+### Checkpoint
+
+- Read-only managed detection tests pass under BusyBox ash: main and multiple SDN PIDs, alternate display names, duplicate sockets, unknown/stale PIDs, unsupported firmware, foreign configs, scoped listeners and symlinks. Runtime syntax passes.
+
+---
