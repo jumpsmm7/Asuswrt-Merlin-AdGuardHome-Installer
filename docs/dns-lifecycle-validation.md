@@ -17,17 +17,17 @@ The initial `wan_handoff` failure under an unprivileged shell is an environment 
 
 ## Router release checkpoint
 
-Host tests cannot prove firmware service behavior, DHCP exchanges, or network isolation. Do not mark this checkpoint complete without router results.
+Host tests cannot prove firmware service behavior, DHCP exchanges, or network isolation. Hardware testing was explicitly skipped by the user. Automated implementation checkpoints can be completed, but DHCP exchanges and isolation remain unverified on hardware.
 
 | Configuration | Checks | Status |
 | --- | --- | --- |
-| Main LAN, IPv4 | DHCP lease and option 6, external DNS, local and reverse DNS | Pending router |
-| Multiple enabled SDNs | Separate dnsmasq PIDs/configs, port ownership, DHCP and DNS per network | Pending router |
-| Legacy guest networks | DHCP advertisements, DNS reachability, guest-to-LAN isolation | Pending router |
-| IPv6 where supported | DNS listeners, RA/DHCPv6, external and reverse DNS | Pending router |
-| Cache enabled and disabled | Router resolution before, during and after startup | Pending router |
-| Lifecycle | Cold boot, AGH restart, dnsmasq restart, SDN changes | Pending router |
-| Failure recovery | Invalid AGH config, startup timeout, interrupted start, failed restart | Pending router |
+| Main LAN, IPv4 | DHCP lease and option 6, external DNS, local and reverse DNS | Skipped by user; unverified |
+| Multiple enabled SDNs | Separate dnsmasq PIDs/configs, port ownership, DHCP and DNS per network | Skipped by user; unverified |
+| Legacy guest networks | DHCP advertisements, DNS reachability, guest-to-LAN isolation | Skipped by user; unverified |
+| IPv6 where supported | DNS listeners, RA/DHCPv6, external and reverse DNS | Skipped by user; unverified |
+| Cache enabled and disabled | Router resolution before, during and after startup | Skipped by user; unverified |
+| Lifecycle | Cold boot, AGH restart, dnsmasq restart, SDN changes | Skipped by user; unverified |
+| Failure recovery | Invalid AGH config, startup timeout, interrupted start, failed restart | Skipped by user; unverified |
 
 For every row, record firmware/model, enabled networks, cache setting, observed listeners/PIDs, and results. Run with an actual client on each network; router-local DNS tests alone do not establish client connectivity or isolation.
 

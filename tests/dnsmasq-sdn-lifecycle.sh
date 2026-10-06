@@ -23,45 +23,45 @@ agh_log() { :; }
 dns_port_owner_command() { printf '%s\n' dnsmasq; }
 dns_port_owner_process_name() { printf '%s\n' dnsmasq; }
 dnsmasq_process_config() {
- grep -qx "$1" "${LIVE}" || return 1
- case "$1" in
- 11) printf '%s\n' /etc/dnsmasq.conf ;;
- 12) printf '%s\n' /etc/dnsmasq-1.conf ;;
- 13) printf '%s\n' /etc/dnsmasq-2.conf ;;
- *) return 1 ;;
- esac
+	grep -qx "$1" "${LIVE}" || return 1
+	case "$1" in
+	11) printf '%s\n' /etc/dnsmasq.conf ;;
+	12) printf '%s\n' /etc/dnsmasq-1.conf ;;
+	13) printf '%s\n' /etc/dnsmasq-2.conf ;;
+	*) return 1 ;;
+	esac
 }
 dnsmasq_process_start_time() {
- if [ "${REUSE:-0}" = 1 ] && [ -f "${ROOT}/classified" ]; then printf '%s\n' 999; else printf '%s\n' 123; fi
+	if [ "${REUSE:-0}" = 1 ] && [ -f "${ROOT}/classified" ]; then printf '%s\n' 999; else printf '%s\n' 123; fi
 }
 dnsmasq_managed_instances() {
- for pid in $(cat "${LIVE}"); do
-  config="$(dnsmasq_process_config "${pid}")" || continue
-  printf '%s 123 %s\n' "${pid}" "${config}"
- done
+	for pid in $(cat "${LIVE}"); do
+		config="$(dnsmasq_process_config "${pid}")" || continue
+		printf '%s 123 %s\n' "${pid}" "${config}"
+	done
 }
 dns_socket_snapshot() {
- DNS_SOCKET_SNAPSHOT="$(while read -r pid; do
-  [ "${pid}" != 13 ] || [ "${MISSING_SDN:-0}" != 1 ] || continue
-  printf 'tcp 0 0 192.168.%s.1:%s 0.0.0.0:* LISTEN %s/dnsmasq-sdn\n' "${pid}" "${PORT}" "${pid}"
-  printf 'udp 0 0 192.168.%s.1:%s 0.0.0.0:* %s/dnsmasq-sdn\n' "${pid}" "${PORT}" "${pid}"
- done <"${LIVE}")"
- DNS_SOCKET_SNAPSHOT_VALID=1
+	DNS_SOCKET_SNAPSHOT="$(while read -r pid; do
+		[ "${pid}" != 13 ] || [ "${MISSING_SDN:-0}" != 1 ] || continue
+		printf 'tcp 0 0 192.168.%s.1:%s 0.0.0.0:* LISTEN %s/dnsmasq-sdn\n' "${pid}" "${PORT}" "${pid}"
+		printf 'udp 0 0 192.168.%s.1:%s 0.0.0.0:* %s/dnsmasq-sdn\n' "${pid}" "${PORT}" "${pid}"
+	done <"${LIVE}")"
+	DNS_SOCKET_SNAPSHOT_VALID=1
 }
 service() {
- printf '%s\n' "service $*" >>"${CALLS}"
- case "$1" in
- stop_dnsmasq) [ "${STOP_FAIL:-0}" = 0 ] ;;
- restart_dnsmasq)
-  [ "${RESTART_FAIL:-0}" = 0 ] || return 1
-  printf '%s\n' 11 12 13 >"${LIVE}"
-  ;;
- esac
+	printf '%s\n' "service $*" >>"${CALLS}"
+	case "$1" in
+	stop_dnsmasq) [ "${STOP_FAIL:-0}" = 0 ] ;;
+	restart_dnsmasq)
+		[ "${RESTART_FAIL:-0}" = 0 ] || return 1
+		printf '%s\n' 11 12 13 >"${LIVE}"
+		;;
+	esac
 }
 kill() {
- printf '%s\n' "kill $*" >>"${CALLS}"
- grep -vx "$3" "${LIVE}" >"${LIVE}.new" || true
- mv "${LIVE}.new" "${LIVE}"
+	printf '%s\n' "kill $*" >>"${CALLS}"
+	grep -vx "$3" "${LIVE}" >"${LIVE}.new" || true
+	mv "${LIVE}.new" "${LIVE}"
 }
 sleep() { printf '%s\n' wait >>"${CALLS}"; }
 # A firmware stop failure still permits verified, deduplicated survivor cleanup.

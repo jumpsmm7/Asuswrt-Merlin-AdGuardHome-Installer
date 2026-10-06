@@ -64,6 +64,14 @@ jobs:
       - name: Run tzdata package conversion regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/update-tzdata-package-info.sh
 
+      - name: Run DNS policy, SDN lifecycle and Local Cache regressions
+        run: |
+          set -eu
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-dns-port-policy-defaults.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-managed-detection.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-sdn-lifecycle.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/local-cache-readiness.sh
+
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
 

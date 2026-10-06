@@ -1569,6 +1569,8 @@ fi
 [ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'WebUI readiness timeout repeated configuration validation'
 grep -q 'AdGuardHome startup failed: WebUI port is unavailable' "${CALLS_FILE}" || fail 'WebUI startup failure did not log the concise WebUI message'
 grep -q 'failed after 3.00 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'WebUI readiness deadline did not log elapsed time and its final reason'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness restored DNS before AGH stopped'
+post_start_failure_adguardhome || fail 'expired WebUI readiness recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness did not run failure recovery'
 clear_dns_handoff_active
 WEB_STATE=bound
@@ -1616,6 +1618,8 @@ mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with an unavailable WebUI port before restoring dnsmasq'
 fi
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI failure restored native DNS before rc.func stopped AGH'
+post_start_failure_adguardhome || fail 'WebUI failure recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI startup failure did not restore dnsmasq'
 WEB_STATE=bound
 clear_dns_handoff_active
@@ -1628,6 +1632,8 @@ if post_start_adguardhome; then
 	fail 'post-start succeeded with a failing configuration check'
 fi
 grep -q 'AdGuardHome startup failed: configuration check failed' "${CALLS_FILE}" || fail 'config startup failure did not log the concise config message'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config failure restored native DNS before rc.func stopped AGH'
+post_start_failure_adguardhome || fail 'config failure recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config startup failure did not restore dnsmasq'
 clear_dns_handoff_active
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'

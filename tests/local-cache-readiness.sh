@@ -8,7 +8,7 @@ mkdir -p "${ROOT}/etc"
 : >"${ROOT}/etc/dnsmasq-1.conf"
 : >"${ROOT}/etc/dnsmasq-2.conf"
 sed -n '/^adguard_local_cache_ready() {$/,/^}$/p; /^adguard_local_cache_sync() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup() {$/,/^}$/p' AdGuardHome.sh |
- sed 's|/etc/dnsmasq|${ROOT}/etc/dnsmasq|g' >"${ROOT}/functions"
+	sed 's|/etc/dnsmasq|${ROOT}/etc/dnsmasq|g' >"${ROOT}/functions"
 . "${ROOT}/functions"
 CALLS="${ROOT}/calls"
 : >"${CALLS}"
@@ -29,25 +29,25 @@ agh_dnsmasq_managed() { [ "${MANAGED}" = 1 ]; }
 nvram() { printf '%s\n' mtlancfg; }
 sdn_bridge_for_index() { printf 'br%s\n' "$1"; }
 dnsmasq_instances_ready() {
- [ "$1" = 553 ]
- if [ "${MANAGED}" = 1 ]; then
-  [ "${ADGUARDHOME_DNSMASQ_CONFIGS}" = "${ROOT}/etc/dnsmasq.conf ${ROOT}/etc/dnsmasq-1.conf ${ROOT}/etc/dnsmasq-2.conf" ]
- fi
- [ "${SDN_READY}" = 1 ]
+	[ "$1" = 553 ]
+	if [ "${MANAGED}" = 1 ]; then
+		[ "${ADGUARDHOME_DNSMASQ_CONFIGS}" = "${ROOT}/etc/dnsmasq.conf ${ROOT}/etc/dnsmasq-1.conf ${ROOT}/etc/dnsmasq-2.conf" ]
+	fi
+	[ "${SDN_READY}" = 1 ]
 }
 resolv_conf_uses_rom() { [ "${NATIVE_ROM}" = 1 ]; }
 resolv_conf_is_tmp_mount() { [ "${MOUNTED}" = 1 ]; }
 mount() {
- printf '%s\n' "mount $*" >>"${CALLS}"
- [ "${MOUNT_FAIL:-0}" = 0 ] || return 1
- MOUNTED=1
- [ "${RESTART_DURING_SWITCH:-0}" = 0 ] || HANDOFF=1
- return 0
+	printf '%s\n' "mount $*" >>"${CALLS}"
+	[ "${MOUNT_FAIL:-0}" = 0 ] || return 1
+	MOUNTED=1
+	[ "${RESTART_DURING_SWITCH:-0}" = 0 ] || HANDOFF=1
+	return 0
 }
 umount() {
- printf '%s\n' "umount $*" >>"${CALLS}"
- [ "${UNMOUNT_FAIL:-0}" = 0 ] || return 1
- MOUNTED=0
+	printf '%s\n' "umount $*" >>"${CALLS}"
+	[ "${UNMOUNT_FAIL:-0}" = 0 ] || return 1
+	MOUNTED=0
 }
 # Each missing prerequisite preserves native routing.
 if adguard_local_cache_sync; then exit 1; fi

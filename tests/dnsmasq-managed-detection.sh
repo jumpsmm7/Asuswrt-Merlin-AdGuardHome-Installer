@@ -5,19 +5,19 @@ ROOT="$(mktemp -d)"
 trap 'rm -rf "${ROOT}"' EXIT HUP INT TERM
 mkdir -p "${ROOT}/proc" "${ROOT}/etc"
 sed -n '/^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$/,/^}$/p; /^dnsmasq_managed_instances() {$/,/^}$/p; /^dns_port_owner_actions() {$/,/^}$/p' S99AdGuardHome |
- sed 's|"/proc/${pid}/|"${ROOT}/proc/${pid}/|g; s|\[ -f "${config}" \] \&\& \[ ! -L "${config}" \]|[ -f "${ROOT}${config}" ] \&\& [ ! -L "${ROOT}${config}" ]|' >"${ROOT}/functions"
+	sed 's|"/proc/${pid}/|"${ROOT}/proc/${pid}/|g; s|\[ -f "${config}" \] \&\& \[ ! -L "${config}" \]|[ -f "${ROOT}${config}" ] \&\& [ ! -L "${ROOT}${config}" ]|' >"${ROOT}/functions"
 . "${ROOT}/functions"
 PROCS=AdGuardHome
 nvram() { printf '%s\n' "${CAPABILITY:-mtlancfg}"; }
 pidof() { printf '%s\n' '11 12 13 14 15 16 17 18'; }
 kill() { printf '%s\n' 'FAIL: detection sent a signal' >&2; exit 1; }
 fixture() {
- pid="$1"; shift
- mkdir -p "${ROOT}/proc/${pid}"
- ln -s /usr/sbin/dnsmasq "${ROOT}/proc/${pid}/exe"
- printf '%s\n' dnsmasq >"${ROOT}/proc/${pid}/comm"
- printf '%s\0' dnsmasq "$@" >"${ROOT}/proc/${pid}/cmdline"
- printf '%s\n' "${pid} (dnsmasq) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1234" >"${ROOT}/proc/${pid}/stat"
+	pid="$1"; shift
+	mkdir -p "${ROOT}/proc/${pid}"
+	ln -s /usr/sbin/dnsmasq "${ROOT}/proc/${pid}/exe"
+	printf '%s\n' dnsmasq >"${ROOT}/proc/${pid}/comm"
+	printf '%s\0' dnsmasq "$@" >"${ROOT}/proc/${pid}/cmdline"
+	printf '%s\n' "${pid} (dnsmasq) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1234" >"${ROOT}/proc/${pid}/stat"
 }
 : >"${ROOT}/etc/dnsmasq.conf"
 : >"${ROOT}/etc/dnsmasq-1.conf"
@@ -37,13 +37,13 @@ CAPABILITY=other
 if dnsmasq_process_config 12; then exit 1; fi
 CAPABILITY=mtlancfg
 table="$(printf '%s\n' \
- 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 11/dnsmasq' \
- 'udp 0 0 0.0.0.0:53 0.0.0.0:* 11/dnsmasq' \
- 'udp6 0 0 :::53 :::* 12/dnsmasq-sdn' \
- 'udp 0 0 192.168.2.1:53 0.0.0.0:* 13/truncated' \
- 'udp 0 0 192.168.3.1:53 0.0.0.0:* 14/dnsmasq' \
- 'udp 0 0 192.168.4.1:53 0.0.0.0:* 18/dnsmasq' \
- 'udp 0 0 192.168.5.1:53 0.0.0.0:* -')"
+	'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 11/dnsmasq' \
+	'udp 0 0 0.0.0.0:53 0.0.0.0:* 11/dnsmasq' \
+	'udp6 0 0 :::53 :::* 12/dnsmasq-sdn' \
+	'udp 0 0 192.168.2.1:53 0.0.0.0:* 13/truncated' \
+	'udp 0 0 192.168.3.1:53 0.0.0.0:* 14/dnsmasq' \
+	'udp 0 0 192.168.4.1:53 0.0.0.0:* 18/dnsmasq' \
+	'udp 0 0 192.168.5.1:53 0.0.0.0:* -')"
 actions="$(dns_port_owner_actions global "${table}")"
 [ "$(printf '%s\n' "${actions}" | wc -l)" -eq 6 ]
 printf '%s\n' "${actions}" | grep -q '^12 dnsmasq dnsmasq-sdn 1234 /etc/dnsmasq-1.conf$'

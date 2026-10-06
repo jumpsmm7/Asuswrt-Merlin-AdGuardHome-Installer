@@ -334,7 +334,7 @@ firewall behavior separately for each router topology.
 
 ### DNS port-owner cleanup policy
 
-During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:
+During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs and upgrades without a saved policy default to conservative handling:
 
 ```sh
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
@@ -342,7 +342,7 @@ ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 
 With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
 
-Upgrades keep the saved value; when no value exists, the installer writes the legacy value `0` and prints migration guidance. To migrate an existing install, run:
+Upgrades keep the saved value; when no value exists, the installer writes the refusal value `1`. Explicitly saved legacy values remain available. To migrate an existing install, run:
 
 ```sh
 sh installer dns-port-policy --policy refuse-unknown
@@ -361,6 +361,8 @@ ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
 ```
 
 `ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
+
+Managed main and SDN dnsmasq survivors are identified by their stock executable and configuration paths, including independent SDN PIDs. The firmware service commands cover all SDNs; installer escalation rechecks each managed PID before signaling it. After startup, every previously managed instance must expose TCP and UDP DNS on port 553. Failure recovery verifies restored listeners on port 53. Unknown or unavailable identity remains subject to the selected refusal policy.
 
 To restore the legacy cleanup policy, run:
 

@@ -57,3 +57,14 @@ Part 5 of the six-part implementation. Keep changes off master; commit and valid
 - Local Cache resolver bind removed from postconf; startup and monitor apply only after AGH loopback and all enabled SDN/main readiness. Cleanup runs before start, shutdown and failure. Cache race/failure/idempotence, handoff, publication, stop, monitor and preference regressions pass under BusyBox 1.30.
 
 ---
+
+## TASK-006: Validate integration and prepare release documentation
+**Priority:** P1 | **Tags:** dns, lifecycle
+
+Part 6 of the six-part implementation. Keep changes off master; commit and validate separately.
+
+### Checkpoint
+
+- 41 relevant regressions pass; 157 BusyBox ash syntax checks and complete artifact MD5/SHA-256 verification pass. New tests added to CI; recovery ordering corrected; release notes and acceptance matrix documented. Hardware testing explicitly skipped by user and remains unverified.
+
+---

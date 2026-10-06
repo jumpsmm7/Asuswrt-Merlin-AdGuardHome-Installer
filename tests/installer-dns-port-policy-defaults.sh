@@ -13,25 +13,25 @@ ptxt_ok() { :; }
 nvram() { :; }
 adguard_install_feature_defaults() { :; }
 write_conf() {
- awk -F= -v key="$1" '$1 != key' "${CONF_FILE}" >"${CONF_FILE}.new"
- printf '%s=%s\n' "$1" "$2" >>"${CONF_FILE}.new"
- mv "${CONF_FILE}.new" "${CONF_FILE}"
+	awk -F= -v key="$1" '$1 != key' "${CONF_FILE}" >"${CONF_FILE}.new"
+	printf '%s=%s\n' "$1" "$2" >>"${CONF_FILE}.new"
+	mv "${CONF_FILE}.new" "${CONF_FILE}"
 }
 write_conf_if_absent() {
- grep -q "^$1=" "${CONF_FILE}" || write_conf "$@"
+	grep -q "^$1=" "${CONF_FILE}" || write_conf "$@"
 }
 cli_write_quoted_conf() { write_conf "$1" "\"$2\""; }
 for mode in new-install upgrade; do
- for saved in missing 0 1; do
-  : >"${CONF_FILE}"
-  expected=1
-  if [ "${saved}" != missing ]; then
-   printf 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="%s"\n' "${saved}" >"${CONF_FILE}"
-   expected="${saved}"
-  fi
-  configure_runtime_defaults "${mode}" wan
-  grep -qx "ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=\"${expected}\"" "${CONF_FILE}"
- done
+	for saved in missing 0 1; do
+		: >"${CONF_FILE}"
+		expected=1
+		if [ "${saved}" != missing ]; then
+			printf 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="%s"\n' "${saved}" >"${CONF_FILE}"
+			expected="${saved}"
+		fi
+		configure_runtime_defaults "${mode}" wan
+		grep -qx "ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=\"${expected}\"" "${CONF_FILE}"
+	done
 done
 cli_dns_port_policy --policy legacy
 grep -qx 'ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"' "${CONF_FILE}"
