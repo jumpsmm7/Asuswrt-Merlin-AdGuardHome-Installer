@@ -1697,8 +1697,8 @@ dnsmasq_params() {
 		! dns_handoff_is_active; then
 		return 0
 	fi
-	if [ "${PRE_START_HOOK}" != "pre_start" ] &&
-		[ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
+	# Pre-start bypasses replacement-process absence, never native DNS recovery.
+	if [ "$(pidof "${PROCS}" 2>/dev/null | wc -w)" -eq 0 ] && ! dns_handoff_is_active; then
 		return 0
 	fi
 	CONFIG_STAGE="${CONFIG_FILE}.adguard.$$"
