@@ -690,22 +690,32 @@ prepare_dns_handoff_marker() {
 
 # Verify each previously managed configuration has replacement TCP/UDP DNS.
 dnsmasq_instances_ready() {
-	local port inventory config pid tcp_udp
+	local port inventory config pids tcp_udp
 	port="$1"
 	[ -n "${ADGUARDHOME_DNSMASQ_CONFIGS:-}" ] || return 0
 	dns_socket_snapshot || return 1
 	inventory="$(dnsmasq_managed_instances)"
 	for config in ${ADGUARDHOME_DNSMASQ_CONFIGS}; do
-		pid="$(printf '%s\n' "${inventory}" | awk -v config="${config}" '$3 == config { print $1; exit }')"
-		[ -n "${pid}" ] || return 1
-		tcp_udp="$(printf '%s\n' "${DNS_SOCKET_SNAPSHOT}" | awk -v pid="${pid}" -v port="${port}" '
+		# dnsmasq's DHCP script helper shares its config/argv but owns no sockets.
+		pids="$(printf '%s\n' "${inventory}" | awk -v config="${config}" '$3 == config { print $1 }')"
+		[ -n "${pids}" ] || return 1
+		tcp_udp="$(printf '%s\n' "${DNS_SOCKET_SNAPSHOT}" | awk -v pids="${pids}" -v port="${port}" '
+			BEGIN {
+				count=split(pids, values, "\n")
+				for (i=1; i<=count; i++) candidates[values[i]]=1
+			}
 			$1 ~ /^(tcp|udp)6?$/ && $4 ~ ":" port "$" {
-				for (i=1; i<=NF; i++) if ($i ~ "^" pid "/") {
-					if ($1 ~ /^tcp/) tcp=1
-					if ($1 ~ /^udp/) udp=1
+				for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+\//) {
+					split($i, owner, "/")
+					if (!(owner[1] in candidates)) continue
+					if ($1 ~ /^tcp/) tcp[owner[1]]=1
+					if ($1 ~ /^udp/) udp[owner[1]]=1
 				}
 			}
-			END { print (tcp && udp) ? 1 : 0 }
+			END {
+				for (pid in candidates) if (tcp[pid] && udp[pid]) { print 1; exit }
+				print 0
+			}
 		')"
 		[ "${tcp_udp}" = 1 ] || return 1
 	done
@@ -1305,8 +1315,19 @@ kill_dns_port_owners() {
 		_dns_refuse_unknown="0"
 	fi
 	if [ "${_dns_unknown_owner}" = "1" ] && [ "${_dns_refuse_unknown}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != "1" ]; then
-		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted because ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
-		return 2
+		# A normal stop may retire the socket owner before /proc inspection.
+		# Reconcile the remaining listeners once; any new/remaining unknown
+		# owner is still refused, while verified managed survivors can be stopped.
+		dns_socket_snapshot || return 3
+		if dns_port_available "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+			return 0
+		fi
+		_dns_owner_actions="$(dns_port_owner_actions "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}")" || return 3
+		_dns_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
+		if [ "${_dns_unknown_owner}" = "1" ]; then
+			agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted because ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
+			return 2
+		fi
 	fi
 	_dns_unavailable_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$1 == "-" && $2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
 	if [ "${_dns_unavailable_unknown_owner}" = "1" ]; then

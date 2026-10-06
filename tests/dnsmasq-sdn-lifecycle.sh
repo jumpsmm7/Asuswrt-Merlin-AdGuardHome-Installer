@@ -35,6 +35,8 @@ dnsmasq_process_start_time() {
 	if [ "${REUSE:-0}" = 1 ] && [ -f "${ROOT}/classified" ]; then printf '%s\n' 999; else printf '%s\n' 123; fi
 }
 dnsmasq_managed_instances() {
+	# Persistent DHCP script helpers share daemon identity but own no sockets.
+	[ "${HELPERS_FIRST:-0}" = 0 ] || printf '%s\n' '21 123 /etc/dnsmasq.conf' '22 123 /etc/dnsmasq-1.conf' '23 123 /etc/dnsmasq-2.conf'
 	for pid in $(cat "${LIVE}"); do
 		config="$(dnsmasq_process_config "${pid}")" || continue
 		printf '%s 123 %s\n' "${pid}" "${config}"
@@ -47,6 +49,12 @@ dns_socket_snapshot() {
 		printf 'udp 0 0 192.168.%s.1:%s 0.0.0.0:* %s/dnsmasq-sdn\n' "${pid}" "${PORT}" "${pid}"
 	done <"${LIVE}")"
 	DNS_SOCKET_SNAPSHOT_VALID=1
+	if [ "${EXIT_BEFORE_IDENTITY:-0}" = 1 ]; then
+		: >"${LIVE}"
+	elif [ "${EXIT_BEFORE_IDENTITY:-0}" = partial ]; then
+		printf '%s\n' 11 >"${LIVE}"
+		EXIT_BEFORE_IDENTITY=0
+	fi
 }
 service() {
 	printf '%s\n' "service $*" >>"${CALLS}"
@@ -69,6 +77,24 @@ STOP_FAIL=1
 release_dns_port_from_dnsmasq test global || exit 1
 [ ! -s "${LIVE}" ]
 [ "$(grep -c '^kill -s 9' "${CALLS}")" -eq 3 ]
+# Normal exit between netstat and identity inspection must not abort startup.
+printf '%s\n' 11 >"${LIVE}"
+: >"${CALLS}"
+EXIT_BEFORE_IDENTITY=1
+kill_dns_port_owners
+! grep -q '^kill ' "${CALLS}"
+EXIT_BEFORE_IDENTITY=0
+# Retiring one owner must not prevent cleanup of the remaining managed owner.
+printf '%s\n' 11 12 >"${LIVE}"
+EXIT_BEFORE_IDENTITY=partial
+kill_dns_port_owners
+[ ! -s "${LIVE}" ]
+[ "$(grep -c '^kill -s 9' "${CALLS}")" -eq 1 ]
+: >"${CALLS}"
+# An owner that remains but cannot be verified is still refused.
+printf '%s\n' 99 >"${LIVE}"
+if kill_dns_port_owners; then exit 1; else [ "$?" -eq 2 ]; fi
+! grep -q '^kill ' "${CALLS}"
 # PID changes between classification and escalation never receive a signal.
 printf '%s\n' 11 >"${LIVE}"
 : >"${CALLS}"
@@ -88,6 +114,7 @@ disable_dns_handoff() { printf '%s\n' clear-handoff >>"${CALLS}"; }
 log_adguardhome_start_failure() { :; }
 ADGUARDHOME_DNS_HANDOFF_ACTIVE=1
 PORT=553
+HELPERS_FIRST=1
 post_start_adguardhome
 [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-0}" = 0 ]
 MISSING_SDN=1
