@@ -2405,7 +2405,7 @@ configure_runtime_defaults() {
 			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile aggressive."
 			;;
 		upgrade)
-			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
 			case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 				wan | lan) NETCHECK_MODE="${ADGUARD_INSTALL_MODE_DETECTION}" ;;
 				*) NETCHECK_MODE="legacy" ;;

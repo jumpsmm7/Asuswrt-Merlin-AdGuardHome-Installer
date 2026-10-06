@@ -13,3 +13,14 @@ Part 1 of the six-part implementation. Keep changes off master; commit and valid
 - Expected behavior and pending router checks recorded in docs/dns-lifecycle-validation.md.
 
 ---
+
+## TASK-002: Default to refuse-unknown on install and upgrade
+**Priority:** P1 | **Tags:** dns, lifecycle
+
+Part 2 of the six-part implementation. Keep changes off master; commit and validate separately.
+
+### Checkpoint
+
+- Missing install/upgrade policies default to refusal; explicit 0/1 and both CLI selections tested. Upgrade and migration regressions pass. Checksums regenerated.
+
+---

@@ -1,12 +1,12 @@
 # In Progress
 
-## TASK-002: Default to refuse-unknown on install and upgrade
+## TASK-003: Identify managed main and SDN dnsmasq instances
 **Priority:** P1 | **Tags:** dns, lifecycle
 
-Part 2 of the six-part implementation. Keep changes off master; commit and validate separately.
+Part 3 of the six-part implementation. Keep changes off master; commit and validate separately.
 
 ### Plan
 
-- Change missing upgrade policy; preserve explicit choices; validate configuration and CLI cases.
+- Verify process identity and managed configuration paths; enumerate conflicting listeners; test multiple SDN PIDs and unknown owners.
 
 ---

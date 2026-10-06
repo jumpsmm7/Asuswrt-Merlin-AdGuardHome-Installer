@@ -99,7 +99,7 @@ Optional features may require additional Entware packages. For example, the unus
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
-- New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
+- New installs and upgrades without a saved policy refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
 - New installs and legacy-compatible defaults use the full `aggressive` runtime proc/sysctl profile. Users may explicitly select a reduced profile, accepting the router-specific functionality risk. If the runtime script is launched without an installer-managed `.config`, its fallback profile is also `aggressive` when optimization is explicitly enabled.
 
@@ -240,7 +240,7 @@ The `--fix` mode is intentionally limited. It can repair permissions, recreate t
 
 ## Runtime behavior settings
 
-v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values and pin legacy defaults when needed until users choose to migrate. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
+v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values. A missing DNS port-owner policy defaults to `refuse-unknown`; explicitly saved legacy policies remain available. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
 
 To inspect an upgraded install for legacy runtime defaults without changing `.config`, run:
 
