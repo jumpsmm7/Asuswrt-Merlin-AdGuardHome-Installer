@@ -33,6 +33,10 @@ grep -q '^post_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'post-start h
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
 
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS='AdGuardHome'
 WORK_DIR="${TEST_ROOT}/AdGuardHome"
 DNS_HANDOFF_FILE="${TEST_ROOT}/handoff"

@@ -5,6 +5,10 @@ ROOT="$(mktemp -d)"
 trap 'rm -rf "${ROOT}"' EXIT HUP INT TERM
 sed -n '/^dns_port_owner_actions() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^dnsmasq_instances_ready() {$/,/^}$/p; /^wait_for_dnsmasq_instances() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' S99AdGuardHome >"${ROOT}/functions"
 . "${ROOT}/functions"
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS=AdGuardHome
 WORK_DIR="${ROOT}"
 DNS_HANDOFF_FILE="${ROOT}/handoff"

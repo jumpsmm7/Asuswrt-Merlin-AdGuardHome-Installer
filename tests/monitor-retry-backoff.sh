@@ -24,6 +24,10 @@ sed -n \
 
 ADGUARDHOME_BINARY='/bin/sh'
 NAME='S99AdGuardHome'
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS='AdGuardHome'
 MONITOR_STATE='running'
 : >"${CALLS_FILE}"

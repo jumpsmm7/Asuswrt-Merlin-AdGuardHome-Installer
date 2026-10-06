@@ -1831,6 +1831,7 @@ post_start_adguardhome() {
 		fi
 		unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 	fi
+	adguard_local_cache_sync || agh_log WARN post_start_adguardhome "Local Cache deferred; native resolver routing retained."
 	agh_log INFO post_start_adguardhome "AdGuardHome startup completed."
 	return 0
 }
@@ -1839,6 +1840,7 @@ post_start_failure_adguardhome() {
 	_dns_handoff_disabled="0"
 	_dns_recovery_status="0"
 	_dns_restore_needed="0"
+	dnsmasq_resolv_conf_cleanup || _dns_recovery_status="1"
 	agh_log INFO post_start_failure_adguardhome "Running AdGuardHome startup failure recovery."
 	stop_dns_port_guard
 	resume_dns_watchdog
@@ -2057,6 +2059,7 @@ ensure_adguardhome_work_dir_permissions() {
 }
 
 pre_start_adguardhome() {
+	dnsmasq_resolv_conf_cleanup || return 1
 	ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_managed_instances | awk '!seen[$3]++ { print $3 }')"
 	export ADGUARDHOME_DNSMASQ_CONFIGS
 	_dns_stop_attempts="0"

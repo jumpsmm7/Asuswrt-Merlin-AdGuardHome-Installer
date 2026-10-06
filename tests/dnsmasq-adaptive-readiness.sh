@@ -32,6 +32,10 @@ ADGUARDHOME_DNSMASQ_READY_TIMEOUT=4
 [ "$(post_stop_dnsmasq_timeout 0)" -eq 15 ] || fail 'out-of-range dnsmasq timeout override bypassed the adaptive floor'
 unset ADGUARDHOME_DNSMASQ_READY_TIMEOUT
 
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS='AdGuardHome'
 WORK_DIR="${TMP_ROOT}/work"
 MONOTONIC_NOW=100

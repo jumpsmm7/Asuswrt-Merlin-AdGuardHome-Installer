@@ -56,6 +56,10 @@ DEFAULT_ADGUARD_NETCHECK_MODE='wan'
 DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
 DEFAULT_ADGUARD_PROC_PROFILE='aggressive'
 ADGUARDHOME_BINARY=/bin/sh
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS=AdGuardHome
 
 agh_log() {

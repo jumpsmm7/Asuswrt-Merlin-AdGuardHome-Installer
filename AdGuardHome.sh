@@ -973,6 +973,58 @@ dnsmasq_resolv_conf_cleanup() {
 	}; fi
 }
 
+# Router resolver switching is optional and follows DNS readiness, never postconf.
+adguard_local_cache_ready() {
+	local ADGUARDHOME_DNSMASQ_CONFIGS config index capability
+	ADGUARDHOME_DNSMASQ_CONFIGS=""
+	dns_handoff_is_active && return 1
+	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || return 1
+	# ROM resolver routing uses loopback, so verify the actual loopback path.
+	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || return 1
+	if agh_dnsmasq_managed; then
+		[ -f /etc/dnsmasq.conf ] || return 1
+		ADGUARDHOME_DNSMASQ_CONFIGS="/etc/dnsmasq.conf"
+		capability="$(nvram get rc_support 2>/dev/null)"
+		case " ${capability} " in
+			*" mtlancfg "*)
+				for config in /etc/dnsmasq-[0-9]*.conf; do
+					[ -f "${config}" ] || continue
+					index="${config#/etc/dnsmasq-}"
+					index="${index%.conf}"
+					case "${index}" in "" | *[!0-9]*) continue ;; esac
+					[ -n "$(sdn_bridge_for_index "${index}")" ] || continue
+					ADGUARDHOME_DNSMASQ_CONFIGS="${ADGUARDHOME_DNSMASQ_CONFIGS} ${config}"
+				done
+				;;
+		esac
+	fi
+	dnsmasq_instances_ready 553
+}
+
+adguard_local_cache_sync() {
+	if [ "${CONFIG_LOCAL:-NO}" != YES ]; then
+		dnsmasq_resolv_conf_cleanup
+		return "$?"
+	fi
+	# A ROM-backed resolver is already firmware-managed and cannot be switched.
+	resolv_conf_uses_rom && return 0
+	if ! adguard_local_cache_ready; then
+		dnsmasq_resolv_conf_cleanup || return 1
+		return 1
+	fi
+	resolv_conf_is_tmp_mount && return 0
+	if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
+		agh_log warning adguard_local_cache_sync "state=cache action=bind_resolver result=failed native_resolver_retained=1"
+		return 1
+	fi
+	# Recheck after the switch; a concurrent restart must leave native routing.
+	if ! adguard_local_cache_ready; then
+		dnsmasq_resolv_conf_cleanup || return 1
+		return 1
+	fi
+	return 0
+}
+
 # dnsmasq_ipset_state_cleanup_stage_path removes one ownership-validated private snapshot stage.
 dnsmasq_ipset_state_cleanup_stage_path() {
 	local CURRENT_UID PATH_METADATA SNAPSHOT_STAGE STAGE_MODE STAGE_OWNER
@@ -1634,11 +1686,7 @@ dnsmasq_params() {
 	IPSET_REFRESH_FROM_DNSMASQ="1"
 	IPSET_SNAPSHOT_DIR="${WORK_DIR}/.AdGuardHome.dnsmasq-ipset.$$"
 	dnsmasq_publish_staged_config "${CONFIG_FILE}" "${CONFIG_STAGE}" "${IPSET_SNAPSHOT_DIR}" || return 1
-	if { ! resolv_conf_uses_rom && [ "${CONFIG_LOCAL:-NO}" = "YES" ]; }; then {
-		if ! mount -o bind /rom/etc/resolv.conf /tmp/resolv.conf; then
-			agh_log warning dnsmasq_params "state=committed action=bind_resolver result=failed source=/rom/etc/resolv.conf target=/tmp/resolv.conf"
-		fi
-	}; fi
+
 	return 0
 }
 
@@ -3036,6 +3084,8 @@ start_monitor() {
 	agh_log info start_monitor "state=${MONITOR_STATE} action=start_monitor reason=init result=started"
 	agh_log info start_monitor "state=${MONITOR_STATE} action=configure_healthcheck reason=init result=enabled interval=${MONITOR_HEALTHCHECK_INTERVAL}"
 	while true; do
+		# Postconf restores native routing. Retry cache only after replacements answer.
+		adguard_local_cache_sync || true
 		case "${MONITOR_STATE}" in
 			"running" | "stop")
 				check_dns_environment "${MONITOR_STATE}"
@@ -3244,6 +3294,7 @@ post_stop_dnsmasq_ready() {
 stop_adguardhome() {
 	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
 	STOP_STATUS="0"
+	dnsmasq_resolv_conf_cleanup || STOP_STATUS="1"
 	DNSMASQ_WAS_MANAGED="0"
 	DNSMASQ_RESTART_ELAPSED="0"
 	if adguard_dnsmasq_managed; then
@@ -4599,7 +4650,7 @@ IPSet_Supported() {
 case "${1:-}" in
 	status) CONFIG_LOAD_SCOPE="status" ;;
 	stop | kill | services-stop | proc-restore) CONFIG_LOAD_SCOPE="stop" ;;
-	dnsmasq | dnsmasq-sdn) CONFIG_LOAD_SCOPE="dnsmasq" ;;
+	dnsmasq | dnsmasq-sdn | local-cache) CONFIG_LOAD_SCOPE="dnsmasq" ;;
 	firewall) CONFIG_LOAD_SCOPE="firewall" ;;
 	*) CONFIG_LOAD_SCOPE="action" ;;
 esac
@@ -4646,6 +4697,9 @@ case "$1" in
 		;;
 	"stop" | "kill")
 		{ "${SCRIPT_LOC}" services-stop >/dev/null 2>&1; }
+		;;
+	"local-cache")
+		adguard_local_cache_sync
 		;;
 	"dnsmasq" | "dnsmasq-sdn")
 		dnsmasq_action_handler "${2:-}"

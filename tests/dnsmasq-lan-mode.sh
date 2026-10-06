@@ -839,7 +839,7 @@ dnsmasq_action_handler || fail 'mtlancfg bridge DNS skip path failed'
 ! grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'mtlancfg rc_support unexpectedly wrote a secondary bridge dhcp-option'
 
-# A failed post-publication resolver bind is reported without changing the
+# Resolver switching is deferred beyond postconf, preserving the
 # successful dnsmasq/IPSET transaction result.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
@@ -847,9 +847,8 @@ DNSMASQ_RUNNING='1'
 CONFIG_LOCAL='YES'
 RESOLV_CONF_USES_ROM='0'
 MOUNT_FAIL='1'
-dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed after resolver bind failure'
-grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
-grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
+dnsmasq_action_handler || fail 'Local Cache preference broke postconf publication'
+[ ! -s "${MOUNT_CALLS_FILE}" ] || fail 'postconf switched the resolver before replacement services were ready'
 
 # Restoration must reload a process that appears after the captured stopped
 # state so it consumes the rolled-back files.

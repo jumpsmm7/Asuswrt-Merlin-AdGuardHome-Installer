@@ -1,12 +1,12 @@
 # In Progress
 
-## TASK-005: Defer Local Cache until DNS readiness
+## TASK-006: Validate integration and prepare release documentation
 **Priority:** P1 | **Tags:** dns, lifecycle
 
-Part 5 of the six-part implementation. Keep changes off master; commit and validate separately.
+Part 6 of the six-part implementation. Keep changes off master; commit and validate separately.
 
 ### Plan
 
-- Keep saved preference; move resolver changes behind service readiness; restore on stop/failure; test lifecycle and switch failures.
+- Run combined regressions and syntax/checksum checks; document router acceptance matrix and outstanding hardware checks.
 
 ---

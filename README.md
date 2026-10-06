@@ -370,6 +370,12 @@ sh installer dns-port-policy --policy legacy
 
 This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
+### AdGuardHome Local Cache
+
+Menu option 6 saves whether AdGuardHome should serve the router's own DNS requests (`ADGUARD_LOCAL="YES"` or `"NO"`). Enabling it no longer switches the resolver inside a dnsmasq configuration hook. The switch follows AdGuardHome DNS ownership, a successful loopback query, and main/enabled SDN dnsmasq readiness on port 553. During a handoff, failed startup, or shutdown, native resolver routing is restored.
+
+The monitor retries deferred activation after dnsmasq restarts. A saved preference is loaded at the next configuration healthcheck; menu changes also request an immediate readiness-checked application. A resolver bind failure keeps AdGuardHome running with native router DNS and logs the deferred cache state. Firmware whose resolver is already ROM-backed retains firmware-managed routing.
+
 ### Runtime optimization profile
 
 New installs and the legacy-compatible runtime fallback use the full aggressive proc/sysctl profile by default to preserve functionality across supported Asuswrt-Merlin routers:

@@ -78,6 +78,10 @@ if grep -q "^trap 'on_installer_exit' EXIT$" "${MANAGER_DNSMASQ_FUNCTIONS}"; the
 fi
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS=AdGuardHome
 pidof() { return 1; }
 agh_log() { :; }

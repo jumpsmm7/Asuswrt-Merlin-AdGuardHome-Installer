@@ -9733,7 +9733,11 @@ menu() {
 					end_op_message 1
 					return 1
 				fi
-				PTXT "${INFO} For best results, please reboot the router after making these changes."
+				if [ -x "${TARG_DIR}/AdGuardHome.sh" ]; then
+					"${TARG_DIR}/AdGuardHome.sh" local-cache x >/dev/null 2>&1 ||
+						PTXT "${INFO} Preference saved; Local Cache activation is deferred until DNS services are ready."
+				fi
+				PTXT "${INFO} Local Cache is applied after AdGuardHome and dnsmasq are ready; the monitor retries after service restarts."
 				end_op_message 0
 			else
 				PTXT "${INFO} The router's own nvram built-in dns local caching feature is enabled." \
