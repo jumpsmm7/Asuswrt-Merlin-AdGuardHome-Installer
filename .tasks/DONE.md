@@ -35,3 +35,14 @@ Part 3 of the six-part implementation. Keep changes off master; commit and valid
 - Read-only managed detection tests pass under BusyBox ash: main and multiple SDN PIDs, alternate display names, duplicate sockets, unknown/stale PIDs, unsupported firmware, foreign configs, scoped listeners and symlinks. Runtime syntax passes.
 
 ---
+
+## TASK-004: Coordinate DNS handoff and recovery
+**Priority:** P1 | **Tags:** dns, lifecycle
+
+Part 4 of the six-part implementation. Keep changes off master; commit and validate separately.
+
+### Checkpoint
+
+- Managed owner escalation revalidates PID/config identity; replacement main and SDN listeners are checked with bounded retries. Multi-SDN lifecycle, existing handoff, WAN/LAN lifecycle, netstat, dnsmasq publication and permission tests pass under BusyBox 1.30. Firmware ALL_SDN dispatch documented; hardware checks remain pending.
+
+---

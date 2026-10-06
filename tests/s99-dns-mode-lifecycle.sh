@@ -24,7 +24,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TEST_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
+	'/^agh_conf_value() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p; /^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$/,/^}$/p; /^dnsmasq_managed_instances() {$/,/^}$/p; /^dns_port_owner_actions() {$/,/^}$/p; /^dnsmasq_instances_ready() {$/,/^}$/p; /^wait_for_dnsmasq_instances() {$/,/^}$/p;  /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${S99_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'S99 DNS lifecycle functions were not found'
 grep -q '^pre_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'pre-start helper was not found'
