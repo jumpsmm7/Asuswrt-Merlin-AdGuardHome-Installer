@@ -428,7 +428,7 @@ ${_TRAP_STATE}"
 				record = ""
 			}
 			{
-				record = record (record == "" ? "" : "\n") $0
+				record = sprintf("%s%s%s", record, (record == "" ? "" : "\n"), $0)
 				single = 0
 				double = 0
 				for (i = 1; i <= length(record); i++) {
