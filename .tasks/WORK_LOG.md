@@ -8,3 +8,5 @@
 - TASK-006: 41 relevant regressions pass; 157 BusyBox ash syntax checks and complete artifact MD5/SHA-256 verification pass. New tests added to CI; recovery ordering corrected; release notes and acceptance matrix documented. Hardware testing explicitly skipped by user and remains unverified.
 
 - TASK-007: Independent readiness review corrected dnsmasq helper/stale-owner handling and Local Cache preference/serialization/restart races. 44 relevant regressions, 158 BusyBox syntax checks, 158 ShellCheck warning checks, artifact checksums and checksum formatting pass locally. Hardware checks remain skipped by user; master remains unchanged.
+
+- TASK-008: Corrected PR #1030's obsolete legacy-default assertion, registered all five new regressions, synchronized the Amazon Q guardrails, and verified fixes for seven Qodo and two CodeRabbit findings. Complete root Docker code-quality validation, targeted BusyBox ash checks, ShellCheck, formatting and regenerated checksums pass. Review resolution follows Qodo's round-of-record workflow on PR #1030; hardware checks remain skipped and the user retains merge ownership.

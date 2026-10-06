@@ -1,6 +1,20 @@
 # Done
 
+## TASK-008: Resolve PR 1030 CI failures and agent review threads
+
+**Priority:** P1 | **Tags:** dns, lifecycle, ci
+
+### Checkpoint
+
+- The missing upgrade policy regression expects `refuse-unknown`; explicit `legacy` and `refuse-unknown` values are preserved. All five new tests run in the canonical quality suite, and Amazon Q guardrails mirror the canonical file.
+- Seven Qodo findings and two CodeRabbit findings were verified against the current code. Confirmed resolver/lock/readiness defects were fixed, and intentional expansion was documented. Required SDN configurations include files created during firmware restart.
+- The complete root Docker code-quality runner passes, including lifecycle integration, foreign-owner security fixtures, ShellCheck, formatting and checksums. Focused BusyBox ash tests and syntax checks pass. Qodo's summary, evidence replies and thread resolution are tracked on PR #1030.
+- Hardware validation remains skipped as requested. Changes stay off master and the user retains PR merge ownership.
+
+---
+
 ## TASK-007: Review and validate final DNS lifecycle readiness
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 ### Checkpoint
@@ -12,6 +26,7 @@
 ---
 
 ## TASK-001: Establish DNS lifecycle baseline
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 1 of the six-part implementation. Keep changes off master; commit and validate separately.
@@ -26,6 +41,7 @@ Part 1 of the six-part implementation. Keep changes off master; commit and valid
 ---
 
 ## TASK-002: Default to refuse-unknown on install and upgrade
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 2 of the six-part implementation. Keep changes off master; commit and validate separately.
@@ -37,6 +53,7 @@ Part 2 of the six-part implementation. Keep changes off master; commit and valid
 ---
 
 ## TASK-003: Identify managed main and SDN dnsmasq instances
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 3 of the six-part implementation. Keep changes off master; commit and validate separately.
@@ -48,6 +65,7 @@ Part 3 of the six-part implementation. Keep changes off master; commit and valid
 ---
 
 ## TASK-004: Coordinate DNS handoff and recovery
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 4 of the six-part implementation. Keep changes off master; commit and validate separately.
@@ -59,6 +77,7 @@ Part 4 of the six-part implementation. Keep changes off master; commit and valid
 ---
 
 ## TASK-005: Defer Local Cache until DNS readiness
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 5 of the six-part implementation. Keep changes off master; commit and validate separately.
@@ -70,6 +89,7 @@ Part 5 of the six-part implementation. Keep changes off master; commit and valid
 ---
 
 ## TASK-006: Validate integration and prepare release documentation
+
 **Priority:** P1 | **Tags:** dns, lifecycle
 
 Part 6 of the six-part implementation. Keep changes off master; commit and validate separately.
