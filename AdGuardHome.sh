@@ -990,6 +990,7 @@ adguard_local_cache_ready() {
 	ADGUARDHOME_DNSMASQ_CONFIGS=""
 	dns_handoff_is_active && return 1
 	# A manager start/stop operation must finish before routing through AGH.
+	adguardhome_run_flock_active && return 1
 	adguardhome_run_legacy_mkdir_active && return 1
 	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || return 1
 	# ROM resolver routing uses loopback, so verify the actual loopback path.
