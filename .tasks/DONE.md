@@ -7,7 +7,7 @@
 ### Checkpoint
 
 - The missing upgrade policy regression expects `refuse-unknown`; explicit `legacy` and `refuse-unknown` values are preserved. All five new tests run in the canonical quality suite, and Amazon Q guardrails mirror the canonical file.
-- Seven Qodo findings and two CodeRabbit findings were verified against the current code. Confirmed resolver/lock/readiness defects were fixed, and intentional expansion was documented. Required SDN configurations include files created during firmware restart.
+- Seven Qodo findings and three CodeRabbit findings were verified against the current code. Confirmed resolver/lock/readiness defects were fixed, intentional expansion was documented, and the serialization fixture allows bounded scheduling delay on busy CI. Required SDN configurations include files created during firmware restart.
 - The complete root Docker code-quality runner passes, including lifecycle integration, foreign-owner security fixtures, ShellCheck, formatting and checksums. Focused BusyBox ash tests and syntax checks pass. Qodo's summary, evidence replies and thread resolution are tracked on PR #1030.
 - Hardware validation remains skipped as requested. Changes stay off master and the user retains PR merge ownership.
 

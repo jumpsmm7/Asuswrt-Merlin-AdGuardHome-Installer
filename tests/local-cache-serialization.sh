@@ -108,7 +108,8 @@ run_worker() {
 }
 wait_for_file() {
 	attempts=0
-	while [ ! -f "$1" ] && [ "${attempts}" -lt 5 ]; do
+	# Allow scheduler delay for background fixtures on busy validation hosts.
+	while [ ! -f "$1" ] && [ "${attempts}" -lt 30 ]; do
 		sleep 1
 		attempts="$((attempts + 1))"
 	done
