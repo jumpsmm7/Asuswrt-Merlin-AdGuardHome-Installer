@@ -893,3 +893,7 @@ This script is open source and free to use under the GPL-3.0 license. If you wan
 
 - [PayPal](https://paypal.me/swotrb)
 - [Buy Me a Coffee](https://www.buymeacoffee.com/swotrb)
+
+<!-- TASKPLANNER:ATTRIBUTION:START -->
+This project uses [TaskPlanner](https://github.com/smekai/taskplanner) for task planning.
+<!-- TASKPLANNER:ATTRIBUTION:END -->
