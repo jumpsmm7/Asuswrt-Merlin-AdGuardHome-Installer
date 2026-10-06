@@ -968,6 +968,17 @@ dns_handoff_is_active() {
 
 # dnsmasq_resolv_conf_cleanup removes the temporary `/tmp/resolv.conf` mount when `/etc/resolv.conf` does not use the ROM-backed file.
 dnsmasq_resolv_conf_cleanup() {
+	adguard_local_cache_lock dnsmasq_resolv_conf_cleanup_locked
+}
+
+# Reuse the bounded flock/mkdir implementation with a separate resolver lock.
+# It executes in a subshell, keeping refreshed configuration local to this action.
+adguard_local_cache_lock() {
+	local PROC_LOCK_DIR="${WORK_DIR}/local-cache-lock" PROC_LOCK_FILE="${WORK_DIR}/local-cache.lock"
+	proc_lock_run "$@"
+}
+
+dnsmasq_resolv_conf_cleanup_locked() {
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
 	}; fi
@@ -978,6 +989,8 @@ adguard_local_cache_ready() {
 	local ADGUARDHOME_DNSMASQ_CONFIGS config index capability
 	ADGUARDHOME_DNSMASQ_CONFIGS=""
 	dns_handoff_is_active && return 1
+	# A manager start/stop operation must finish before routing through AGH.
+	adguardhome_run_legacy_mkdir_active && return 1
 	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || return 1
 	# ROM resolver routing uses loopback, so verify the actual loopback path.
 	nslookup localhost 127.0.0.1 >/dev/null 2>&1 || return 1
@@ -1002,14 +1015,23 @@ adguard_local_cache_ready() {
 }
 
 adguard_local_cache_sync() {
+	adguard_local_cache_lock adguard_local_cache_sync_locked
+}
+
+adguard_local_cache_sync_locked() {
+	# Read the saved preference inside the lock: monitor snapshots may be old.
+	if ! load_operation_config dnsmasq; then
+		dnsmasq_resolv_conf_cleanup_locked || return 1
+		return 1
+	fi
 	if [ "${CONFIG_LOCAL:-NO}" != YES ]; then
-		dnsmasq_resolv_conf_cleanup
+		dnsmasq_resolv_conf_cleanup_locked
 		return "$?"
 	fi
 	# A ROM-backed resolver is already firmware-managed and cannot be switched.
 	resolv_conf_uses_rom && return 0
 	if ! adguard_local_cache_ready; then
-		dnsmasq_resolv_conf_cleanup || return 1
+		dnsmasq_resolv_conf_cleanup_locked || return 1
 		return 1
 	fi
 	resolv_conf_is_tmp_mount && return 0
@@ -1019,7 +1041,7 @@ adguard_local_cache_sync() {
 	fi
 	# Recheck after the switch; a concurrent restart must leave native routing.
 	if ! adguard_local_cache_ready; then
-		dnsmasq_resolv_conf_cleanup || return 1
+		dnsmasq_resolv_conf_cleanup_locked || return 1
 		return 1
 	fi
 	return 0
@@ -2915,6 +2937,12 @@ netcheck_lan_dns() {
 # lower_script delegates a service command to the lower-level service script.
 
 lower_script() {
+	case "$1" in
+		stop | restart | kill)
+			# Restore native resolution before the daemon receives any stop signal.
+			dnsmasq_resolv_conf_cleanup || return 1
+			;;
+	esac
 	case "$1" in
 		*)
 			${LOWER_SCRIPT_LOC} "$1" "${NAME}"

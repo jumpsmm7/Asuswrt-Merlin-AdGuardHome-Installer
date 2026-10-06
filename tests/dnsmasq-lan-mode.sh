@@ -50,6 +50,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 {
 	sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p' "${SCRIPT_PATH}"
+	sed -n '/^proc_process_start_time() {$/,/^proc_restore_ipv6() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^have_cmd() {$/,/^}$/p; /^flock_supports_fd() {$/,/^}$/p' "${SCRIPT_PATH}"
 } >"${FUNCTIONS_FILE}" || fail 'could not extract dnsmasq helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'dnsmasq helper extraction was empty'
 # Keep the extracted postconf helper inside the test sandbox instead of touching router paths.

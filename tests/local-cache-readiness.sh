@@ -7,12 +7,16 @@ mkdir -p "${ROOT}/etc"
 : >"${ROOT}/etc/dnsmasq.conf"
 : >"${ROOT}/etc/dnsmasq-1.conf"
 : >"${ROOT}/etc/dnsmasq-2.conf"
-sed -n '/^adguard_local_cache_ready() {$/,/^}$/p; /^adguard_local_cache_sync() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup() {$/,/^}$/p' AdGuardHome.sh |
+sed -n '/^adguard_local_cache_ready() {$/,/^}$/p; /^adguard_local_cache_sync() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup_locked() {$/,/^}$/p; /^adguard_local_cache_sync_locked() {$/,/^}$/p' AdGuardHome.sh |
 	sed 's|/etc/dnsmasq|${ROOT}/etc/dnsmasq|g' >"${ROOT}/functions"
 . "${ROOT}/functions"
 CALLS="${ROOT}/calls"
 : >"${CALLS}"
 CONFIG_LOCAL=YES
+# Cross-process locking and persisted preference are covered by serialization test.
+adguard_local_cache_lock() { "$@"; }
+load_operation_config() { :; }
+adguardhome_run_legacy_mkdir_active() { [ "${SERVICE_ACTIVE:-0}" = 1 ]; }
 MOUNTED=0
 HANDOFF=1
 DNS_READY=0
@@ -59,6 +63,10 @@ LOOKUP_READY=1
 if adguard_local_cache_sync; then exit 1; fi
 ! grep -q '^mount ' "${CALLS}"
 SDN_READY=1
+SERVICE_ACTIVE=1
+if adguard_local_cache_sync; then exit 1; fi
+[ "${MOUNTED}" = 0 ]
+SERVICE_ACTIVE=0
 adguard_local_cache_sync
 [ "${MOUNTED}" = 1 ]
 adguard_local_cache_sync

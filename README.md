@@ -362,7 +362,7 @@ ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
 
 `ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
 
-Managed main and SDN dnsmasq survivors are identified by their stock executable and configuration paths, including independent SDN PIDs. The firmware service commands cover all SDNs; installer escalation rechecks each managed PID before signaling it. After startup, every previously managed instance must expose TCP and UDP DNS on port 553. Failure recovery verifies restored listeners on port 53. Unknown or unavailable identity remains subject to the selected refusal policy.
+Managed main and SDN dnsmasq survivors are identified by their stock executable and configuration paths, including independent SDN PIDs. The firmware service commands cover all SDNs; installer escalation rechecks each managed PID before signaling it. After startup, every previously managed configuration must have a dnsmasq process exposing TCP and UDP DNS on port 553; DHCP script helpers are not treated as DNS listeners. Failure recovery verifies restored listeners on port 53. Unknown or unavailable identity remains subject to the selected refusal policy.
 
 To restore the legacy cleanup policy, run:
 
@@ -376,7 +376,7 @@ This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
 
 Menu option 6 saves whether AdGuardHome should serve the router's own DNS requests (`ADGUARD_LOCAL="YES"` or `"NO"`). Enabling it no longer switches the resolver inside a dnsmasq configuration hook. The switch follows AdGuardHome DNS ownership, a successful loopback query, and main/enabled SDN dnsmasq readiness on port 553. During a handoff, failed startup, or shutdown, native resolver routing is restored.
 
-The monitor retries deferred activation after dnsmasq restarts. A saved preference is loaded at the next configuration healthcheck; menu changes also request an immediate readiness-checked application. A resolver bind failure keeps AdGuardHome running with native router DNS and logs the deferred cache state. Firmware whose resolver is already ROM-backed retains firmware-managed routing.
+The monitor retries deferred activation after dnsmasq restarts. The saved preference is read on each cache synchronization; menu changes also request an immediate readiness-checked application. Resolver changes are serialized, and activation waits until any manager start/stop operation completes. Native routing is restored before AdGuardHome receives stop or restart signals. A resolver bind failure keeps AdGuardHome running with native router DNS and logs the deferred cache state. Firmware whose resolver is already ROM-backed retains firmware-managed routing.
 
 ### Runtime optimization profile
 

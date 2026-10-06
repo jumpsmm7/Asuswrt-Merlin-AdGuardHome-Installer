@@ -1,5 +1,16 @@
 # Done
 
+## TASK-007: Review and validate final DNS lifecycle readiness
+**Priority:** P1 | **Tags:** dns, lifecycle
+
+### Checkpoint
+
+- Independent review found and fixed helper-PID readiness, exiting-owner reconciliation, stale Local Cache preferences, concurrent resolver mounts and cleanup ordering before stop/restart.
+- 44 relevant regressions pass, including both resolver lock backends and the reused process-lock/IPSET paths. All 158 shell scripts pass BusyBox ash syntax and ShellCheck warning checks. Artifact checksum verification and checksum-format checks pass.
+- Documentation states the refuse-unknown default and current cache lifecycle. Changes remain on the development branch; hardware validation remains explicitly skipped and unverified. GitHub Actions has not been run for this branch.
+
+---
+
 ## TASK-001: Establish DNS lifecycle baseline
 **Priority:** P1 | **Tags:** dns, lifecycle
 

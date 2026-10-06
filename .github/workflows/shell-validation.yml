@@ -71,6 +71,7 @@ jobs:
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-managed-detection.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/dnsmasq-sdn-lifecycle.sh
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/local-cache-readiness.sh
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/local-cache-serialization.sh
 
       - name: Run installer jq dependency regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-jq-helper.sh
