@@ -980,6 +980,8 @@ adguard_local_cache_lock() {
 	proc_lock_run "$@"
 }
 
+# dnsmasq_resolv_conf_cleanup_locked restores native resolver routing when needed.
+# The caller holds the resolver lock; an unmount failure is returned to the caller.
 dnsmasq_resolv_conf_cleanup_locked() {
 	if { ! resolv_conf_uses_rom && resolv_conf_is_tmp_mount; }; then {
 		umount /tmp/resolv.conf 2>/dev/null
@@ -1031,6 +1033,10 @@ adguard_local_cache_ready() {
 	dnsmasq_instances_ready 553
 }
 
+# adguard_local_cache_sync reconciles the saved Local Cache preference and routing.
+# Optional $1=verify forces a full readiness probe even for an active cache.
+# Blocking DNS probes run outside the resolver lock; failed readiness restores
+# native routing and returns nonzero, while activation rechecks under the lock.
 adguard_local_cache_sync() {
 	local status
 	# DNS queries may wait for a timeout; never keep shutdown's resolver lock
@@ -1048,6 +1054,10 @@ adguard_local_cache_sync() {
 	adguard_local_cache_lock adguard_local_cache_sync_locked activate
 }
 
+# adguard_local_cache_sync_locked reloads preferences and updates the resolver
+# while the caller holds the resolver lock. $1 is check (default), verify, or
+# activate. Returns 0 on success, 2 to request an unlocked readiness probe, and
+# 1 on configuration, readiness, mount, or cleanup failure.
 adguard_local_cache_sync_locked() {
 	# Read the saved preference inside the lock: monitor snapshots may be old.
 	if ! load_operation_config dnsmasq; then

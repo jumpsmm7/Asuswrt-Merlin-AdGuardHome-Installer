@@ -750,6 +750,9 @@ dnsmasq_instances_ready() {
 	return 0
 }
 
+# wait_for_dnsmasq_instances waits for every required main/SDN listener on port $1.
+# Refreshes ADGUARDHOME_DNSMASQ_CONFIGS during managed handoff and returns 1 if
+# inventory capture fails or ADGUARDHOME_DNSMASQ_READY_RETRIES is exhausted.
 wait_for_dnsmasq_instances() {
 	local port attempts limit
 	port="$1"
@@ -1227,6 +1230,8 @@ dnsmasq_process_config() {
 	printf '%s\n' "${config}"
 }
 
+# dnsmasq_process_start_time prints the procfs start time for PID $1 to detect
+# PID reuse; returns 1 when the PID or its start time cannot be validated.
 dnsmasq_process_start_time() {
 	local pid start
 	pid="${1:-}"
@@ -1300,6 +1305,8 @@ dns_port_owner_actions() {
 	done
 }
 
+# dns_port_unknown_refusal_enabled returns 0 when unknown DNS owners must be
+# preserved, using the environment override, saved policy, then safe default.
 dns_port_unknown_refusal_enabled() {
 	_dns_refuse_unknown="${ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL:-}"
 	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then
@@ -1312,6 +1319,10 @@ dns_port_unknown_refusal_enabled() {
 	esac
 }
 
+# kill_dns_port_owners refreshes port 53 owners for the bind scope in $1 (global
+# by default), revalidates managed identities, and sends SIGKILL when policy allows.
+# Returns 0 on completed cleanup, 1 on signaling failure, 2 on refused unknown
+# owners, or 3 when socket ownership cannot be determined reliably.
 kill_dns_port_owners() {
 	_dns_port_scope="${1:-global}"
 	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
@@ -1849,6 +1860,9 @@ abort_pre_start_adguardhome() {
 	exit 1
 }
 
+# post_start_adguardhome verifies AdGuardHome startup, resumes the DNS watchdog,
+# and completes an active dnsmasq handoff after required replacement listeners
+# are ready. Returns nonzero on startup/handoff failure; Local Cache is optional.
 post_start_adguardhome() {
 	agh_log INFO post_start_adguardhome "AdGuardHome process started; waiting for DNS readiness."
 	if ! wait_for_adguardhome_dns; then
@@ -1888,6 +1902,9 @@ post_start_adguardhome() {
 	return 0
 }
 
+# post_start_failure_adguardhome restores native resolution and dnsmasq after
+# the failed daemon has stopped. Returns nonzero on resolver/handoff cleanup or
+# recovery failure, retaining active handoff state when recovery is incomplete.
 post_start_failure_adguardhome() {
 	_dns_handoff_disabled="0"
 	_dns_recovery_status="0"
@@ -2110,6 +2127,10 @@ ensure_adguardhome_work_dir_permissions() {
 	return 0
 }
 
+# pre_start_adguardhome validates configuration and permissions, records required
+# main/SDN instances, and prepares DNS handoff with a temporary port guard.
+# Returns 0 only when startup may proceed; failed preparation returns nonzero
+# and invokes DNS recovery where the handoff has already changed router state.
 pre_start_adguardhome() {
 	dnsmasq_resolv_conf_cleanup || return 1
 	ADGUARDHOME_DNSMASQ_CONFIGS=""

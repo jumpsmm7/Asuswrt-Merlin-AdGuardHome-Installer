@@ -35,10 +35,12 @@ grep -q '^post_start_adguardhome() {$' "${FUNCTIONS_FILE}" || fail 'post-start h
 
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
 dnsmasq_resolv_conf_cleanup() { :; }
 # Replacement listener readiness is exercised in dnsmasq-sdn-lifecycle.sh.
 # These mode fixtures intentionally start with no recognized original PIDs.
 dnsmasq_managed_instances() { :; }
+# wait_for_dnsmasq_instances accepts replacement readiness, which is covered by the separate SDN fixture.
 wait_for_dnsmasq_instances() { :; }
 # Isolate firmware capabilities; SDN config traversal has its own fixture.
 nvram() { printf '%s\n' ''; }
@@ -270,6 +272,7 @@ run_case 'LAN mode with dnsmasq disabled but running' lan 1 192.168.50.1 1 0 0 d
 # Failed expected-config capture must abort before any handoff mutation.
 (
 	: >"${CALLS_FILE}"
+	# dnsmasq_handoff_configs injects inventory capture failure to verify startup aborts before handoff changes.
 	dnsmasq_handoff_configs() { return 1; }
 	if pre_start_adguardhome; then fail 'failed expected-config capture allowed startup'; fi
 	! grep -q '^enable_dns_handoff$' "${CALLS_FILE}" || fail 'failed config capture prepared handoff'

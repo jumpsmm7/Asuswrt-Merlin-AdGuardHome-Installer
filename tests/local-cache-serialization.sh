@@ -19,14 +19,22 @@ NAME=cache-test
 PROCS=cache-test
 # Shorten only the lock retry delays for deterministic contention fixtures.
 if [ -f "${WORK_DIR}/fast-lock-retries" ]; then
+	# which advertises the fast usleep stub and delegates other command lookups to the host.
 	which() { [ "${1:-}" != usleep ] || return 0; command which "$@"; }
+	# usleep shortens lock retry delays to 10 milliseconds on the validation host.
 	usleep() { command sleep 0.01; }
 fi
+# pidof reports the simulated daemon running unless an unready marker exists.
 pidof() { [ ! -f "${WORK_DIR}/unready" ]; }
+# dns_handoff_is_active reports no DNS handoff so the fixture can isolate service locking.
 dns_handoff_is_active() { return 1; }
+# agh_log suppresses worker diagnostics while actions are recorded separately.
 agh_log() { :; }
+# resolv_conf_uses_rom selects a mutable native resolver for the mount simulation.
 resolv_conf_uses_rom() { return 1; }
+# resolv_conf_is_tmp_mount reads the shared mounted marker so workers observe the same resolver state.
 resolv_conf_is_tmp_mount() { [ -f "${WORK_DIR}/mounted" ]; }
+# adguard_local_cache_ready rejects active service operations or unready state and can block a lookup until released.
 adguard_local_cache_ready() {
 	adguard_local_cache_service_active && return 1
 	[ ! -f "${WORK_DIR}/unready" ] || return 1
@@ -36,18 +44,22 @@ adguard_local_cache_ready() {
 	fi
 	[ ! -f "${WORK_DIR}/unready" ]
 }
+# mount records activation and delays publishing the mounted marker to expose concurrent binds.
 mount() {
 	printf '%s\n' mount >>"${WORK_DIR}/calls"
 	# Keep the window open so two unlocked workers would both bind.
 	sleep 1
 	: >"${WORK_DIR}/mounted"
 }
+# umount removes the shared mounted marker unless the fixture requests cleanup failure.
 umount() {
 	[ ! -f "${WORK_DIR}/unmount-fail" ] || return 1
 	printf '%s\n' umount >>"${WORK_DIR}/calls"
 	rm -f "${WORK_DIR}/mounted"
 }
+# timezone skips router timezone setup in the extracted worker runtime.
 timezone() { :; }
+# nvram returns a ready firmware value for service startup polling.
 nvram() { printf '%s\n' 1; }
 # Keep firmware readiness polling fast in the real detached run-lock fixture.
 sleep() {
@@ -56,14 +68,17 @@ sleep() {
 		*) command sleep "$@" ;;
 	esac
 }
+# hold_resolver signals lock entry and waits for the test to release the resolver lock holder.
 hold_resolver() {
 	: >"${WORK_DIR}/resolver-entered"
 	while [ ! -f "${WORK_DIR}/resolver-release" ]; do sleep 1; done
 }
+# cache_service_action signals detached service entry and waits for the release marker.
 cache_service_action() {
 	: >"${WORK_DIR}/detached-service-entered"
 	while [ ! -f "${WORK_DIR}/detached-service-release" ]; do sleep 1; done
 }
+# mock_lower requires native routing before recording a service action and can invalidate an in-flight lookup.
 mock_lower() {
 	[ ! -f "${WORK_DIR}/mounted" ] || return 1
 	printf 'lower %s\n' "$1" >>"${WORK_DIR}/calls"
@@ -100,12 +115,14 @@ case "$3" in
 esac
 EOF_WORKER
 SHELL_BIN="$(readlink "/proc/$$/exe")"
+# run_worker runs the requested fixture action using the current shell, including BusyBox ash dispatch.
 run_worker() {
 	case "${SHELL_BIN##*/}" in
 		busybox*) "${SHELL_BIN}" ash "${ROOT}/worker" "${ROOT}" "$@" ;;
 		*) "${SHELL_BIN}" "${ROOT}/worker" "${ROOT}" "$@" ;;
 	esac
 }
+# wait_for_file waits up to 30 polling intervals for path $1 and fails if it never appears.
 wait_for_file() {
 	attempts=0
 	# Allow scheduler delay for background fixtures on busy validation hosts.

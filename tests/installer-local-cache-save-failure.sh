@@ -86,6 +86,7 @@ for ANSWER in yes no; do
 		: >"${LOG}"
 		: >"${END_LOG}"
 		: >"${MANAGER_LOG}"
+		# write_conf saves key $1 and value $2 in the activation fixture configuration.
 		write_conf() { printf '%s=%s\n' "$1" "$2" >"${TARG_DIR}/.config"; }
 		menu setlocalcache || fail 'saved preference did not finish successfully'
 		[ "$(cat "${MANAGER_LOG}")" = 'local-cache x' ] || fail 'option 6 did not invoke the installed manager'
