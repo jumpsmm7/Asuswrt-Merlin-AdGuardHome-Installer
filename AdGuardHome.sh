@@ -3470,8 +3470,9 @@ adguard_monitor_pids() {
 # Stop every matching monitor left by an earlier service entry point.  A
 # single stop request must not leave another monitor able to respawn the daemon.
 stop_all_monitors() {
-	local FOUND PID STOP_STATUS
+	local FOUND MONITOR_STOP_FORCED PID STOP_RECOVERY_REQUIRED STOP_STATUS
 	FOUND=0
+	STOP_RECOVERY_REQUIRED=0
 	STOP_STATUS=0
 	for PID in $(adguard_monitor_pids); do
 		[ "${PID}" != "$$" ] || continue
@@ -3479,8 +3480,10 @@ stop_all_monitors() {
 		FOUND=1
 		MON_PID="${PID}"
 		stop_monitor "$$" || STOP_STATUS=1
+		[ "${MONITOR_STOP_FORCED:-0}" -eq 0 ] || STOP_RECOVERY_REQUIRED=1
 	done
-	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ]; then
+	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ] || [ "${STOP_RECOVERY_REQUIRED}" -ne 0 ]; then
+		# Escalation can end a monitor before it stops AGH or restores native DNS.
 		adguardhome_run stop_adguardhome || STOP_STATUS=1
 	fi
 	return "${STOP_STATUS}"
@@ -3489,8 +3492,10 @@ stop_all_monitors() {
 # stop_monitor requests the monitor's normal USR1 shutdown, waits for procfs
 # restoration to finish, and uses identity-checked TERM/KILL escalation so a
 # stuck monitor cannot keep installer updates in a permanent stopping state.
+# MONITOR_STOP_FORCED tells the caller to complete daemon and DNS restoration.
 stop_monitor() {
 	local ATTEMPTS MONITOR_PID SIGNAL
+	MONITOR_STOP_FORCED=0
 	case "$1" in
 		"${MON_PID}")
 			SIGNAL="USR2"
@@ -3511,6 +3516,7 @@ stop_monitor() {
 		ATTEMPTS="$((ATTEMPTS + 1))"
 	done
 	monitor_process_matches "${MONITOR_PID}" || return 0
+	MONITOR_STOP_FORCED=1
 	kill -TERM "${MONITOR_PID}" 2>/dev/null || return 1
 	ATTEMPTS=0
 	while monitor_process_matches "${MONITOR_PID}" && [ "${ATTEMPTS}" -lt 5 ]; do
