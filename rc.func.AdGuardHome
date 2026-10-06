@@ -347,6 +347,9 @@ adguardhome_start_traps_restore() {
 ${_TRAP_STATE}"
 }
 
+# adguardhome_start_traps_save snapshots HUP/INT/TERM handlers in a private
+# workspace and defers those signals through ADGUARDHOME_START_SIGNAL_PENDING.
+# Publishes snapshot paths for restoration; returns 1 if secure capture fails.
 adguardhome_start_traps_save() {
 	local _COUNTER _NONCE _OLD_UMASK _TRAP_ALL_FILE _TRAP_DIR _TRAP_FILE _TRAP_STATE
 	_COUNTER=0
@@ -428,7 +431,7 @@ ${_TRAP_STATE}"
 				record = ""
 			}
 			{
-				record = record (record == "" ? "" : "\n") $0
+				record = sprintf("%s%s%s", record, (record == "" ? "" : "\n"), $0)
 				single = 0
 				double = 0
 				for (i = 1; i <= length(record); i++) {

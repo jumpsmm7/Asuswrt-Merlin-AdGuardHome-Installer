@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.5                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.6                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -24,7 +24,7 @@ export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 umask 077
 
-AI_VERSION="v2.6.5"
+AI_VERSION="v2.6.6"
 export AI_VERSION
 readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
@@ -2383,6 +2383,9 @@ adguard_install_feature_defaults() {
 	return 0
 }
 
+# configure_runtime_defaults saves missing runtime preferences for $1=new-install
+# or upgrade, preserving explicit choices. New installs require wan/lan in $2;
+# invalid install mode or a failed preference write returns 1.
 configure_runtime_defaults() {
 	local NETCHECK_MODE
 	case "${1:-}" in
@@ -2405,7 +2408,7 @@ configure_runtime_defaults() {
 			ptxt_ok "Runtime defaults saved: DNS port refusal enabled, netcheck mode ${NETCHECK_MODE}, performance profile aggressive."
 			;;
 		upgrade)
-			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"0\"" || return 1
+			write_conf_if_absent ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL "\"1\"" || return 1
 			case "${ADGUARD_INSTALL_MODE_DETECTION:-unknown}" in
 				wan | lan) NETCHECK_MODE="${ADGUARD_INSTALL_MODE_DETECTION}" ;;
 				*) NETCHECK_MODE="legacy" ;;
@@ -7331,7 +7334,7 @@ add_dnsmasq_event_scripts() {
 
 # inst_AdGuardHome orchestrates the action in $1; an optional build channel in $2 enters package installation or service refresh directly instead of branch discovery.
 inst_AdGuardHome() {
-	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY EVENT_HOOK_ROLLBACK_FAILED INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT SERVICE_REFRESH_ONLY
+	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY EVENT_HOOK_ROLLBACK_FAILED INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -7339,7 +7342,7 @@ inst_AdGuardHome() {
 	fi
 	INSTALLER_MD5_OLD=""
 	RESTART_AFTER_ABORT="0"
-	SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
+	local SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
@@ -9632,6 +9635,9 @@ end_op_message() {
 	exit $?
 }
 
+# menu displays interactive choices when $1 is empty or dispatches the supplied
+# action, including persisted Local Cache selection and immediate activation.
+# Failed preference saves abort the action; readiness deferral retains the choice.
 menu() {
 	local IPSET_SELECTION LOCAL_CACHE_SELECTION
 	trap - HUP INT QUIT ABRT TERM
@@ -9733,7 +9739,11 @@ menu() {
 					end_op_message 1
 					return 1
 				fi
-				PTXT "${INFO} For best results, please reboot the router after making these changes."
+				if [ -x "${ADDON_DIR}/AdGuardHome.sh" ]; then
+					"${ADDON_DIR}/AdGuardHome.sh" local-cache x >/dev/null 2>&1 ||
+						PTXT "${INFO} Preference saved; Local Cache activation is deferred until DNS services are ready."
+				fi
+				PTXT "${INFO} Local Cache is applied after AdGuardHome and dnsmasq are ready; the monitor retries after service restarts."
 				end_op_message 0
 			else
 				PTXT "${INFO} The router's own nvram built-in dns local caching feature is enabled." \

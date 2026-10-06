@@ -99,7 +99,7 @@ Optional features may require additional Entware packages. For example, the unus
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
-- New installs refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
+- New installs and upgrades without a saved policy refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
 - New installs and legacy-compatible defaults use the full `aggressive` runtime proc/sysctl profile. Users may explicitly select a reduced profile, accepting the router-specific functionality risk. If the runtime script is launched without an installer-managed `.config`, its fallback profile is also `aggressive` when optimization is explicitly enabled.
 
@@ -240,7 +240,7 @@ The `--fix` mode is intentionally limited. It can repair permissions, recreate t
 
 ## Runtime behavior settings
 
-v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values and pin legacy defaults when needed until users choose to migrate. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
+v2.6.0 exposes several runtime behaviours through environment or `.config` settings. New installs save safer defaults; upgrades preserve existing `.config` values. A missing DNS port-owner policy defaults to `refuse-unknown`; explicitly saved legacy policies remain available. Environment variables take precedence for the current invocation. Persistent settings can be placed in `/opt/etc/AdGuardHome/.config` (requires Entware and an installed AdGuardHome environment) using the same `NAME="value"` style already used by the installer.
 
 To inspect an upgraded install for legacy runtime defaults without changing `.config`, run:
 
@@ -334,7 +334,7 @@ firewall behavior separately for each router topology.
 
 ### DNS port-owner cleanup policy
 
-During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs default to conservative handling:
+During startup, dnsmasq is stopped normally so AdGuardHome can own port `53`. New installs and upgrades without a saved policy default to conservative handling:
 
 ```sh
 ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
@@ -342,7 +342,7 @@ ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="1"
 
 With refusal enabled, unknown non-dnsmasq owners of port `53` cause startup to abort instead of being terminated. The log message includes the PID, netstat owner, process name, and command when available.
 
-Upgrades keep the saved value; when no value exists, the installer writes the legacy value `0` and prints migration guidance. To migrate an existing install, run:
+Upgrades keep the saved value; when no value exists, the installer writes the refusal value `1`. Explicitly saved legacy values remain available. To migrate an existing install, run:
 
 ```sh
 sh installer dns-port-policy --policy refuse-unknown
@@ -362,6 +362,8 @@ ADGUARDHOME_FORCE_DNS_PORT_KILL="1"
 
 `ADGUARDHOME_FORCE_DNS_PORT_KILL=1` overrides the refusal setting for that invocation.
 
+Managed main and SDN dnsmasq survivors are identified by their stock executable and configuration paths, including independent SDN PIDs. The firmware service commands cover all SDNs; installer escalation rechecks each managed PID before signaling it. After startup, every previously managed configuration must have a dnsmasq process exposing TCP and UDP DNS on port 553; DHCP script helpers are not treated as DNS listeners. Failure recovery verifies restored listeners on port 53. Unknown or unavailable identity remains subject to the selected refusal policy.
+
 To restore the legacy cleanup policy, run:
 
 ```sh
@@ -369,6 +371,12 @@ sh installer dns-port-policy --policy legacy
 ```
 
 This writes `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL="0"`.
+
+### AdGuardHome Local Cache
+
+Menu option 6 saves whether AdGuardHome should serve the router's own DNS requests (`ADGUARD_LOCAL="YES"` or `"NO"`). Enabling it no longer switches the resolver inside a dnsmasq configuration hook. The switch follows AdGuardHome DNS ownership, a successful loopback query, and main/enabled SDN dnsmasq readiness on port 553. During a handoff, failed startup, or shutdown, native resolver routing is restored.
+
+The monitor retries deferred activation after dnsmasq restarts. The saved preference is read on each cache synchronization; menu changes also request an immediate readiness-checked application. Resolver changes are serialized, and activation waits until any manager start/stop operation completes. Native routing is restored before AdGuardHome receives stop or restart signals. A resolver bind failure keeps AdGuardHome running with native router DNS and logs the deferred cache state. Firmware whose resolver is already ROM-backed retains firmware-managed routing.
 
 ### Runtime optimization profile
 
@@ -893,3 +901,7 @@ This script is open source and free to use under the GPL-3.0 license. If you wan
 
 - [PayPal](https://paypal.me/swotrb)
 - [Buy Me a Coffee](https://www.buymeacoffee.com/swotrb)
+
+<!-- TASKPLANNER:ATTRIBUTION:START -->
+This project uses [TaskPlanner](https://github.com/smekai/taskplanner) for task planning.
+<!-- TASKPLANNER:ATTRIBUTION:END -->

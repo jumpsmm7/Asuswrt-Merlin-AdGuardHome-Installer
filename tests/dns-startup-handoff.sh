@@ -50,7 +50,7 @@ export PATH
 : >"${NETSTAT_CALLS_FILE}" || fail 'could not create netstat calls file'
 
 sed -n \
-	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^adguardhome_readiness_timeout() {$/,/^}$/p; /^adguardhome_monotonic_ticks() {$/,/^}$/p; /^adguardhome_monotonic_now() {$/,/^}$/p; /^adguardhome_readiness_elapsed() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^adguardhome_owner_account() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_guard_readiness_is_private() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^dns_guard_readiness_matches_identity() {$/,/^}$/p; /^dns_handoff_marker_matches_identity() {$/,/^}$/p; /^remove_current_dns_guard_readiness() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
+	'/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^agh_conf_value() {$/,/^}$/p; /^adguardhome_readiness_timeout() {$/,/^}$/p; /^adguardhome_monotonic_ticks() {$/,/^}$/p; /^adguardhome_monotonic_now() {$/,/^}$/p; /^adguardhome_readiness_elapsed() {$/,/^}$/p; /^agh_install_mode() {$/,/^}$/p; /^agh_lan_mode() {$/,/^}$/p; /^agh_dnsmasq_running() {$/,/^}$/p; /^agh_dnsmasq_managed() {$/,/^}$/p; /^agh_dns_handoff_required() {$/,/^}$/p; /^adguardhome_yaml_ipset_file() {$/,/^}$/p; /^chmod_regular_files_600() {$/,/^}$/p; /^adguardhome_owner_account() {$/,/^}$/p; /^ensure_adguardhome_work_dir_permissions() {$/,/^}$/p; /^dns_guard_wait_for_stop() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p; /^dns_handoff_dependencies_available() {$/,/^}$/p; /^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_handoff_directory_is_private() {$/,/^}$/p; /^dns_handoff_marker_is_private() {$/,/^}$/p; /^dns_guard_readiness_is_private() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^dns_guard_readiness_matches_identity() {$/,/^}$/p; /^dns_handoff_marker_matches_identity() {$/,/^}$/p; /^remove_current_dns_guard_readiness() {$/,/^}$/p; /^dns_handoff_process_is_root() {$/,/^}$/p; /^dns_handoff_process_start_time() {$/,/^}$/p; /^dns_handoff_set_current_identity() {$/,/^}$/p; /^dns_handoff_marker_is_active() {$/,/^}$/p; /^remove_inactive_dns_handoff_marker() {$/,/^}$/p; /^dns_handoff_lock_file_is_active() {$/,/^}$/p; /^dns_handoff_lock_is_active() {$/,/^}$/p; /^watchdog_pids() {$/,/^}$/p; /^pid_nice() {$/,/^}$/p; /^save_watchdog_nice() {$/,/^}$/p; /^restore_watchdog_nice() {$/,/^}$/p; /^reap_the_watch_dog() {$/,/^}$/p; /^resume_dns_watchdog() {$/,/^}$/p; /^restore_dns_watchdog_traps() {$/,/^}$/p; /^save_dns_watchdog_traps() {$/,/^}$/p; /^suspend_dns_watchdog() {$/,/^}$/p; /^reclaim_stale_dns_handoff_lock() {$/,/^}$/p; /^release_dns_handoff_lock() {$/,/^}$/p; /^disable_dns_handoff() {$/,/^}$/p; /^prepare_dns_handoff_marker() {$/,/^}$/p; /^enable_dns_handoff() {$/,/^}$/p; /^adguardhome_config_valid() {$/,/^}$/p; /^adguardhome_web_port() {$/,/^}$/p; /^adguardhome_web_port_owned_status() {$/,/^}$/p; /^adguardhome_web_port_available() {$/,/^}$/p; /^adguardhome_startup_checks_ready() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks_failure_reason() {$/,/^}$/p; /^wait_for_adguardhome_startup_checks() {$/,/^}$/p; /^log_adguardhome_start_failure() {$/,/^}$/p; /^dns_retry_limit() {$/,/^}$/p; /^adguardhome_single_process_running() {$/,/^}$/p; /^dns_socket_snapshot() {$/,/^}$/p; /^dns_socket_snapshot_value() {$/,/^}$/p; /^adguardhome_owns_dns() {$/,/^}$/p; /^dns_port_owner_command() {$/,/^}$/p; /^dns_port_owner_process_name() {$/,/^}$/p; /^adguardhome_dns_bind_scope() {$/,/^}$/p; /^dns_port_unknown_refusal_enabled() {$/,/^}$/p; /^kill_dns_port_owners() {$/,/^}$/p; /^dnsmasq_process_config() {$/,/^}$/p; /^dnsmasq_process_start_time() {$/,/^}$/p; /^dnsmasq_managed_instances() {$/,/^}$/p; /^dns_port_owner_actions() {$/,/^}$/p; /^dnsmasq_handoff_configs() {$/,/^}$/p; /^dnsmasq_instances_ready() {$/,/^}$/p; /^wait_for_dnsmasq_instances() {$/,/^}$/p;  /^dns_port_available() {$/,/^}$/p; /^release_dns_port_from_dnsmasq() {$/,/^}$/p; /^dns_port_has_foreign_owner() {$/,/^}$/p; /^dns_port_needs_release() {$/,/^}$/p; /^stop_dns_port_guard() {$/,/^}$/p; /^log_adguardhome_dns_wait_failure() {$/,/^}$/p; /^wait_for_adguardhome_dns() {$/,/^}$/p; /^start_dns_port_guard() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p; /^post_start_adguardhome() {$/,/^}$/p; /^post_start_failure_adguardhome() {$/,/^}$/p; /^pre_start_adguardhome() {$/,/^}$/p' \
 	"${S99_PATH}" >"${S99_FUNCTIONS}" || fail "could not read ${S99_PATH}"
 sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${S99_FUNCTIONS}" >"${S99_FUNCTIONS}.test" || fail 'could not isolate stock account commands'
 mv "${S99_FUNCTIONS}.test" "${S99_FUNCTIONS}" || fail 'could not update isolated service helpers'
@@ -78,6 +78,11 @@ if grep -q "^trap 'on_installer_exit' EXIT$" "${MANAGER_DNSMASQ_FUNCTIONS}"; the
 fi
 # shellcheck disable=SC1090
 . "${MANAGER_DNSMASQ_FUNCTIONS}"
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS=AdGuardHome
 pidof() { return 1; }
 agh_log() { :; }
@@ -312,6 +317,16 @@ rmdir "${DNS_GUARD_READY_DIR}" || fail 'could not remove guard wait test directo
 unset DNS_GUARD_READY_DIR
 dns_handoff_set_current_identity ||
 	fail 'could not identify the current shell from /proc/self/stat'
+# Isolate firmware process identity; the real classifier is tested separately.
+dnsmasq_process_config() {
+	case "$1:${DNS_STATE:-}" in 123:* | 234:busy_alt_dnsmasq) printf '%s\n' /etc/dnsmasq.conf ;; *) return 1 ;; esac
+}
+# dnsmasq_process_start_time prints a fixed process start time for the isolated owner fixtures.
+dnsmasq_process_start_time() { printf '%s\n' 1234; }
+# dnsmasq_managed_instances returns an empty managed inventory; SDN discovery has a separate fixture.
+dnsmasq_managed_instances() { :; }
+# Replacement listener coverage uses the multi-instance firmware fixture.
+wait_for_dnsmasq_instances() { :; }
 CURRENT_PID="${DNS_HANDOFF_CURRENT_PID}"
 CURRENT_START_TIME="${DNS_HANDOFF_CURRENT_START_TIME}"
 [ "${CURRENT_START_TIME}" = "$(dns_handoff_process_start_time "${CURRENT_PID}")" ] ||
@@ -1559,6 +1574,8 @@ fi
 [ "$(cat "${CONFIG_CHECK_CALLS_FILE}")" -eq 1 ] || fail 'WebUI readiness timeout repeated configuration validation'
 grep -q 'AdGuardHome startup failed: WebUI port is unavailable' "${CALLS_FILE}" || fail 'WebUI startup failure did not log the concise WebUI message'
 grep -q 'failed after 3.00 second(s): readiness deadline expired' "${CALLS_FILE}" || fail 'WebUI readiness deadline did not log elapsed time and its final reason'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness restored DNS before AGH stopped'
+post_start_failure_adguardhome || fail 'expired WebUI readiness recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'expired WebUI readiness did not run failure recovery'
 clear_dns_handoff_active
 WEB_STATE=bound
@@ -1606,6 +1623,8 @@ mark_dns_handoff_active
 if post_start_adguardhome; then
 	fail 'post-start succeeded with an unavailable WebUI port before restoring dnsmasq'
 fi
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI failure restored native DNS before rc.func stopped AGH'
+post_start_failure_adguardhome || fail 'WebUI failure recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'WebUI startup failure did not restore dnsmasq'
 WEB_STATE=bound
 clear_dns_handoff_active
@@ -1618,6 +1637,8 @@ if post_start_adguardhome; then
 	fail 'post-start succeeded with a failing configuration check'
 fi
 grep -q 'AdGuardHome startup failed: configuration check failed' "${CALLS_FILE}" || fail 'config startup failure did not log the concise config message'
+! grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config failure restored native DNS before rc.func stopped AGH'
+post_start_failure_adguardhome || fail 'config failure recovery hook failed'
 grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'config startup failure did not restore dnsmasq'
 clear_dns_handoff_active
 printf '%s\n' '#!/bin/sh' 'exit 0' >"${WORK_DIR}/AdGuardHome" || fail 'could not restore AdGuardHome binary'

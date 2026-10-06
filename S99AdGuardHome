@@ -688,6 +688,136 @@ prepare_dns_handoff_marker() {
 	return 0
 }
 
+# Include configured managed services even if their original PIDs are absent.
+dnsmasq_handoff_configs() {
+	local config index topology disabled_indexes
+	disabled_indexes=""
+	# A disappearing config is not proof of disablement. Only successful firmware
+	# topology output with an explicit disabled record can retire a requirement.
+	if topology="$(get_mtlan 2>/dev/null)"; then
+		disabled_indexes="$(printf '%s\n' "${topology}" | awk '
+			/^[[:space:]]*\|-enable:/ {
+				enabled=""
+				start=index($0, "[")
+				endpos=index($0, "]")
+				if (start > 0 && endpos > start) enabled=substr($0, start + 1, endpos - start - 1)
+			}
+			/^[[:space:]]*\|-sdn_idx:/ {
+				start=index($0, "[")
+				endpos=index($0, "]")
+				if (start > 0 && endpos > start) {
+					sdn=substr($0, start + 1, endpos - start - 1)
+					if (sdn ~ /^[0-9]+$/ && sdn > 0) {
+						if (enabled == "0") disabled[sdn]=1
+						else uncertain[sdn]=1
+					}
+				}
+				enabled=""
+			}
+			END { for (sdn in disabled) if (!uncertain[sdn]) print sdn }
+		')"
+	fi
+	{
+		# Preserve earlier requirements if firmware temporarily replaces a config.
+		printf '%s\n' "${ADGUARDHOME_DNSMASQ_CONFIGS:-}"
+		dnsmasq_managed_instances | awk '{ print $3 }'
+		if [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = 1 ] &&
+			[ "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" != disabled ]; then
+			printf '%s\n' /etc/dnsmasq.conf
+			case " $(nvram get rc_support 2>/dev/null) " in
+				*" mtlancfg "*)
+					for config in /etc/dnsmasq-[0-9]*.conf; do
+						[ -f "${config}" ] || continue
+						index="${config#/etc/dnsmasq-}"
+						index="${index%.conf}"
+						case "${index}" in "" | *[!0-9]*) continue ;; esac
+						[ -n "$(sdn_bridge_for_index "${index}")" ] || continue
+						printf '%s\n' "${config}"
+					done
+					;;
+			esac
+		fi
+	} | awk -v disabled_indexes="${disabled_indexes}" '
+		BEGIN {
+			count=split(disabled_indexes, indexes, "\n")
+			for (i=1; i<=count; i++) disabled[indexes[i]]=1
+		}
+		{
+			for (field=1; field<=NF; field++) {
+				config=$field
+				if (config ~ /^\/etc\/dnsmasq-[0-9]+\.conf$/) {
+					sdn=config
+					sub(/^\/etc\/dnsmasq-/, "", sdn)
+					sub(/\.conf$/, "", sdn)
+					if (sdn in disabled) continue
+				}
+				if (!seen[config]++) print config
+			}
+		}
+	'
+}
+
+# Verify each expected managed configuration has replacement TCP/UDP DNS.
+dnsmasq_instances_ready() {
+	local port inventory config pids tcp_udp
+	port="$1"
+	[ -n "${ADGUARDHOME_DNSMASQ_CONFIGS:-}" ] || return 0
+	dns_socket_snapshot || return 1
+	inventory="$(dnsmasq_managed_instances)"
+	# Intentional field splitting: identity/firmware checks restrict these paths
+	# to /etc/dnsmasq.conf and numeric /etc/dnsmasq-<index>.conf names.
+	for config in ${ADGUARDHOME_DNSMASQ_CONFIGS}; do
+		# dnsmasq's DHCP script helper shares its config/argv but owns no sockets.
+		pids="$(printf '%s\n' "${inventory}" | awk -v config="${config}" '$3 == config { print $1 }')"
+		[ -n "${pids}" ] || return 1
+		tcp_udp="$(printf '%s\n' "${DNS_SOCKET_SNAPSHOT}" | awk -v pids="${pids}" -v port="${port}" '
+			BEGIN {
+				count=split(pids, values, "\n")
+				for (i=1; i<=count; i++) candidates[values[i]]=1
+			}
+			$1 ~ /^(tcp|udp)6?$/ && $4 ~ ":" port "$" {
+				for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+\//) {
+					split($i, owner, "/")
+					if (!(owner[1] in candidates)) continue
+					if ($1 ~ /^tcp/) tcp[owner[1]]=1
+					if ($1 ~ /^udp/) udp[owner[1]]=1
+				}
+			}
+			END {
+				for (pid in candidates) if (tcp[pid] && udp[pid]) { print 1; exit }
+				print 0
+			}
+		')"
+		[ "${tcp_udp}" = 1 ] || return 1
+	done
+	return 0
+}
+
+# wait_for_dnsmasq_instances waits for every required main/SDN listener on port $1.
+# Refreshes ADGUARDHOME_DNSMASQ_CONFIGS during managed handoff and returns 1 if
+# inventory capture fails or ADGUARDHOME_DNSMASQ_READY_RETRIES is exhausted.
+wait_for_dnsmasq_instances() {
+	local port attempts limit
+	port="$1"
+	attempts=0
+	limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_READY_RETRIES:-}" 30)"
+	while :; do
+		if [ "${ADGUARDHOME_DNS_HANDOFF_REQUIRED:-0}" = 1 ] &&
+			[ "$(agh_conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)" != disabled ]; then
+			# A firmware restart can create SDN configs absent from the initial
+			# inventory. Include them before validating replacement listeners.
+			ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_handoff_configs)" || return 1
+		fi
+		dnsmasq_instances_ready "${port}" && return 0
+		attempts="$((attempts + 1))"
+		[ "${attempts}" -lt "${limit}" ] || {
+			agh_log ERROR wait_for_dnsmasq_instances "Managed main/SDN dnsmasq readiness timed out on port ${port}: ${ADGUARDHOME_DNSMASQ_CONFIGS:-none}."
+			return 1
+		}
+		sleep 1
+	done
+}
+
 enable_dns_handoff() {
 	prepare_dns_handoff_marker || return 1
 	if ! service restart_dnsmasq >/dev/null 2>&1; then
@@ -1106,25 +1236,71 @@ adguardhome_dns_bind_scope() {
 	' "${WORK_DIR}/AdGuardHome.yaml" 2>/dev/null
 }
 
-dns_port_unknown_refusal_enabled() {
-	_dns_refuse_unknown="${ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL:-}"
-	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then
-		_dns_refuse_unknown="$(awk -F= '/^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
-	fi
-	[ -n "${_dns_refuse_unknown}" ] || _dns_refuse_unknown="1"
-	case "${_dns_refuse_unknown}" in
-		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) return 0 ;;
+# Verify router-managed dnsmasq identity, including independent SDN processes.
+# Never classify from the netstat display name alone.
+dnsmasq_process_config() {
+	local pid executable config index args
+	pid="${1:-}"
+	case "${pid}" in "" | *[!0-9]*) return 1 ;; esac
+	[ "${pid}" -gt 1 ] || return 1
+	executable="$(readlink "/proc/${pid}/exe" 2>/dev/null)" || return 1
+	case "${executable}" in /usr/sbin/dnsmasq | /sbin/dnsmasq) ;; *) return 1 ;; esac
+	[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ] || return 1
+	args="$(tr '\000' '\n' <"/proc/${pid}/cmdline" 2>/dev/null)" || return 1
+	config="$(printf '%s\n' "${args}" | awk '
+		NR == 1 { next }
+		need_config { config=$0; need_config=0; count++; next }
+		$0 == "-C" || $0 == "--conf-file" { need_config=1; next }
+		/^--conf-file=/ { config=substr($0, 13); count++; next }
+		/^-C./ { config=substr($0, 3); count++; next }
+		$0 == "-7" || /^-7./ || /^--conf-dir/ { invalid=1 }
+		END {
+			if (need_config || count > 1 || invalid) exit 1
+			if (count == 0) print "/etc/dnsmasq.conf"
+			else print config
+		}')" || return 1
+	case "${config}" in
+		/etc/dnsmasq.conf) ;;
+		/etc/dnsmasq-*.conf)
+			index="${config#/etc/dnsmasq-}"
+			index="${index%.conf}"
+			case "${index}" in "" | *[!0-9]*) return 1 ;; esac
+			case " $(nvram get rc_support 2>/dev/null) " in *" mtlancfg "*) ;; *) return 1 ;; esac
+			;;
 		*) return 1 ;;
 	esac
+	[ -f "${config}" ] && [ ! -L "${config}" ] || return 1
+	printf '%s\n' "${config}"
 }
 
-kill_dns_port_owners() {
-	_dns_port_scope="${1:-global}"
-	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
-	# before building the kill list to reduce PID-reuse races.
-	dns_socket_snapshot || return 3
-	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
-	_dns_owner_actions="$(printf '%s\n' "${_dns_socket_table}" | awk -v proc="${PROCS}" -v scope="${_dns_port_scope}" '
+# dnsmasq_process_start_time prints the procfs start time for PID $1 to detect
+# PID reuse; returns 1 when the PID or its start time cannot be validated.
+dnsmasq_process_start_time() {
+	local pid start
+	pid="${1:-}"
+	case "${pid}" in "" | *[!0-9]*) return 1 ;; esac
+	start="$(awk '{ sub(/^.*\) /, ""); print $20 }' "/proc/${pid}/stat" 2>/dev/null)" || return 1
+	case "${start}" in "" | *[!0-9]*) return 1 ;; esac
+	printf '%s\n' "${start}"
+}
+
+# Read-only inventory: PID, start time and managed configuration.
+dnsmasq_managed_instances() {
+	local pid config start
+	for pid in $(pidof dnsmasq 2>/dev/null); do
+		start="$(dnsmasq_process_start_time "${pid}")" || continue
+		config="$(dnsmasq_process_config "${pid}")" || continue
+		[ "$(dnsmasq_process_start_time "${pid}")" = "${start}" ] || continue
+		printf '%s %s %s\n' "${pid}" "${start}" "${config}"
+	done
+}
+
+# Map only conflicting socket owners. Inventory/detection never sends signals.
+dns_port_owner_actions() {
+	local scope table actions pid kind name config start
+	scope="${1:-global}"
+	table="$2"
+	actions="$(printf '%s\n' "${table}" | awk -v proc="${PROCS}" -v scope="${scope}" '
 		function scoped(local_address,    count, idx, scope_values) {
 			if (scope == "global" || local_address == "0.0.0.0:53" || local_address == ":::53" || local_address == "[::]:53" || local_address == "*:53") return 1
 			count = split(scope, scope_values, " ")
@@ -1155,8 +1331,50 @@ kill_dns_port_owners() {
 			print owner_pid " " owner_type " " owner_name
 		}
 	')"
+	printf '%s\n' "${actions}" | while read -r pid kind name; do
+		[ -n "${pid}" ] || continue
+		kind=unknown
+		config=-
+		start=-
+		if start="$(dnsmasq_process_start_time "${pid}")" &&
+			config="$(dnsmasq_process_config "${pid}")" &&
+			[ "$(dnsmasq_process_start_time "${pid}")" = "${start}" ]; then
+			kind=dnsmasq
+		else
+			config=-
+			start=-
+		fi
+		printf '%s %s %s %s %s\n' "${pid}" "${kind}" "${name}" "${start}" "${config}"
+	done
+}
+
+# dns_port_unknown_refusal_enabled returns 0 when unknown DNS owners must be
+# preserved, using the environment override, saved policy, then safe default.
+dns_port_unknown_refusal_enabled() {
+	_dns_refuse_unknown="${ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL:-}"
+	if [ -z "${_dns_refuse_unknown}" ] && [ -f "${WORK_DIR}/.config" ]; then
+		_dns_refuse_unknown="$(awk -F= '/^ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=/ { print $2; exit }' "${WORK_DIR}/.config" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')"
+	fi
+	[ -n "${_dns_refuse_unknown}" ] || _dns_refuse_unknown="1"
+	case "${_dns_refuse_unknown}" in
+		YES | yes | Yes | ON | on | On | TRUE | true | True | 1) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# kill_dns_port_owners refreshes port 53 owners for the bind scope in $1 (global
+# by default), revalidates managed identities, and sends SIGKILL when policy allows.
+# Returns 0 on completed cleanup, 1 on signaling failure, 2 on refused unknown
+# owners, or 3 when socket ownership cannot be determined reliably.
+kill_dns_port_owners() {
+	_dns_port_scope="${1:-global}"
+	# Do not signal PIDs from a caller's older snapshot. Refresh immediately
+	# before building the kill list to reduce PID-reuse races.
+	dns_socket_snapshot || return 3
+	_dns_socket_table="${DNS_SOCKET_SNAPSHOT}"
+	_dns_owner_actions="$(dns_port_owner_actions "${_dns_port_scope}" "${_dns_socket_table}")" || return 3
 	[ -n "${_dns_owner_actions}" ] || return 0
-	printf '%s\n' "${_dns_owner_actions}" | while read -r _dns_owner_pid _dns_owner_type _dns_owner_name; do
+	printf '%s\n' "${_dns_owner_actions}" | while read -r _dns_owner_pid _dns_owner_type _dns_owner_name _dns_owner_start _dns_owner_config; do
 		[ -n "${_dns_owner_pid}" ] || continue
 		_dns_owner_command=""
 		_dns_owner_process_name=""
@@ -1185,8 +1403,19 @@ kill_dns_port_owners() {
 		_dns_refuse_unknown="0"
 	fi
 	if [ "${_dns_unknown_owner}" = "1" ] && [ "${_dns_refuse_unknown}" = "1" ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != "1" ]; then
-		agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted because ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
-		return 2
+		# A normal stop may retire the socket owner before /proc inspection.
+		# Reconcile the remaining listeners once; any new/remaining unknown
+		# owner is still refused, while verified managed survivors can be stopped.
+		dns_socket_snapshot || return 3
+		if dns_port_available "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}"; then
+			return 0
+		fi
+		_dns_owner_actions="$(dns_port_owner_actions "${_dns_port_scope}" "${DNS_SOCKET_SNAPSHOT}")" || return 3
+		_dns_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
+		if [ "${_dns_unknown_owner}" = "1" ]; then
+			agh_log ERROR kill_dns_port_owners "Unknown port 53 owner detected after stopping dnsmasq; startup aborted because ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1. Set ADGUARDHOME_FORCE_DNS_PORT_KILL=1 to force termination."
+			return 2
+		fi
 	fi
 	_dns_unavailable_unknown_owner="$(printf '%s\n' "${_dns_owner_actions}" | awk '$1 == "-" && $2 == "unknown" { found=1 } END { print found ? 1 : 0 }')"
 	if [ "${_dns_unavailable_unknown_owner}" = "1" ]; then
@@ -1200,10 +1429,22 @@ kill_dns_port_owners() {
 		agh_log WARN kill_dns_port_owners "Legacy DNS port behavior active; terminating unknown port 53 owner(s). Set ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=1 to abort instead."
 	fi
 	[ -n "${_dns_pids}" ] || return 0
-	# Intentional word splitting: awk returns a whitespace-delimited PID list.
-	if kill -s 9 ${_dns_pids} 2>/dev/null; then
-		# The owner was terminated successfully. Let the caller recollect state
-		# if this best-effort refresh encounters a transient netstat failure.
+	# Revalidate each managed process immediately before escalation. Never kill
+	# a reused PID or a process whose configuration changed since inspection.
+	_dns_kill_failed=0
+	while read -r _dns_owner_pid _dns_owner_type _dns_owner_name _dns_owner_start _dns_owner_config; do
+		case "${_dns_owner_pid}" in "" | *[!0-9]*) continue ;; esac
+		if [ "${_dns_owner_type}" = dnsmasq ]; then
+			[ "$(dnsmasq_process_start_time "${_dns_owner_pid}")" = "${_dns_owner_start}" ] &&
+				[ "$(dnsmasq_process_config "${_dns_owner_pid}")" = "${_dns_owner_config}" ] || continue
+		elif [ "${_dns_refuse_unknown}" = 1 ] && [ "${ADGUARDHOME_FORCE_DNS_PORT_KILL:-}" != 1 ]; then
+			continue
+		fi
+		kill -s 9 "${_dns_owner_pid}" 2>/dev/null || _dns_kill_failed=1
+	done <<EOF_DNS_OWNERS
+${_dns_owner_actions}
+EOF_DNS_OWNERS
+	if [ "${_dns_kill_failed}" = 0 ]; then
 		dns_socket_snapshot || true
 		return 0
 	fi
@@ -1662,13 +1903,14 @@ abort_pre_start_adguardhome() {
 	exit 1
 }
 
+# post_start_adguardhome verifies AdGuardHome startup, resumes the DNS watchdog,
+# and completes an active dnsmasq handoff after required replacement listeners
+# are ready. Returns nonzero on startup/handoff failure; Local Cache is optional.
 post_start_adguardhome() {
 	agh_log INFO post_start_adguardhome "AdGuardHome process started; waiting for DNS readiness."
 	if ! wait_for_adguardhome_dns; then
 		stop_dns_port_guard
-		if [ "${ADGUARDHOME_DNS_HANDOFF_ACTIVE:-}" = "1" ]; then
-			disable_dns_handoff || agh_log ERROR post_start_adguardhome "The dnsmasq port 553 handoff marker requires manual cleanup."
-		fi
+		# rc.func stops the failed daemon before invoking POSTFAILCMD.
 		log_adguardhome_start_failure
 		return 1
 	fi
@@ -1681,8 +1923,7 @@ post_start_adguardhome() {
 	if wait_for_adguardhome_startup_checks; then
 		:
 	else
-		agh_log ERROR post_start_adguardhome "Startup readiness decision failed conclusively; beginning failure recovery."
-		post_start_failure_adguardhome
+		agh_log ERROR post_start_adguardhome "Startup readiness decision failed conclusively; deferring DNS recovery until the daemon stops."
 		log_adguardhome_start_failure
 		return 1
 	fi
@@ -1694,18 +1935,24 @@ post_start_adguardhome() {
 				agh_log ERROR post_start_adguardhome "Unable to restart dnsmasq after successful AdGuardHome startup."
 				return 1
 			}
+			wait_for_dnsmasq_instances 553 || return 1
 			agh_log INFO post_start_adguardhome "dnsmasq restarted after successful AdGuardHome startup."
 		fi
 		unset ADGUARDHOME_DNS_HANDOFF_ACTIVE
 	fi
+	adguard_local_cache_sync || agh_log WARN post_start_adguardhome "Local Cache deferred; native resolver routing retained."
 	agh_log INFO post_start_adguardhome "AdGuardHome startup completed."
 	return 0
 }
 
+# post_start_failure_adguardhome restores native resolution and dnsmasq after
+# the failed daemon has stopped. Returns nonzero on resolver/handoff cleanup or
+# recovery failure, retaining active handoff state when recovery is incomplete.
 post_start_failure_adguardhome() {
 	_dns_handoff_disabled="0"
 	_dns_recovery_status="0"
 	_dns_restore_needed="0"
+	dnsmasq_resolv_conf_cleanup || _dns_recovery_status="1"
 	agh_log INFO post_start_failure_adguardhome "Running AdGuardHome startup failure recovery."
 	stop_dns_port_guard
 	resume_dns_watchdog
@@ -1730,6 +1977,9 @@ post_start_failure_adguardhome() {
 			agh_log ERROR post_start_failure_adguardhome "Unable to restart dnsmasq after AdGuardHome startup failure."
 			_dns_recovery_status="1"
 		else
+			if ! wait_for_dnsmasq_instances 53; then
+				_dns_recovery_status="1"
+			fi
 			agh_log INFO post_start_failure_adguardhome "dnsmasq restarted after AdGuardHome startup failure."
 		fi
 	fi
@@ -1920,7 +2170,14 @@ ensure_adguardhome_work_dir_permissions() {
 	return 0
 }
 
+# pre_start_adguardhome validates configuration and permissions, records required
+# main/SDN instances, and prepares DNS handoff with a temporary port guard.
+# Returns 0 only when startup may proceed; failed preparation returns nonzero
+# and invokes DNS recovery where the handoff has already changed router state.
 pre_start_adguardhome() {
+	dnsmasq_resolv_conf_cleanup || return 1
+	ADGUARDHOME_DNSMASQ_CONFIGS=""
+	export ADGUARDHOME_DNSMASQ_CONFIGS
 	_dns_stop_attempts="0"
 	_dns_snapshot_failed="0"
 	_dns_stop_limit="$(dns_retry_limit "${ADGUARDHOME_DNSMASQ_STOP_RETRIES:-}" 10)"
@@ -1940,6 +2197,7 @@ pre_start_adguardhome() {
 		_agh_dnsmasq_state="running"
 	fi
 	export ADGUARDHOME_DNS_HANDOFF_REQUIRED
+	ADGUARDHOME_DNSMASQ_CONFIGS="$(dnsmasq_handoff_configs)" || return 1
 	if [ "${_agh_install_mode}" != "lan" ]; then
 		_agh_dnsmasq_state="running"
 	fi

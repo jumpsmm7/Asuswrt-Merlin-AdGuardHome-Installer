@@ -50,6 +50,8 @@ trap 'cleanup; exit 1' HUP INT TERM
 {
 	sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d'
 	sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p' "${SCRIPT_PATH}"
+	sed -n '/^proc_process_start_time() {$/,/^proc_restore_ipv6() {$/p' "${SCRIPT_PATH}" | sed '$d'
+	sed -n '/^have_cmd() {$/,/^}$/p; /^flock_supports_fd() {$/,/^}$/p' "${SCRIPT_PATH}"
 } >"${FUNCTIONS_FILE}" || fail 'could not extract dnsmasq helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'dnsmasq helper extraction was empty'
 # Keep the extracted postconf helper inside the test sandbox instead of touching router paths.
@@ -495,12 +497,50 @@ for target_kind in missing directory symlink; do
 	esac
 done
 
+# Firmware always invokes main postconf, including cold boot, shutdown and
+# failure recovery while AdGuardHome and its authenticated handoff are absent.
+# A missing replacement dnsmasq must not make that native config move to 553.
+for install_mode in wan lan; do
+	for dnsmasq_mode in auto enabled; do
+		for lifecycle in native handoff running; do
+			reset_case
+			ADGUARD_INSTALL_MODE="${install_mode}"
+			ADGUARD_DNSMASQ_MODE="${dnsmasq_mode}"
+			CONFIG_DNSMASQ_MODE="${dnsmasq_mode}"
+			ADGUARD_RUNNING='0'
+			case "${lifecycle}" in
+				handoff) DNS_HANDOFF_ACTIVE='1' ;;
+				running) ADGUARD_RUNNING='1' ;;
+			esac
+			printf '%s\n' 'port=53' 'dhcp-range=lan,192.168.50.100,192.168.50.150,255.255.255.0,600s' \
+				'dhcp-option=lan,6,192.168.50.1' >"${DNSMASQ_CONF_FILE}" || fail 'could not seed native postconf configuration'
+			cp "${DNSMASQ_CONF_FILE}" "${TEST_ROOT}/native-postconf.expected" || fail 'could not snapshot native postconf configuration'
+			for attempt in 1 2 3; do
+				dnsmasq_action_handler pre_start || fail "main postconf failed: ${install_mode}/${dnsmasq_mode}/${lifecycle}"
+				case "${lifecycle}" in
+					native)
+						cmp -s "${DNSMASQ_CONF_FILE}" "${TEST_ROOT}/native-postconf.expected" ||
+							fail "main postconf changed native DNS without AdGuardHome or handoff: ${install_mode}/${dnsmasq_mode}"
+						assert_no_ipset_refresh "native main postconf ${install_mode}/${dnsmasq_mode}"
+						;;
+					*)
+						[ "$(grep -c '^port=553$' "${DNSMASQ_CONF_FILE}")" -eq 1 ] ||
+							fail "main postconf omitted or duplicated active handoff port: ${install_mode}/${dnsmasq_mode}/${lifecycle}"
+						grep -qx 'dhcp-range=lan,192.168.50.100,192.168.50.150,255.255.255.0,600s' "${DNSMASQ_CONF_FILE}" ||
+							fail 'main postconf changed the firmware DHCP range'
+						;;
+				esac
+			done
+		done
+	done
+done
+
 # Firmware postconf runs before the replacement dnsmasq process exists.
-ADGUARD_INSTALL_MODE='lan'
-ADGUARD_DNSMASQ_MODE='auto'
-CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 for failure in none staging editing refresh publication; do
 	reset_case
+	ADGUARD_INSTALL_MODE='lan'
+	ADGUARD_DNSMASQ_MODE='auto'
+	CONFIG_DNSMASQ_MODE="${ADGUARD_DNSMASQ_MODE}"
 	(
 		cp() {
 			[ "${failure}" != staging ] || return 1
@@ -839,7 +879,7 @@ dnsmasq_action_handler || fail 'mtlancfg bridge DNS skip path failed'
 ! grep -q '^dhcp-option=br1,6,192\.168\.101\.254$' "${DNSMASQ_CONF_FILE}" ||
 	fail 'mtlancfg rc_support unexpectedly wrote a secondary bridge dhcp-option'
 
-# A failed post-publication resolver bind is reported without changing the
+# Resolver switching is deferred beyond postconf, preserving the
 # successful dnsmasq/IPSET transaction result.
 reset_case
 ADGUARD_INSTALL_MODE='wan'
@@ -847,9 +887,8 @@ DNSMASQ_RUNNING='1'
 CONFIG_LOCAL='YES'
 RESOLV_CONF_USES_ROM='0'
 MOUNT_FAIL='1'
-dnsmasq_action_handler || fail 'committed dnsmasq state was reported as failed after resolver bind failure'
-grep -q 'action=bind_resolver result=failed' "${LOG_FILE}" || fail 'resolver bind failure was not reported'
-grep -q -- '-o bind /rom/etc/resolv.conf /tmp/resolv.conf' "${MOUNT_CALLS_FILE}" || fail 'resolver bind was not attempted'
+dnsmasq_action_handler || fail 'Local Cache preference broke postconf publication'
+[ ! -s "${MOUNT_CALLS_FILE}" ] || fail 'postconf switched the resolver before replacement services were ready'
 
 # Restoration must reload a process that appears after the captured stopped
 # state so it consumes the rolled-back files.

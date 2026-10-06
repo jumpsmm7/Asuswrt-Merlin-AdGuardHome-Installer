@@ -39,7 +39,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 umask 077
 mkdir "${TEST_ROOT}" || fail 'could not create test workspace'
 
-sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p; /^monitor_process_matches() {$/,/^}$/p; /^adguard_monitor_pids() {$/,/^}$/p; /^stop_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
+sed -n '/^set_operation_config_defaults() {$/,/^}$/p; /^start_monitor() {$/,/^}$/p; /^monitor_process_matches() {$/,/^}$/p; /^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p; /^stop_monitor() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" ||
 	fail 'could not extract monitor configuration helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'monitor configuration helper extraction was empty'
 [ "$(grep -c 'CONFIG_DNSMASQ_MODE="enabled"' "${FUNCTIONS_FILE}")" -eq 2 ] ||
@@ -56,6 +56,11 @@ DEFAULT_ADGUARD_NETCHECK_MODE='wan'
 DEFAULT_ADGUARD_PROC_OPTIMIZE='NO'
 DEFAULT_ADGUARD_PROC_PROFILE='aggressive'
 ADGUARDHOME_BINARY=/bin/sh
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS=AdGuardHome
 
 agh_log() {
@@ -123,13 +128,40 @@ kill() {
 }
 sleep() { :; }
 stop_monitor "$$" || fail 'graceful monitor shutdown failed'
+[ "${MONITOR_STOP_FORCED:-0}" -eq 0 ] || fail 'graceful monitor shutdown requested forced recovery'
 [ "$(cat "${SIGNAL_FILE}")" = "-s USR1 ${MON_PID}" ] || fail 'graceful monitor shutdown sent unexpected signals'
 
 MONITOR_ACTIVE=1
 MONITOR_STUBBORN=1
 : >"${SIGNAL_FILE}"
 stop_monitor "$$" || fail 'stuck monitor escalation failed'
+[ "${MONITOR_STOP_FORCED:-0}" -eq 1 ] || fail 'stuck monitor shutdown omitted forced recovery'
 [ "$(cat "${SIGNAL_FILE}")" = "$(printf '%s\n' "-s USR1 ${MON_PID}" "-TERM ${MON_PID}" "-KILL ${MON_PID}")" ] ||
 	fail 'stuck monitor did not receive bounded USR1, TERM, and KILL escalation'
 
-printf '%s\n' 'PASS: malformed monitor stop configuration forces dnsmasq restoration'
+# A foreground cache DNS query can outlast the normal monitor grace period.
+# Ending that monitor must still stop the daemon and restore native DNS.
+RECOVERY_CALLS=0
+RECOVERY_STATUS=0
+# adguard_monitor_pids returns the monitor selected by the escalation fixture.
+adguard_monitor_pids() { printf '%s\n' 12345; }
+# adguardhome_run counts final daemon/DNS restorations and injects failure.
+adguardhome_run() {
+	[ "$1" = stop_adguardhome ] || fail 'unexpected forced monitor recovery action'
+	RECOVERY_CALLS="$((RECOVERY_CALLS + 1))"
+	return "${RECOVERY_STATUS}"
+}
+MONITOR_ACTIVE=1
+MONITOR_STUBBORN=0
+stop_all_monitors || fail 'graceful all-monitor shutdown failed'
+[ "${RECOVERY_CALLS}" -eq 0 ] || fail 'graceful monitor shutdown repeated daemon restoration'
+MONITOR_ACTIVE=1
+MONITOR_STUBBORN=1
+stop_all_monitors || fail 'forced monitor shutdown failed despite successful DNS recovery'
+[ "${RECOVERY_CALLS}" -eq 1 ] || fail 'forced monitor shutdown bypassed daemon and DNS restoration'
+MONITOR_ACTIVE=1
+RECOVERY_STATUS=1
+if stop_all_monitors; then fail 'failed forced monitor DNS recovery reported success'; fi
+[ "${RECOVERY_CALLS}" -eq 2 ] || fail 'failed forced monitor recovery was not attempted'
+
+printf '%s\n' 'PASS: malformed and forced monitor shutdown restore daemon and native DNS'

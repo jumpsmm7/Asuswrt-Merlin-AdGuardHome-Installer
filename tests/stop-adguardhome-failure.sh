@@ -30,6 +30,11 @@ done
 # shellcheck disable=SC1090
 . "${FUNCTION_FILE}"
 
+# Optional resolver switching is covered by local-cache-readiness.sh.
+adguard_local_cache_sync() { :; }
+# dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
+dnsmasq_resolv_conf_cleanup() { :; }
+
 PROCS="AdGuardHome"
 WORK_DIR="${TEST_ROOT}/work"
 DNS_HANDOFF_DIR="${TEST_ROOT}/handoff"
