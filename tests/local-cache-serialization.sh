@@ -100,7 +100,8 @@ case "$3" in
 		printf '%s\n' "$!" >"${WORK_DIR}/detached-service-pid"
 		;;
 	hold-service)
-		exec 9>"${WORK_DIR}/manager.lock"
+		adguardhome_run_flock_prepare || exit 1
+		exec 9>>"${WORK_DIR}/manager-service-lock/flock"
 		flock -n 9 || exit 1
 		: >"${WORK_DIR}/service-entered"
 		adguard_local_cache_service_active || exit 1
@@ -200,22 +201,20 @@ for fallback in 0 1; do
 	[ ! -e "/proc/$(cat "${ROOT}/detached-service-parent")/stat" ]
 	: >"${ROOT}/detached-service-begin"
 	wait_for_file "${ROOT}/detached-service-entered"
-	owner="$(sed -n '1p' "${ROOT}/manager/pid")"
+	owner="$(sed -n '1p' "${ROOT}/manager-service-lock/action/pid")"
 	[ "${owner}" != "$(cat "${ROOT}/detached-service-parent")" ]
 	kill -0 "${owner}"
 	if run_worker "${fallback}" sync; then exit 1; fi
 	[ ! -f "${ROOT}/mounted" ]
 	: >"${ROOT}/detached-service-release"
 	wait_for_file "${ROOT}/detached-service-done"
-	# Legacy cleanup waits for the completed runtime record.
+	# Cleanup removes only the finished action; the descriptor inode persists.
 	attempts=0
-	while [ -e "${ROOT}/manager/pid" ] && [ "${attempts}" -lt 5 ]; do
+	while [ -e "${ROOT}/manager-service-lock/action/pid" ] && [ "${attempts}" -lt 5 ]; do
 		sleep 1
 		attempts="$((attempts + 1))"
 	done
-	[ ! -e "${ROOT}/manager/pid" ]
-	# Start the next backend with a clean service directory (flock retains it).
-	rmdir "${ROOT}/manager" 2>/dev/null || true
+	[ ! -e "${ROOT}/manager-service-lock/action/pid" ]
 	rm "${ROOT}/detached-service-parent" "${ROOT}/detached-service-pid" "${ROOT}/detached-service-begin" "${ROOT}/detached-service-entered" "${ROOT}/detached-service-release" "${ROOT}/detached-service-done"
 done
 # Descriptor lock activity must block activation before any owner pid is published.

@@ -651,28 +651,13 @@ wget_help() {
 # Run-lock helpers
 
 adguardhome_run() {
-	local lock_dir owner pid_file runtime
-	lock_dir="/tmp/AdGuardHome"
-	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
-			# Newer firmware may provide descriptor-capable flock; older releases
-			# continue to use the legacy mkdir lock below.
+			if adguardhome_run_legacy_mkdir_active; then return 1; fi
 			if have_cmd flock && flock_supports_fd; then
 				if adguardhome_run_flock_active; then return 1; else return 0; fi
 			fi
-			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-			[ -z "${runtime}" ] && return 1
-			case "${owner}" in
-				"" | *[!0-9]*)
-					rm -f "${pid_file}"
-					return 1
-					;;
-			esac
-			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
-			rm -f "${pid_file}"
-			return 1
+			return 0
 			;;
 		*)
 			# Prefer flock when the installed implementation supports descriptor
@@ -691,13 +676,18 @@ adguardhome_run_execute() {
 	action="$1"
 	pid_file="$2"
 	owner="${3:-$$}"
-	printf "%s\n" "${owner}" >"${pid_file}"
+	(
+		umask 077
+		set -C
+		printf '%s\n' "${owner}" >"${pid_file}"
+	) 2>/dev/null || return 1
 	start="$(date +%s)"
 	service_wait "${action}" 30
 	status="$?"
 	end="$(date +%s)"
 	runtime="$((end - start))"
-	printf "%s\n" "${runtime}" >>"${pid_file}"
+	adguardhome_run_file_is_private "${pid_file}" || return 1
+	printf '%s\n' "${runtime}" >>"${pid_file}" || return 1
 	if [ "${status}" -eq 0 ]; then
 		agh_log info adguardhome_run_execute "state=service action=${action} reason=service_wait result=completed runtime=${runtime}"
 	else
@@ -706,23 +696,253 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+# Service locks use one persistent private directory and never replace its
+# descriptor inode. Match the effective owner, which is root on the router.
+adguardhome_run_directory_is_private() {
+	local metadata owner
+	owner="$(IPSet_Current_UID)" || return 1
+	metadata="$(IPSet_Directory_Metadata "$1")" || return 1
+	[ "${metadata}" = "${owner} rwx------" ]
+}
+
+adguardhome_run_file_is_private() {
+	local legacy owner
+	[ ! -L "$1" ] && [ -f "$1" ] || return 1
+	legacy="${2:-0}"
+	owner="$(IPSet_Current_UID)" || return 1
+	ls -ldn "$1" 2>/dev/null | awk -v owner="${owner}" -v legacy="${legacy}" '
+		NR == 1 { exit(($1 == "-rw-------" || (legacy == 1 && $1 == "-rw-r--r--")) && $2 == 1 && $3 == owner ? 0 : 1) }
+		END { if (NR == 0) exit 1 }
+	'
+}
+
+adguardhome_run_link_is_private() {
+	local owner
+	[ -L "$1" ] || return 1
+	owner="$(IPSet_Current_UID)" || return 1
+	ls -ldn "$1" 2>/dev/null | awk -v owner="${owner}" '
+		NR == 1 { exit(substr($1, 1, 1) == "l" && $2 == 1 && $3 == owner ? 0 : 1) }
+		END { if (NR == 0) exit 1 }
+	'
+}
+
+adguardhome_run_runtime_prepare() {
+	local lock_dir
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	if ! mkdir -m 700 "${lock_dir}" 2>/dev/null; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+	fi
+	if [ -e "${lock_dir}/flock" ] || [ -L "${lock_dir}/flock" ]; then
+		adguardhome_run_file_is_private "${lock_dir}/flock" || return 1
+	fi
+}
+
+# Existing files may be reused only after validation; noclobber protects first
+# creation, and append opens preserve content as well as the shared lock inode.
+adguardhome_run_flock_prepare() {
+	local lock_file
+	lock_file="/tmp/AdGuardHome-service-lock/flock"
+	adguardhome_run_runtime_prepare || return 1
+	if [ ! -e "${lock_file}" ] && [ ! -L "${lock_file}" ]; then
+		(
+			umask 077
+			set -C
+			: >"${lock_file}"
+		) 2>/dev/null || true
+	fi
+	adguardhome_run_file_is_private "${lock_file}"
+}
+
+# The owner record is immutable until cleanup; PID plus start time rejects PID
+# reuse and makes repeated cleanup unable to remove a successor's lock.
+adguardhome_run_owner_matches() {
+	local record
+	adguardhome_run_directory_is_private "$1" || return 1
+	adguardhome_run_file_is_private "$1/owner" || return 1
+	IFS= read -r record <"$1/owner" || return 1
+	[ "${record}" = "$2 $3" ]
+}
+
+# A transition is published only after proving creation/cleanup ownership. It
+# distinguishes an interrupted empty action from an unverified ownerless path.
+adguardhome_run_transition_begin() {
+	local record start
+	start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	record="${PROC_LOCK_PID} ${start} $2 $3"
+	if ln -s "${record}" "$1.transition" 2>/dev/null; then return 0; fi
+	adguardhome_run_link_is_private "$1.transition" && [ "$(readlink "$1.transition" 2>/dev/null)" = "${record}" ]
+}
+
+adguardhome_run_transition_clear() {
+	local expected_owner expected_start record start
+	[ -e "$1.transition" ] || [ -L "$1.transition" ] || return 0
+	start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	adguardhome_run_link_is_private "$1.transition" || return 1
+	record="$(readlink "$1.transition" 2>/dev/null)" || return 1
+	case "${record}" in "${PROC_LOCK_PID} ${start} "*) : ;; *) return 1 ;; esac
+	record="${record#"${PROC_LOCK_PID} ${start} "}"
+	expected_owner="${record%% *}"
+	expected_start="${record#* }"
+	case "${expected_owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_start}" in "" | *[!0-9]*) return 1 ;; esac
+	rm -f "$1.transition"
+}
+
+adguardhome_run_transition_recover() {
+	local current_start expected_owner expected_start lock_dir owner owner_start record
+	lock_dir="$1"
+	[ -e "${lock_dir}.transition" ] || [ -L "${lock_dir}.transition" ] || return 0
+	adguardhome_run_link_is_private "${lock_dir}.transition" || return 1
+	record="$(readlink "${lock_dir}.transition" 2>/dev/null)" || return 1
+	owner="${record%% *}"
+	record="${record#* }"
+	owner_start="${record%% *}"
+	record="${record#* }"
+	expected_owner="${record%% *}"
+	expected_start="${record#* }"
+	case "${owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${owner_start}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_start}" in "" | *[!0-9]*) return 1 ;; esac
+	current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+	if [ "${current_start}" = "${owner_start}" ] || { [ -z "${current_start}" ] && kill -0 "${owner}" 2>/dev/null; }; then return 1; fi
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+		if [ -e "${lock_dir}/owner" ] || [ -L "${lock_dir}/owner" ]; then
+			adguardhome_run_owner_matches "${lock_dir}" "${expected_owner}" "${expected_start}" || return 1
+		else
+			# A killed owner writer may leave an unpublished staged record.
+			if [ -e "${lock_dir}/owner.new" ] || [ -L "${lock_dir}/owner.new" ]; then
+				[ "${expected_owner} ${expected_start}" = "${owner} ${owner_start}" ] || return 1
+				adguardhome_run_file_is_private "${lock_dir}/owner.new" || return 1
+				rm -f "${lock_dir}/owner.new" || return 1
+			fi
+			# Only an empty directory can be an interrupted publication/cleanup.
+			rmdir "${lock_dir}" 2>/dev/null || return 1
+		fi
+	fi
+	rm -f "${lock_dir}.transition"
+}
+
+adguardhome_run_mkdir_cleanup() {
+	local claim_pid claim_start PROC_LOCK_DIR PROC_LOCK_PID status
+	PROC_LOCK_DIR="$1"
+	IFS= read -r claim_pid </proc/self/stat || return 1
+	PROC_LOCK_PID="${claim_pid%% *}"
+	claim_start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || return 1; fi
+	proc_lock_claim_matches "${PROC_LOCK_PID}" "${claim_start}" || proc_lock_claim_acquire "${claim_start}" 1 || return 1
+	adguardhome_run_mkdir_cleanup_claimed "$@"
+	status="$?"
+	if [ "${status}" -eq 0 ] || { [ ! -e "$1" ] && [ ! -L "$1" ]; }; then adguardhome_run_transition_clear "$1" || status=1; fi
+	proc_lock_claim_release "${claim_start}" || status=1
+	return "${status}"
+}
+
+# Publication and cleanup share the existing PID/start-time claim, so a killed
+# cleaner leaves recoverable ownership instead of an unowned permanent marker.
+adguardhome_run_mkdir_cleanup_claimed() {
+	local lock_dir owner owner_start
+	lock_dir="$1"
+	owner="$2"
+	owner_start="$3"
+	adguardhome_run_owner_matches "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then adguardhome_run_file_is_private "${lock_dir}/pid" || return 1; fi
+	adguardhome_run_transition_begin "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then
+		if ! adguardhome_run_file_is_private "${lock_dir}/pid" || ! rm -f "${lock_dir}/pid"; then
+			return 1
+		fi
+	fi
+	rm -f "${lock_dir}/owner" || return 1
+	rmdir "${lock_dir}"
+}
+
+# The caller holds the publication claim while revalidating immutable identity;
+# unknown/live state remains untouched and only one stale reaper can publish.
+adguardhome_run_mkdir_reap_stale() {
+	local current_start lock_dir owner owner_start
+	lock_dir="$1"
+	owner="$2"
+	owner_start="$3"
+	adguardhome_run_owner_matches "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+	if [ "${current_start}" = "${owner_start}" ] || { [ -z "${current_start}" ] && kill -0 "${owner}" 2>/dev/null; }; then
+		return 1
+	fi
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then adguardhome_run_file_is_private "${lock_dir}/pid" || return 1; fi
+	adguardhome_run_transition_begin "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then
+		if ! adguardhome_run_file_is_private "${lock_dir}/pid" || ! rm -f "${lock_dir}/pid"; then
+			return 1
+		fi
+	fi
+	rm -f "${lock_dir}/owner" || return 1
+	rmdir "${lock_dir}" || return 1
+	adguardhome_run_transition_clear "${lock_dir}"
+}
+
+adguardhome_run_mkdir_acquire() {
+	local PROC_LOCK_DIR PROC_LOCK_PID status
+	PROC_LOCK_DIR="$1"
+	PROC_LOCK_PID="$2"
+	proc_lock_claim_acquire "$3" 1 || return 1
+	adguardhome_run_mkdir_acquire_claimed "$@"
+	status="$?"
+	if [ "${status}" -eq 0 ] || { [ ! -e "$1" ] && [ ! -L "$1" ]; }; then adguardhome_run_transition_clear "$1" || status=1; fi
+	proc_lock_claim_release "$3" || status=1
+	return "${status}"
+}
+
+adguardhome_run_mkdir_acquire_claimed() {
+	local current_start lock_dir record stale_owner stale_start
+	lock_dir="$1"
+	adguardhome_run_transition_recover "${lock_dir}" || return 1
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+		adguardhome_run_file_is_private "${lock_dir}/owner" || return 1
+		IFS=' ' read -r stale_owner stale_start record <"${lock_dir}/owner" || return 1
+		[ -z "${record}" ] || return 1
+		case "${stale_owner}" in "" | *[!0-9]*) return 1 ;; esac
+		case "${stale_start}" in "" | *[!0-9]*) return 1 ;; esac
+		current_start="$(proc_process_start_time "${stale_owner}" 2>/dev/null)"
+		if [ "${current_start}" = "${stale_start}" ] || { [ -z "${current_start}" ] && kill -0 "${stale_owner}" 2>/dev/null; }; then return 1; fi
+		adguardhome_run_mkdir_reap_stale "${lock_dir}" "${stale_owner}" "${stale_start}" || return 1
+	fi
+	adguardhome_run_transition_begin "${lock_dir}" "$2" "$3" || return 1
+	mkdir -m 700 "${lock_dir}" 2>/dev/null || return 1
+	if ! (
+		umask 077
+		set -C
+		printf '%s %s\n' "$2" "$3" >"${lock_dir}/owner.new"
+	) 2>/dev/null; then
+		if [ -e "${lock_dir}/owner.new" ] || [ -L "${lock_dir}/owner.new" ]; then
+			adguardhome_run_file_is_private "${lock_dir}/owner.new" && rm -f "${lock_dir}/owner.new"
+		fi
+		rmdir "${lock_dir}" 2>/dev/null
+		return 1
+	fi
+	adguardhome_run_file_is_private "${lock_dir}/owner.new" || return 1
+	mv "${lock_dir}/owner.new" "${lock_dir}/owner"
+}
+
 # adguardhome_run_flock serializes service operations with a file lock, allowing stop operations to wait and rejecting duplicate concurrent actions.
 adguardhome_run_flock() {
-	local action lock_dir lock_file owner pid_file saved_traps status
+	local action lock_dir lock_file owner owner_start pid_file saved_traps status
 	action="$1"
-	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
+	lock_dir="/tmp/AdGuardHome-service-lock/action"
+	lock_file="/tmp/AdGuardHome-service-lock/flock"
 	pid_file="${lock_dir}/pid"
-	if adguardhome_run_legacy_mkdir_active; then
+	if adguardhome_run_legacy_lock_active; then
 		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
 		agh_log warning adguardhome_run_flock "state=locked action=${action} reason=active_lock result=duplicate_lock owner=${owner:-unknown}"
 		return 1
 	fi
-	if ! mkdir -p "${lock_dir}"; then
+	if ! adguardhome_run_flock_prepare; then
 		agh_log error adguardhome_run_flock "state=lock action=${action} reason=mkdir_failed result=create_lock_failed path=${lock_dir}"
 		return 1
 	fi
-	exec 9>"${lock_file}" || return 1
+	exec 9>>"${lock_file}" || return 1
 	if [ "${action}" = "stop_adguardhome" ]; then
 		if ! flock 9; then
 			agh_log error adguardhome_run_flock "state=lock action=${action} reason=flock_failed result=lock_failed lock=flock"
@@ -735,25 +955,37 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
-	saved_traps="$(trap)"
-	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
-	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
-	rm -f "${pid_file}"
-	IFS= read -r owner </proc/self/stat || return 1
+	IFS= read -r owner </proc/self/stat || {
+		exec 9>&-
+		return 1
+	}
 	owner="${owner%% *}"
+	owner_start="$(proc_process_start_time "${owner}")" || {
+		exec 9>&-
+		return 1
+	}
+	if adguardhome_run_legacy_lock_active || ! adguardhome_run_mkdir_acquire "${lock_dir}" "${owner}" "${owner_start}"; then
+		flock -u 9 >/dev/null 2>&1
+		exec 9>&-
+		return 1
+	fi
+	saved_traps="$(trap)"
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	adguardhome_run_execute "${action}" "${pid_file}" "${owner}"
 	status="$?"
-	adguardhome_run_flock_cleanup "${pid_file}"
+	adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}" || status=1
 	adguardhome_run_flock_restore_traps "${saved_traps}"
 	return "${status}"
 }
 
 adguardhome_run_flock_active() {
 	local lock_dir lock_file status
-	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	lock_file="${lock_dir}/flock"
 	if adguardhome_run_legacy_mkdir_active; then return 0; fi
-	exec 9>"${lock_file}" || return 1
+	adguardhome_run_flock_prepare || return 0
+	exec 9>>"${lock_file}" || return 0
 	flock -n 9 >/dev/null 2>&1
 	status="$?"
 	if [ "${status}" -eq 0 ]; then
@@ -766,11 +998,13 @@ adguardhome_run_flock_active() {
 }
 
 adguardhome_run_flock_cleanup() {
-	local pid_file
+	local pid_file status
 	pid_file="$1"
-	[ -n "${pid_file}" ] && rm -f "${pid_file}"
+	status=0
+	adguardhome_run_mkdir_cleanup "${pid_file%/pid}" "$2" "$3" || status=1
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
+	return "${status}"
 }
 
 adguardhome_run_flock_restore_traps() {
@@ -781,51 +1015,90 @@ adguardhome_run_flock_restore_traps() {
 }
 
 adguardhome_run_legacy_mkdir_active() {
+	local lock_dir
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 0
+		if [ -e "${lock_dir}/flock" ] || [ -L "${lock_dir}/flock" ]; then
+			adguardhome_run_file_is_private "${lock_dir}/flock" || return 0
+		fi
+		if [ -e "${lock_dir}/action" ] || [ -L "${lock_dir}/action" ]; then return 0; fi
+		if [ -e "${lock_dir}/action.claim" ] || [ -L "${lock_dir}/action.claim" ] || [ -e "${lock_dir}/action.transition" ] || [ -L "${lock_dir}/action.transition" ]; then return 0; fi
+	fi
+	adguardhome_run_legacy_lock_active
+}
+
+# Upgrade compatibility is read-only: a live legacy holder or any unsafe entry
+# blocks a new action, including the window before old flock publishes its PID.
+adguardhome_run_legacy_lock_active() {
 	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
-	[ -d "${lock_dir}" ] || return 1
-	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-	[ -z "${runtime}" ] || return 1
-	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-	case "${owner}" in
-		"" | *[!0-9]*)
-			return 1
-			;;
-	esac
-	kill -0 "${owner}" 2>/dev/null
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		[ ! -L "${lock_dir}" ] && [ -d "${lock_dir}" ] || return 0
+		owner="$(IPSet_Current_UID)" || return 0
+		ls -ldn "${lock_dir}" 2>/dev/null | awk -v owner="${owner}" '
+			NR == 1 { exit($3 == owner && ($1 == "drwx------" || $1 == "drwxr-xr-x") ? 0 : 1) }
+			END { if (NR == 0) exit 1 }
+		' || return 0
+		if [ -e "${pid_file}" ] || [ -L "${pid_file}" ]; then
+			adguardhome_run_file_is_private "${pid_file}" 1 || return 0
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			case "${owner}" in "" | *[!0-9]*) return 0 ;; esac
+			if [ -z "${runtime}" ] && kill -0 "${owner}" 2>/dev/null; then return 0; fi
+		elif [ ! -e "${lock_dir}.lock" ] && [ ! -L "${lock_dir}.lock" ]; then
+			# Legacy mkdir acquires the directory before publishing its PID.
+			# Unlike a completed descriptor action, it removes the directory.
+			return 0
+		fi
+	fi
+	if [ -e "${lock_dir}.lock" ] || [ -L "${lock_dir}.lock" ]; then
+		adguardhome_run_file_is_private "${lock_dir}.lock" 1 || return 0
+		have_cmd flock || return 0
+		(exec 7<"${lock_dir}.lock" && flock -n 7) >/dev/null 2>&1 || return 0
+	fi
+	return 1
 }
 
 adguardhome_run_mkdir() {
-	local action lock_dir pid pid_file status
+	local action lock_dir owner owner_start pid_file saved_traps status
 	action="$1"
-	lock_dir="/tmp/AdGuardHome"
+	lock_dir="/tmp/AdGuardHome-service-lock/action"
 	pid_file="${lock_dir}/pid"
-	if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "${action}" = "stop_adguardhome" ]; }; then
-		(
-			trap 'rm -rf "${lock_dir}"; exit $?' EXIT
-			{ service_wait adguardhome_run; }
-			rm -rf "${lock_dir}"
-		) &
-		pid="$!"
-		adguardhome_run_execute "${action}" "${pid_file}" "${pid}"
-		status="$?"
-		return "${status}"
+	adguardhome_run_runtime_prepare || return 1
+	adguardhome_run_legacy_lock_active && return 1
+	IFS= read -r owner </proc/self/stat || return 1
+	owner="${owner%% *}"
+	owner_start="$(proc_process_start_time "${owner}")" || return 1
+	if ! adguardhome_run_mkdir_acquire "${lock_dir}" "${owner}" "${owner_start}"; then
+		agh_log warning adguardhome_run_mkdir "state=locked action=${action} reason=active_lock result=duplicate_lock"
+		return 1
 	fi
-	agh_log warning adguardhome_run_mkdir "state=locked action=${action} reason=active_lock result=duplicate_lock owner=$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-	return 1
+	saved_traps="$(trap)"
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
+	adguardhome_run_execute "${action}" "${pid_file}" "${owner}"
+	status="$?"
+	adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}" || status=1
+	adguardhome_run_flock_restore_traps "${saved_traps}"
+	return "${status}"
 }
 
 flock_supports_fd() {
 	local TEST_LOCK status
-	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
+	TEST_LOCK="/tmp/AdGuardHome-service-lock/probe.$$"
+	adguardhome_run_runtime_prepare || return 1
 	(
+		umask 077
+		set -C
 		: >"${TEST_LOCK}" || exit 1
-		exec 8>"${TEST_LOCK}" || exit 1
+		trap 'rm -f "/tmp/AdGuardHome-service-lock/probe.$$"' EXIT
+		adguardhome_run_file_is_private "${TEST_LOCK}" || exit 1
+		exec 8>>"${TEST_LOCK}" || exit 1
 		flock -n 8 >/dev/null 2>&1
 	)
 	status="$?"
-	rm -f "${TEST_LOCK}"
 	return "${status}"
 }
 
@@ -2652,19 +2925,25 @@ proc_lock_claim_matches() {
 
 # proc_lock_claim_acquire serializes fallback-lock publication and stale-lock reaping.
 proc_lock_claim_acquire() {
-	local attempts claim_owner claim_pid claim_start current_start reaper self_start
+	local attempts claim_owner claim_pid claim_start current_start reaper self_start try_only
 	self_start="$1"
+	try_only="${2:-0}"
 	reaper="${PROC_LOCK_DIR}.claim.reap.${PROC_LOCK_PID:-$$}"
 	rm -f "${reaper}"
 	attempts=0
 	while ! ln -s "${PROC_LOCK_PID:-$$} ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
+		if [ "${try_only}" = 1 ]; then adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || return 1; fi
 		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
 		claim_pid="${claim_owner%% *}"
 		claim_start="${claim_owner#* }"
 		case "${claim_pid}:${claim_start}" in
-			*[!0-9:]* | :* | *:) current_start="" ;;
+			*[!0-9:]* | :* | *:)
+				[ "${try_only}" != 1 ] || return 1
+				current_start=""
+				;;
 			*) current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)" ;;
 		esac
+		if [ "${try_only}" = 1 ] && { [ "${current_start}" = "${claim_start}" ] || { [ -z "${current_start}" ] && kill -0 "${claim_pid}" 2>/dev/null; }; }; then return 1; fi
 		if [ -z "${current_start}" ] || [ "${current_start}" != "${claim_start}" ]; then
 			if mv "${PROC_LOCK_DIR}.claim" "${reaper}" 2>/dev/null; then
 				claim_owner="$(readlink "${reaper}" 2>/dev/null)" || claim_owner=""
@@ -2677,6 +2956,10 @@ proc_lock_claim_acquire() {
 					rm -f "${reaper}"
 				fi
 			fi
+		fi
+		if [ "${try_only}" = 1 ]; then
+			ln -s "${PROC_LOCK_PID:-$$} ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null || return 1
+			break
 		fi
 		attempts="$((attempts + 1))"
 		[ "${attempts}" -lt 100 ] || return 1
