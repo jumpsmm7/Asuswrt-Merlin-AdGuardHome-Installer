@@ -228,6 +228,7 @@ run_check 'Installer progress output regression' sh tests/installer-progress-out
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh
 run_check 'Installer event-script transaction regression' sh tests/installer-event-script-transactions.sh
+run_check 'Installer managed-hook invariant regression' sh tests/installer-managed-hook-invariants.sh
 run_check 'Installer lock-release retry regression' sh tests/installer-lock-release-retry.sh
 run_check 'WAN NAT predicate parity regression' sh tests/wan-nat-predicate-parity.sh
 run_check 'Installer upgrade runtime-default ordering regression' sh tests/installer-upgrade-runtime-defaults.sh
@@ -309,9 +310,12 @@ run_check 'AdGuardHome managed dnsmasq detection regression' sh tests/dnsmasq-ma
 run_check 'AdGuardHome SDN dnsmasq lifecycle regression' sh tests/dnsmasq-sdn-lifecycle.sh
 run_check 'AdGuardHome Local Cache readiness regression' sh tests/local-cache-readiness.sh
 run_check 'AdGuardHome Local Cache serialization regression' sh tests/local-cache-serialization.sh
+run_check 'AdGuardHome service-lock path safety regression' run_privileged_regression_check tests/service-lock-path-safety.sh 'service-lock path safety regression'
+run_check 'AdGuardHome service-lock serialization regression' run_privileged_regression_check tests/service-lock-serialization.sh 'service-lock serialization regression'
 run_check 'AdGuardHome process signaling regression' sh tests/rc-process-signaling.sh
 run_check 'AdGuardHome restart stop-failure propagation regression' sh tests/rc-restart-stop-failure.sh
 run_check 'AdGuardHome monitor stop config fallback regression' sh tests/monitor-stop-config-fallback.sh
+run_check 'AdGuardHome monitor stop postcondition regression' sh tests/monitor-stop-postconditions.sh
 run_check 'AdGuardHome deterministic startup signal recovery regression' sh tests/rc-startup-signal-determinism.sh
 run_check 'AdGuardHome monitor retry backoff regression' sh tests/monitor-retry-backoff.sh
 run_check 'AdGuardHome proc setting ownership regression' sh tests/adguardhome-proc-settings.sh
