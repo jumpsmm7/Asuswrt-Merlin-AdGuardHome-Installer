@@ -828,6 +828,8 @@ This permission is limited to development workstations and CI/validation runners
 
 ### Release validation
 
+v2.6.7 is a repair release in development for managed hook migration/diagnostics, service-lock path safety and serialization, and verified monitor shutdown. It preserves existing topology policy, saved settings and AdGuardHome channels. The [v2.6.7 acceptance checklist](RELEASE-2.6.7-CHECKLIST.md) tracks software evidence and required physical-router coverage, including upgrades with corrupted legacy hooks, firmware-dispatched DNS restart, DHCP/client connectivity and a proposed 48-hour overnight soak. Hardware results are pending; the reported overnight outage is not yet verified as resolved.
+
 Release validation is a focused pre-tag pass from the repository root. The required commands in this subsection use POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; this portable subset does not itself require Python, Perl, GNU coreutils, systemd, `apt-get`, or Entware. The broader CI and code-quality jobs may use the explicitly permitted host-only validation toolchain above.
 
 The release validation pass performs these actions:

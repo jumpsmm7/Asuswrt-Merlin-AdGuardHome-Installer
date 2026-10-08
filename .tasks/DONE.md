@@ -1,5 +1,177 @@
 # Done
 
+## TASK-016: Verify graceful monitor shutdown before reporting success
+
+**Priority:** P1 | **Tags:** lifecycle, recovery, dns
+**Dependencies:** TASK-015
+**Estimated scope:** Medium, up to five files
+
+### Plan
+
+- Modify `AdGuardHome.sh:3162` (`start_monitor`; stop branches at 3201/3286) and `stop_all_monitors:3482`.
+- Extend `tests/stop-adguardhome-failure.sh` and `tests/monitor-stop-config-fallback.sh`.
+- Refresh both manager checksum sidecars.
+
+**Interfaces:** Preserve `start_monitor`, `stop_all_monitors`, and `adguardhome_run stop_adguardhome`. Reuse `post_stop_process_ready`, `post_stop_handoff_cleared`, native resolver checks, and bounded required-dnsmasq readiness.
+
+**Minimum correction:** Capture and return stop failure from both monitor exit paths. Before signaling, preserve whether DNS integration and main/SDN recovery are required; a later vanished daemon must not erase that requirement. After graceful monitor disappearance, the parent verifies daemon absence, handoff cleanup, native resolver state and required DNS recovery. Failed postconditions trigger one existing final recovery operation; propagate failure if it remains incomplete. Keep intentionally unmanaged LAN/AP integration unchanged and retain identity-checked escalation.
+
+### Acceptance criteria
+
+- [x] Successful stop requires the daemon absent, installer handoff state cleared, native resolver routing restored, and required main/SDN DNS recovered.
+- [x] Resolver-unmount failure, surviving daemon, dnsmasq restart/readiness failure, and stale handoff state return nonzero instead of successful monitor disappearance.
+- [x] Both monitor stop branches, multiple monitors, forced termination, missing /opt, repeated stop and intentionally unmanaged LAN/AP are covered without respawn or unintended DNS restart.
+
+### Verification
+
+- [x] Baseline focused additions to `sh tests/stop-adguardhome-failure.sh` reproduce direct stop failure with false successful parent/monitor status; fixed cases pass.
+- [x] `sh tests/monitor-stop-config-fallback.sh`, `sh tests/service-opt-disappearance.sh`, `sh tests/rc-restart-stop-failure.sh`, and `sh tests/local-cache-serialization.sh` pass.
+- [x] Refresh manager digests and run host/BusyBox syntax checks.
+
+---
+
+### Completion record
+
+Implemented in 8ada69b. Both monitor exits propagate stop failure; parent checks daemon, handoff, resolver and remembered main/SDN requirements. Missing-/opt, unrelated DNS owner, old-ash inherited inventory, forced/repeated shutdown and updated adaptive/dispatcher fixtures pass. One bounded recovery retains failure status. Combined canonical validation and hosted checks are tracked separately in TASK-017; hardware acceptance remains TASK-018.
+
+## TASK-015: Serialize every fallback service operation
+
+**Priority:** P1 | **Tags:** lifecycle, concurrency, locks
+**Dependencies:** TASK-014
+**Estimated scope:** Small, four files
+
+### Plan
+
+- Modify `AdGuardHome.sh:799` (`adguardhome_run_mkdir`) and only its necessary owner/cleanup/status helpers.
+- Create proposed `tests/service-lock-serialization.sh`.
+- Refresh both manager checksum sidecars.
+
+**Interfaces:** Consume `adguardhome_run_mkdir ACTION`, `adguardhome_run_execute ACTION PID_FILE OWNER`, and TASK-014's safe path contract. Preserve operation status propagation.
+
+**Recommended contention policy:** Return existing nonzero busy status for every action that cannot acquire the mkdir lock, including stop. A bounded-wait policy is an alternative that must specify its budget before implementation; neither policy permits overlapping operations.
+
+**Minimum correction:** Remove unconditional stop bypass and completed-metadata-as-acquisition rules. Require atomic ownership acquisition for each operation, retain ownership until it finishes, and allow only that owner to remove its lock. Recover abandoned state using existing validated PID/start-time patterns; do not delete a live or unverified holder's directory.
+
+### Acceptance criteria
+
+- [x] With absent and descriptor-incapable flock, startup and stop never overlap; stop cannot report success before an in-flight startup later launches the daemon.
+- [x] Two contenders observing completed metadata admit at most one action; duplicate cleanup helpers cannot remove another action's lock or metadata.
+- [x] Live-holder, stale-holder, PID-reuse and interrupted-owner fixtures preserve safe ownership and meaningful nonzero failure; the flock path remains serialized.
+
+### Verification
+
+- [x] Baseline `sh tests/service-lock-serialization.sh` (proposed) fails on recorded start/stop overlap; repaired code passes.
+- [x] Run the new fixture with both backend selections, `sh tests/installer-service-lock-fd.sh`, `sh tests/local-cache-serialization.sh`, and `sh tests/start-adguardhome-lifecycle.sh`.
+- [x] Refresh manager digests and run host/BusyBox syntax checks.
+
+---
+
+### Completion record
+
+Implemented in a9bc559. Absent/incapable/descriptor backends, immediate-busy fallback stop, PID reuse, successor cleanup, legacy0644 upgrade, failed owner writing and SIGKILL publication/cleanup/reaper/writer cases pass real-helper fixtures. Existing proc claim callers keep their default behavior. Combined canonical validation and hosted checks are tracked separately in TASK-017; hardware acceptance remains TASK-018.
+
+## TASK-014: Prevent unsafe reuse of service-lock and probe paths
+
+**Priority:** P1 | **Tags:** security, locks, file-integrity
+**Dependencies:** None
+**Estimated scope:** Medium, up to five files
+
+### Plan
+
+- Modify `AdGuardHome.sh:710` through the service-lock/probe helpers, especially truncating opens at lines 725/756 and probe creation at 823/824.
+- Extend `tests/runtime-writable-path-security.sh`; create proposed `tests/service-lock-path-safety.sh` if needed to isolate nonprivileged file-integrity cases.
+- Refresh `AdGuardHome.sh.md5sum` and `AdGuardHome.sh.sha256sum`.
+
+**Interfaces:** Preserve `adguardhome_run ACTION`, `adguardhome_run_flock ACTION`, `adguardhome_run_flock_active`, and `flock_supports_fd`. Lock/probe creation must not follow or truncate a foreign filesystem object.
+
+**Minimum correction:** Reuse existing private-directory owner/mode/type validation and exclusive-creation patterns. Keep a stable descriptor lock inode in a private runtime directory across contenders; isolate capability probes there. Reject foreign-owned directories, symlinks and special files; validate service metadata as well as descriptor paths. Handle legacy active locks conservatively without deleting or replacing a lock a live holder may own. A failed capability probe must still allow the safe mkdir fallback.
+
+### Acceptance criteria
+
+- [x] Symlink targets, foreign regular files, foreign-owned directories, FIFOs and dangling links retain contents, permissions and identity after activity checks, start/stop attempts and capability probes.
+- [x] Privileged validation verifies foreign UID fixtures; the same-UID symlink fixture proves no target truncation without needing a router.
+- [x] Concurrent descriptor users share one lock inode; compatibility fallback still works when flock is absent or cannot lock file descriptors.
+
+### Verification
+
+- [x] Baseline `sh tests/service-lock-path-safety.sh` (proposed) demonstrates target truncation; fixed code passes.
+- [x] Run `sh tests/runtime-writable-path-security.sh` as UID 0 on an isolated host, including real foreign-owner cases; run `sh tests/installer-service-lock-fd.sh` and affected Local Cache/process-lock fixtures.
+- [x] Refresh manager digests and run host/BusyBox syntax checks. Record firmware symlink protection and local-user reachability before assigning security severity; do not describe the issue as remotely exploitable.
+
+---
+
+### Completion record
+
+Implemented in a9bc559. Private runtime paths, exclusive probes and persistent descriptor inode pass root Docker foreign-UID, symlink, hard-link, special-file and metadata checks under sh, BusyBox 1.37 and the 1.25.1 ash harness. Firmware-specific privilege severity remains unassigned. Combined canonical validation and hosted checks are tracked separately in TASK-017; hardware acceptance remains TASK-018.
+
+## TASK-013: Diagnose and repair malformed managed hooks accurately
+
+**Priority:** P1 | **Tags:** doctor, hooks, recovery
+**Dependencies:** TASK-012
+**Estimated scope:** Small, four or five files
+
+### Plan
+
+- Modify `installer:3490` (`doctor_managed_script_state`), `doctor_fix_permissions:3527`, and doctor hook enumeration at `installer:3662`.
+- Extend proposed `tests/installer-managed-hook-invariants.sh`; extend `tests/installer-doctor-fix-safety.sh` only where needed.
+- Refresh both installer checksum sidecars.
+
+**Interfaces:** Consume existing `doctor [--fix]`, `doctor_managed_script_state SCRIPT_PATH OP`, topology configuration, and TASK-012's hook invariants. Preserve current diagnostic severity/exit conventions except that an invalid header must never be described as healthy.
+
+**Minimum correction:** Validate header/interpreter, intended owned invocation, file type and execute permission together. Repair an already-present, recognized installer-managed malformed header and final mode using the same invariant as generation. Include supported `dnsmasq-sdn.postconf` and managed `service-event-end` content using the latter's command-hook format, rather than the manager-call matcher. Determine applicable checks from persisted integration/capability/topology state; absent intentionally disabled hooks must not be recreated or reported as required.
+
+### Acceptance criteria
+
+- [x] Executable shebangless, non-executable, missing-call, and duplicate owned-hook fixtures never produce a false OK; a repaired managed malformed hook passes the invariant check.
+- [x] SDN checks apply only with enabled dnsmasq integration and mtlancfg capability; disabled integration and intentionally absent LAN firewall hooks remain respected.
+- [x] Read-only doctor performs no edits; --fix preserves unrelated content, rejects symlink targets, reports repair failures, and does not restart services or change DNS/firewall/NVRAM.
+
+### Verification
+
+- [x] The new doctor cases in `sh tests/installer-managed-hook-invariants.sh` fail on baseline false-OK behavior, then pass after repair.
+- [x] `sh tests/installer-doctor-fix-safety.sh` and `sh tests/installer-doctor-rollback-result.sh` pass.
+- [x] Refresh installer digests and run host/BusyBox syntax checks.
+
+---
+
+### Completion record
+
+Implemented in d783705. Doctor catches malformed owned calls and repairs recognized hooks without changing DNS/firewall/NVRAM. Main/SDN/service-event gating, unsafe targets, active claims and stable legacy descriptor inode preservation pass focused checks. Combined canonical validation and hosted checks are tracked separately in TASK-017; hardware acceptance remains TASK-018.
+
+## TASK-012: Preserve executable hook invariants through legacy migration
+
+**Priority:** P0 | **Tags:** dns, hooks, upgrade
+**Dependencies:** None
+**Estimated scope:** Small, four files
+
+### Plan
+
+- Modify `installer:9465` (`write_manager_script`) and only the necessary interaction with `del_jffs_script:6771`.
+- Create proposed `tests/installer-managed-hook-invariants.sh`.
+- Refresh `installer.md5sum` and `installer.sha256sum` after implementation.
+
+**Interfaces:** Consume existing `write_manager_script TARG OP` and `del_jffs_script TARG FILTER`. Preserve status 0/1 conventions and existing `dnsmasq pre_start` dispatcher contract. Successful generation must produce a complete executable hook, not merely a successful append.
+
+**Minimum correction:** Perform legacy cleanup before final creation/header normalization. If cleanup removes the file, recreate its header before appending the managed call. Repair an installer-produced blank or missing first-line header, preserve an existing valid interpreter and unrelated commands, and apply/verify final 0755 mode after all content operations. Propagate write/chmod/validation failures into existing aggregate restoration; retain restoration evidence if rollback fails. Do not change generic uninstall cleanup's ability to remove installer-only hooks.
+
+### Acceptance criteria
+
+- [x] Real writer succeeds for absent, empty, legacy-only, and previously broken 0600/shebangless files; generated hooks have `#!/bin/sh` on line 1, exactly one intended managed invocation, and final 0755 mode under umasks 077 and 022.
+- [x] Repeated install/repair is idempotent; shared custom commands and a valid existing interpreter line are preserved; applicable main/SDN hook policy is unchanged.
+- [x] Injected cleanup, append, chmod, and publication failure returns nonzero and restores the original content/mode through the real transaction path.
+
+### Verification
+
+- [x] Baseline: `sh tests/installer-managed-hook-invariants.sh` (proposed) fails specifically on legacy-only migration's blank header/non-executable mode.
+- [x] After repair: the same test passes; `sh tests/installer-legacy-hook-cleanup.sh`, `sh tests/installer-event-script-modes.sh`, and `sh tests/installer-event-script-transactions.sh` pass.
+- [x] `sh tools/update-checksums.sh installer`; `sh -n installer`; BusyBox ash syntax and focused fixtures pass on the supported validation host.
+
+---
+
+### Completion record
+
+Implemented in d783705. Real-hook migration, shared-content, final interpreter/mode, rollback and interruption fixtures pass under root Docker sh/BusyBox and the BusyBox 1.25.1 ash harness. Both installer manifests refreshed. Combined canonical validation and hosted checks are tracked separately in TASK-017; hardware acceptance remains TASK-018.
+
 ## TASK-011: Plan the v2.6.7 repair release
 
 **Priority:** P0 | **Tags:** planning, dns, reliability
