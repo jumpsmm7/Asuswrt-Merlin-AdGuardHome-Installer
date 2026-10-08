@@ -442,7 +442,7 @@ STATE_FILE="${TEST_ROOT}/state"
 MONITOR_STATE_FILE="${TEST_ROOT}/monitor-state"
 STOPPED_MONITORS_FILE="${TEST_ROOT}/stopped-monitors"
 DISPATCH_STDERR="${TEST_ROOT}/dispatch-stderr"
-sed -n '/^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p; /^[{] for PID in \$(adguard_monitor_pids); do/p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
+sed -n '/^post_stop_[a-z_]*() {$/,/^}$/p; /^adguard_monitor_pids() {$/,/^}$/p; /^stop_all_monitors() {$/,/^}$/p; /^[{] for PID in \$(adguard_monitor_pids); do/p' "${RUNTIME_PATH}" >"${DISPATCH_FILE}" ||
 	fail 'could not extract runtime monitor helpers'
 sed -n '/^case "${1:-}" in$/,$p' "${RUNTIME_PATH}" >>"${DISPATCH_FILE}" ||
 	fail 'could not extract runtime action dispatcher'
@@ -455,6 +455,9 @@ UPPER_SCRIPT="$0"
 LOWER_SCRIPT="${TEST_ROOT}/unused-lower-script"
 PROCS=AdGuardHome
 MON_PID=""
+CONFIG_DNSMASQ_MODE=disabled
+DNS_HANDOFF_DIR="${TEST_ROOT}/dns-handoff"
+DNS_HANDOFF_FILE="${DNS_HANDOFF_DIR}/active"
 DIRECT_ACTION="${DIRECT_ACTION:-${1:-}}"
 export DIRECT_ACTION
 # Accept configuration loading without reading router files.
@@ -466,11 +469,14 @@ canonical_path() { printf '%s\n' "$1"; }
 # Return simulated monitor candidates for the managed entry-point names when
 # discovery is enabled, including an optional unrelated PID for filtering checks.
 pidof() {
+	if [ "${1:-}" = "${PROCS}" ]; then cat "${STATE_FILE}"; return 0; fi
 	[ "${DISCOVER_MONITORS:-0}" = 1 ] || return 1
 	[ "$*" = "S99${PROCS} AdGuardHome.sh rc.func.${PROCS}" ] || return 1
 	cat "${MONITOR_STATE_FILE}"
 	[ -z "${EXTRA_MONITOR_PID:-}" ] || printf '%s\n' "${EXTRA_MONITOR_PID}"
 }
+# resolv_conf_uses_rom reports native routing for this dispatcher-only fixture.
+resolv_conf_uses_rom() { return 0; }
 # Succeed only when the supplied PID belongs to a simulated active monitor.
 monitor_process_matches() {
 	for monitor_pid in $(cat "${MONITOR_STATE_FILE}"); do

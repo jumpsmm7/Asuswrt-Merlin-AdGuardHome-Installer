@@ -141,6 +141,13 @@ stop_monitor "$$" || fail 'stuck monitor escalation failed'
 
 # A foreground cache DNS query can outlast the normal monitor grace period.
 # Ending that monitor must still stop the daemon and restore native DNS.
+# Complete daemon/resolver/main+SDN postconditions are exercised with real
+# helpers in monitor-stop-postconditions.sh; this fixture isolates escalation.
+post_stop_capture_dnsmasq_requirements() {
+	STOP_DNSMASQ_REQUIRED=1
+	STOP_DNSMASQ_CONFIGS=/etc/dnsmasq.conf
+}
+post_stop_complete() { return 0; }
 RECOVERY_CALLS=0
 RECOVERY_STATUS=0
 # adguard_monitor_pids returns the monitor selected by the escalation fixture.

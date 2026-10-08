@@ -3441,15 +3441,16 @@ restart_adguardhome() {
 # USR1 requests daemon shutdown and loop exit; USR2 requests a restart through
 # the service lock and DNS handoff. Other trapped termination signals are ignored
 # until shutdown restores their default handlers. Runs until a stop request and
-# returns 0 after leaving the loop; this is not a daemon-readiness result.
+# returns the stop operation's status after leaving the loop.
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE MONITOR_STOP_STATUS
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
 	MONITOR_RECOVERY_RETRY_INTERVAL="10"
 	MONITOR_SLEEP_INTERVAL="10"
 	MONITOR_STATE="running"
+	MONITOR_STOP_STATUS="0"
 	trap '' HUP INT QUIT ABRT TERM TSTP
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
@@ -3482,6 +3483,7 @@ start_monitor() {
 			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 			{ adguardhome_run stop_adguardhome; }
+			MONITOR_STOP_STATUS="$?"
 			break
 		fi
 		if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
@@ -3567,6 +3569,7 @@ start_monitor() {
 				fi
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
+				MONITOR_STOP_STATUS="$?"
 				break
 				;;
 			"restart")
@@ -3580,6 +3583,7 @@ start_monitor() {
 				;;
 		esac
 	done
+	return "${MONITOR_STOP_STATUS}"
 }
 
 # post_stop_process_ready verifies that AdGuardHome has no running process.
@@ -3594,6 +3598,53 @@ post_stop_handoff_cleared() {
 		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
 	done
 	return 0
+}
+
+# post_stop_native_resolver_ready verifies that optional cache routing is gone.
+post_stop_native_resolver_ready() {
+	resolv_conf_uses_rom || ! resolv_conf_is_tmp_mount
+}
+
+# Preserve managed main/SDN requirements before signalling a monitor.  Explicit
+# enabled integration remains required even if dnsmasq later disappears in LAN.
+post_stop_capture_dnsmasq_requirements() {
+	local ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_DNSMASQ_CONFIGS="${ADGUARDHOME_DNSMASQ_CONFIGS:-}" config configs index
+	case "${STOP_DNSMASQ_REQUIRED:-}" in 0 | 1) return 0 ;; esac
+	STOP_DNSMASQ_REQUIRED="0"
+	STOP_DNSMASQ_CONFIGS=""
+	case "${CONFIG_DNSMASQ_MODE:-auto}" in
+		disabled) return 0 ;;
+		enabled) STOP_DNSMASQ_REQUIRED="1" ;;
+		*) adguard_dnsmasq_managed && STOP_DNSMASQ_REQUIRED="1" ;;
+	esac
+	[ "${STOP_DNSMASQ_REQUIRED}" -eq 1 ] || return 0
+	STOP_DNSMASQ_CONFIGS="/etc/dnsmasq.conf"
+	ADGUARDHOME_DNS_HANDOFF_REQUIRED="1"
+	if type dnsmasq_handoff_configs >/dev/null 2>&1; then
+		configs="$(dnsmasq_handoff_configs)" || return 1
+		STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS} ${configs}"
+	else
+		# The manager can remain available after the Entware service file vanishes.
+		case " $(nvram get rc_support 2>/dev/null) " in
+			*" mtlancfg "*)
+				for config in /etc/dnsmasq-[0-9]*.conf; do
+					[ -f "${config}" ] || continue
+					index="${config#/etc/dnsmasq-}"
+					index="${index%.conf}"
+					case "${index}" in "" | *[!0-9]*) continue ;; esac
+					[ -n "$(sdn_bridge_for_index "${index}")" ] || continue
+					STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS} ${config}"
+				done
+				;;
+		esac
+	fi
+	return 0
+}
+
+# post_stop_complete verifies the postconditions independently of monitor exit.
+post_stop_complete() {
+	post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || return 1
+	[ "${STOP_DNSMASQ_REQUIRED:-0}" -eq 0 ] || post_stop_dnsmasq_ready
 }
 
 # monotonic_seconds returns integer seconds from the kernel monotonic uptime clock.
@@ -3631,10 +3682,88 @@ post_stop_dnsmasq_timeout() {
 	printf '%s\n' "${TIMEOUT}"
 }
 
-# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and resolves localhost through an available DNS server.
+# Verify every captured configuration, including main-only recovery.  The
+# manager's procfs fallback remains available when /opt's service file is gone.
+post_stop_dnsmasq_instances_ready() {
+	local ADGUARDHOME_DNSMASQ_CONFIGS args config executable inventory native_pids pid start table
+	ADGUARDHOME_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS:-}"
+	[ -n "${ADGUARDHOME_DNSMASQ_CONFIGS}" ] || return 1
+	if type dnsmasq_instances_ready >/dev/null 2>&1; then
+		dnsmasq_instances_ready 53 && return 0
+	fi
+	native_pids="$(pidof dnsmasq 2>/dev/null)"
+	if type dnsmasq_managed_instances >/dev/null 2>&1; then
+		inventory="$(dnsmasq_managed_instances | awk '{ print $1, $3 }')" || return 1
+	else
+		inventory="$(
+			for pid in ${native_pids}; do
+				case "${pid}" in "" | *[!0-9]*) continue ;; esac
+				[ "${pid}" -gt 1 ] || continue
+				start="$(proc_process_start_time "${pid}")" || continue
+				executable="$(readlink "/proc/${pid}/exe" 2>/dev/null)" || continue
+				case "${executable}" in /usr/sbin/dnsmasq | /sbin/dnsmasq) ;; *) continue ;; esac
+				[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ] || continue
+				args="$(tr '\000' '\n' <"/proc/${pid}/cmdline" 2>/dev/null)" || continue
+				config="$(printf '%s\n' "${args}" | awk '
+					NR == 1 { next }
+					need_config { config=$0; need_config=0; count++; next }
+					$0 == "-C" || $0 == "--conf-file" { need_config=1; next }
+					/^--conf-file=/ { config=substr($0, 13); count++; next }
+					/^-C./ { config=substr($0, 3); count++; next }
+					$0 == "-7" || /^-7./ || /^--conf-dir/ { invalid=1 }
+					END {
+						if (need_config || count > 1 || invalid) exit 1
+						if (count == 0) print "/etc/dnsmasq.conf"
+						else print config
+					}')" || continue
+				case " ${ADGUARDHOME_DNSMASQ_CONFIGS} " in *" ${config} "*) ;; *) continue ;; esac
+				[ -f "${config}" ] && [ ! -L "${config}" ] || continue
+				[ "$(proc_process_start_time "${pid}")" = "${start}" ] || continue
+				printf '%s %s\n' "${pid}" "${config}"
+			done
+		)" || return 1
+	fi
+	table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${table}" | awk -v configs="${ADGUARDHOME_DNSMASQ_CONFIGS}" -v inventory="${inventory}" -v native_pids="${native_pids}" '
+		BEGIN {
+			count=split(configs, values, /[[:space:]]+/)
+			for (i=1; i<=count; i++) if (values[i] != "") required[values[i]]=1
+			count=split(inventory, rows, "\n")
+			for (i=1; i<=count; i++) {
+				split(rows[i], fields, " ")
+				if (fields[2] in required) candidates[fields[1]]=fields[2]
+			}
+			for (config in required) expected++
+			for (pid in candidates) { known++; only_pid=pid }
+			# Ownerless main rows are safe only with one identified dnsmasq.
+			pid_count=split(native_pids, pids, /[[:space:]]+/)
+			ownerless=(expected == 1 && ("/etc/dnsmasq.conf" in required) && known == 1 && pid_count == 1 && pids[1] == only_pid)
+		}
+		$1 ~ /^(tcp|udp)6?$/ && $4 ~ /:53$/ {
+			owner=""
+			for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+\//) { owner=$i; break }
+			if (owner == "" && ownerless) pid=only_pid
+			else {
+				split(owner, fields, "/")
+				pid=fields[1]
+				if (fields[2] != "dnsmasq" || !(pid in candidates)) next
+			}
+			if ($1 ~ /^tcp/) tcp[pid]=1
+			if ($1 ~ /^udp/) udp[pid]=1
+		}
+		END {
+			for (pid in candidates) if (tcp[pid] && udp[pid]) ready[candidates[pid]]=1
+			for (config in required) if (!(config in ready)) exit 1
+		}
+	'
+}
+
+# post_stop_dnsmasq_ready verifies that required dnsmasq instances own local port
+# 53 and resolve localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
+	post_stop_dnsmasq_instances_ready || return 1
 	dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
 		owner = ""
 		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
@@ -3671,18 +3800,16 @@ post_stop_dnsmasq_ready() {
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS:-}" STOP_DNSMASQ_REQUIRED="${STOP_DNSMASQ_REQUIRED:-}" STOP_STATUS db
 	STOP_STATUS="0"
+	post_stop_capture_dnsmasq_requirements || STOP_STATUS="1"
 	if ! dnsmasq_resolv_conf_cleanup; then
 		if ! resolv_conf_uses_rom; then
 			if resolv_conf_is_tmp_mount || ! adguard_local_cache_service_active; then STOP_STATUS="1"; fi
 		fi
 	fi
-	DNSMASQ_WAS_MANAGED="0"
+	DNSMASQ_WAS_MANAGED="${STOP_DNSMASQ_REQUIRED}"
 	DNSMASQ_RESTART_ELAPSED="0"
-	if adguard_dnsmasq_managed; then
-		DNSMASQ_WAS_MANAGED="1"
-	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -3735,6 +3862,10 @@ stop_adguardhome() {
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi
+	if ! post_stop_native_resolver_ready; then
+		agh_log error stop_adguardhome "state=stopping action=verify_resolver reason=cache_mount_remains result=failed"
+		STOP_STATUS="1"
+	fi
 	for db in stats.db sessions.db; do
 		remove_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
 	done
@@ -3763,10 +3894,13 @@ adguard_monitor_pids() {
 # Stop every matching monitor left by an earlier service entry point.  A
 # single stop request must not leave another monitor able to respawn the daemon.
 stop_all_monitors() {
-	local FOUND MONITOR_STOP_FORCED PID STOP_RECOVERY_REQUIRED STOP_STATUS
+	local FOUND MONITOR_STOP_FORCED PID STOP_DNSMASQ_CONFIGS STOP_DNSMASQ_REQUIRED STOP_RECOVERY_REQUIRED STOP_STATUS
 	FOUND=0
 	STOP_RECOVERY_REQUIRED=0
 	STOP_STATUS=0
+	STOP_DNSMASQ_CONFIGS=""
+	STOP_DNSMASQ_REQUIRED=""
+	post_stop_capture_dnsmasq_requirements || STOP_STATUS=1
 	for PID in $(adguard_monitor_pids); do
 		[ "${PID}" != "$$" ] || continue
 		monitor_process_matches "${PID}" || continue
@@ -3775,10 +3909,12 @@ stop_all_monitors() {
 		stop_monitor "$$" || STOP_STATUS=1
 		[ "${MONITOR_STOP_FORCED:-0}" -eq 0 ] || STOP_RECOVERY_REQUIRED=1
 	done
+	post_stop_complete || STOP_RECOVERY_REQUIRED=1
 	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ] || [ "${STOP_RECOVERY_REQUIRED}" -ne 0 ]; then
-		# Escalation can end a monitor before it stops AGH or restores native DNS.
+		# A vanished monitor cannot communicate a failed stop to this parent.
 		adguardhome_run stop_adguardhome || STOP_STATUS=1
 	fi
+	post_stop_complete || STOP_STATUS=1
 	return "${STOP_STATUS}"
 }
 
