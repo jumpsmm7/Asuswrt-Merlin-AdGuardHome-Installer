@@ -13,6 +13,7 @@
 - Replace fractional fixture sleeps with supported bounded integer waits and explicit synchronization.
 - Document touched shell helpers missing descriptions to address the automated coverage warning; refresh both touched runtime digest pairs.
 - Run focused sh/BusyBox/1.25.1 harness regressions, canonical local validation and relevant hosted checks. Push normal commits, reply on each original thread with evidence, then resolve and reread current review state.
+- Follow-up review: clarify that the summary's pending hosted status belongs to the original 5c28d8d record, retain the later passing b31385a evidence, verify the documentation diff and reply/resolve the timeline thread.
 
 ### Acceptance criteria
 
