@@ -1,5 +1,7 @@
 # Work Log
 
+- TASK-011 (October 7, 2026 America/New_York): Completed the v2.6.7 repair-only plan on baseline 85b926b. Reproduced legacy-hook recreation at 0600 without a shebang, reinstall/doctor false OK, fallback service overlap, hidden monitor stop failure and unsafe lock/probe symlink truncation in isolated fixtures. Four existing hook/doctor regressions pass under host sh. Recorded TASK-012–TASK-018 in Next; hardware firmware/DHCP/reboot/overnight results and firmware-dependent security reachability remain pending. No runtime implementation or external publication occurred.
+
 - TASK-001: Established branch and root-mapped baseline; documented expected behavior and router-only release checks.
 - TASK-002: Safe missing-policy defaults and explicit CLI/user-choice regressions pass.
 - TASK-003: Read-only managed detection tests pass under BusyBox ash: main and multiple SDN PIDs, alternate display names, duplicate sockets, unknown/stale PIDs, unsupported firmware, foreign configs, scoped listeners and symlinks. Runtime syntax passes.

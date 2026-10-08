@@ -1,5 +1,20 @@
 # Done
 
+## TASK-011: Plan the v2.6.7 repair release
+
+**Priority:** P0 | **Tags:** planning, dns, reliability
+
+### Checkpoint
+
+- Reviewed clean runtime HEAD 85b926b, v2.6.5/v2.6.6 issue and PR history, canonical AGENTS.md, existing TaskPlanner state, relevant source and nearest tests.
+- Reproduced the reported legacy-only dnsmasq hook migration defect with actual installer functions: successful generation produces an empty first line and mode 0600 under the installer umask. Reinstall restores 0755 but leaves the malformed header, which doctor falsely marks healthy.
+- Independent isolated actual-function proofs reproduced fallback start/stop overlap and successful monitor/parent stop status despite failed daemon/DNS cleanup. Reproduced symlink target truncation through service-lock activity checks and descriptor capability probes; any local privilege impact remains conditional on router /tmp access and symlink protection.
+- Four existing hook/doctor regressions passed under host sh. BusyBox, ShellCheck and physical-router validation were unavailable; no exhaustive security audit or affected-router exploit was claimed.
+- Recorded TASK-012 through TASK-018 in Next with file responsibilities, interface contracts, acceptance criteria, focused commands, dependencies, rollback constraints, checksum/CI gates, and a recommended 48-hour router soak. Immediate busy versus bounded waiting for contended fallback stop is an explicit implementation decision; hardware coverage requires operator assignment.
+- Planning metadata only changed. Runtime code, checksums, version, releases and external GitHub objects remain unchanged. No commit, push, merge or publication was performed.
+
+---
+
 ## TASK-010: Deep review PR 1030 and finalize readiness
 
 **Priority:** P1 | **Tags:** dns, lifecycle, review
