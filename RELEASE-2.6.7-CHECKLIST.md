@@ -25,7 +25,7 @@ Record each software result with the candidate commit, exact command, exit statu
 
 ### Software verification record — October 8, 2026 UTC
 
-Runtime and test source: `5c28d8dab65ed1ecef027137fc283a0be2fe42e0`. Subsequent release-record edits change documentation/task metadata only. The four repair/CI commits are `d783705`, `a9bc559`, `8ada69b` and `5c28d8d`; baseline failure proofs used `85b926b`.
+Runtime and test source: `5c28d8dab65ed1ecef027137fc283a0be2fe42e0`. Release-record commit `a039ba5` changed documentation/task metadata only; the subsequent PR review repair is recorded below. The four original repair/CI commits are `d783705`, `a9bc559`, `8ada69b` and `5c28d8d`; baseline failure proofs used `85b926b`.
 
 Validation ran in an isolated Debian trixie Docker container as UID 0 with source mounted read-only and networking disabled. Image ID: `sha256:09530469596db579622e3f335974e985eacc439d55805a179b5e6a5bf86ce6ba`. Tools: BusyBox 1.37, gawk 5.2.1, jq 1.7, ShellCheck 0.10, shfmt 3.8, actionlint 1.7.12, GNU coreutils timeout 9.7 and Python 3.13.5. Foreign-UID cases are part of the privileged lock/path fixtures.
 
@@ -41,6 +41,26 @@ Validation ran in an isolated Debian trixie Docker container as UID 0 with sourc
 The 1.25.1 binary is a static x86_64 glibc **ash shell harness**, built from upstream tag `1_25_1` at `868530ade244bf8162fb6a10816bd815b166d509`. Its SHA-256 is `e2970bfb7eafd54fef1aabd8d4904f005449e91feaa4bc50e8c0d608381610a2`. These tests use validation-host external commands; they do not establish firmware libc, ARM executable, or complete 1.25.1 applet equivalence. Physical firmware and client tests remain required.
 
 The local quality run uses an explicitly recorded 600-second per-check host budget; checked-in CI retains its 180-second per-check budget. The lifecycle matrix uses its existing 5160-second bound. Final source digests: installer `9b148dedfe1ecb4e04617fd8c59656c1063a9034f58daf6ba0522f7e98bd6cf4`; manager `e23018c57077a0c7ff4f22f6b850a443ce1b9a0bafe6c5376a94745e7e26cccb`. Hosted checks and reviews must be assessed at the published PR head; no hosted success is claimed by this local record.
+
+### PR #1033 review verification — October 8, 2026 America/New_York
+
+Runtime/test source: `b31385a27dfcf34be5b0ef1d31305fbc56b929e5` (TASK-019). Owner cleanup now retries brief live-claim contention with a ten-second bound while service contenders remain immediately busy. Malformed/unsafe claim identities are preserved. The dnsmasq fixture isolates lock/probe paths and propagates extraction errors; serialization uses bounded integer sleeps and explicit contention handshakes. The reported defects were reproduced before correction. Missing descriptions were added without changing the corresponding helper behavior.
+
+Validation used the same isolated UID-0, read-only-source, network-disabled Docker image and tool versions recorded above. The built 1.25.1 binary remains a host ash harness, with the same firmware/libc/applet limitations.
+
+| Check / command | Result / evidence ID |
+|---|---|
+| `TEST_MAX_RUNTIME_SECONDS=600 SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS=5160 sh tools/code-quality.sh` | PASS, exit 0; complete lifecycle/regression, lint, formatting, release and artifact checks; `pr1033-review/combined-code-quality.log`. |
+| `AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh` | PASS, exit 0; all 28 groups; `pr1033-review/busybox-lifecycle.log`. Cleanup diagnostic limitation below. |
+| All listed scripts under `sh -n`, `busybox ash -n`, and built 1.25.1 `ash -n`; `actionlint -shellcheck= -pyflakes=` | PASS, exit 0; 162 scripts in each shell; `pr1033-review/syntax-workflows.log`. |
+| `tests/service-lock-serialization.sh` and `tests/service-lock-path-safety.sh` under sh, BusyBox 1.37 ash and built 1.25.1 ash; `tests/local-cache-serialization.sh` under sh | PASS, exit 0; real live-owner cleanup, bounded retry, malformed/unsafe claims and subsequent action covered; `pr1033-review/lock-cleanup-*.log`. |
+| `tests/dnsmasq-lan-mode.sh` under all three shells, sentinel preservation and 18 extraction/rewrite fault injections | PASS; real host lock path remains intact and failures propagate immediately; `pr1033-review/fixture-and-cleanup-independent-review.md`. |
+| Independent documentation audit of new/changed shell definitions against `85b926b` | PASS; 132/132 definitions across 18 shell files have descriptions; `pr1033-review/changed-definition-documentation-audit.log`. CodeRabbit's hosted check separately passes at 94.07%, above its 80% threshold. |
+| Hosted checks/review at published repair head `b31385a` | PASS; Code Quality `37797727577`, Shell validation `37797727572`, Semgrep `37797734312`, OpenSSF Scorecard `37797727476` and OSV `37797727496` succeeded. Draft-only Code Quality Review `37797727692` skipped. CodeRabbit approved; reread found zero unresolved threads. |
+
+The separate BusyBox matrix printed timeout text after all PASS groups during watchdog cleanup. An unchanged-baseline reproduction confirmed that interrupting the watchdog's unchecked sleep can print this message without an elapsed timeout. The suite exited 0; this is a pre-existing diagnostic race, not a clean-output or actual-timeout claim.
+
+Source SHA-256 at `b31385a`: installer `531ea3be43b4943cebe6a8998c20d6470a6476262153b4c404b0d9d45d957ceb`; manager `f201a1819736ac998027b276e999b3085d924573148c914f7082045e1bf85a19`. All three original inline agent threads received evidence replies and were resolved. The summary's predictable-probe warning does not apply to exclusive creation inside the validated owner-private directory; the existing privileged fixture verifies pre-created symlink rejection and target preservation. Any subsequent published head needs its own hosted CI/review inspection before merge or release. Physical-router rows remain BLOCKED.
 
 ## Evidence and execution
 
@@ -140,9 +160,9 @@ Use controlled fixtures without targeting unrelated processes or valuable files.
 
 | Requirement | Status | Evidence / disposition |
 |---|---|---|
-| Final candidate local software checks and both manifests | PASS | Source `5c28d8d`; full local quality run and separate BusyBox lifecycle matrix exit 0. |
+| Final candidate local software checks and both manifests | PASS | Source `b31385a`; full local quality run and separate BusyBox lifecycle matrix exit 0; review follow-up and cleanup diagnostic limitation recorded above. |
 | Version/banner/manifests agree | PASS | Banner and AI_VERSION are v2.6.7; both runtime MD5/SHA-256 sidecars agree. |
-| Hosted required checks and reviews at the published PR head | BLOCKED | Pending; inspect current-head CI/review evidence before merge or release. |
+| Hosted required checks and reviews at the published PR head | PASS at `b31385a` | All five executed workflows succeeded and CodeRabbit approved; draft-only review workflow skipped. Recheck a later published head before merge or release. |
 | Fresh, legacy, v2.6.5 and v2.6.6 upgrade coverage | BLOCKED | Hardware execution required. |
 | Reported corrupt hook repair and firmware invocation | BLOCKED | Hardware execution required. |
 | Client DHCP/local/reverse DNS and network isolation | BLOCKED | Hardware execution required. |

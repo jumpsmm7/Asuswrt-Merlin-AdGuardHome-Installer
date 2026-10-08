@@ -1,5 +1,67 @@
 # Done
 
+## TASK-019: Resolve PR #1033 automated review feedback
+
+**Priority:** P1 | **Tags:** review, locks, portability, tests
+**Scope:** User-requested resolution of existing agent feedback on October 8, 2026 (America/New_York); preserve v2.6.7 repair-only behavior, draft status and hardware acceptance gates. No merge or release.
+
+### Plan
+
+- Verify all unresolved inline threads and agent summaries against head a039ba5 before accepting suggestions.
+- Repair owner cleanup contention without changing immediate-busy acquisition or unsafe-claim preservation; prove the live-claim case with the real helpers.
+- Keep dnsmasq fixture lock/probe state under its private workspace and preserve helper-extraction failure status.
+- Replace fractional fixture sleeps with supported bounded integer waits and explicit synchronization.
+- Document touched shell helpers missing descriptions to address the automated coverage warning; refresh both touched runtime digest pairs.
+- Run focused sh/BusyBox/1.25.1 harness regressions, canonical local validation and relevant hosted checks. Push normal commits, reply on each original thread with evidence, then resolve and reread current review state.
+
+### Acceptance criteria
+
+- [x] All applicable inline findings have verified corrections and passing regression evidence.
+- [x] Agent summary warnings receive evidence-backed fixes or a documented reason for rejection.
+- [x] Current source syntax, lint, formatting, lifecycle checks and artifact digests pass.
+- [x] Original threads have fix/rejection replies and are resolved; current-head feedback and checks are inspected before reporting completion.
+
+### Completion record
+
+Implemented in b31385a. All three original CodeRabbit threads received evidence replies and are resolved; subsequent thread inventory returned zero unresolved. Real-helper regressions prove bounded live-owner cleanup, immediate-busy contenders and preservation of malformed/unsafe claims. The isolated dnsmasq fixture preserves host state and extraction failures. All fractional fixture sleeps were replaced with bounded integer waits and real contention handshakes.
+
+Full isolated UID-0 canonical validation exits 0. Separate BusyBox lifecycle validation passes all 28 groups with exit 0; an unchanged-baseline watchdog cleanup diagnostic race is recorded in RELEASE-2.6.7-CHECKLIST.md. All 162 scripts parse under sh/BusyBox1.37/1.25.1 ash; targeted three-shell checks, local-cache regression, ShellCheck, shfmt, actionlint and all artifact digests pass. Independent documentation audit: 132/132 changed/new definitions described. Probe warning rejected with private-parent/exclusive-create/path-safety evidence; style-only preferences are not defects under AGENTS.md.
+
+Hosted Code Quality, Shell validation, Semgrep, OpenSSF Scorecard and OSV checks pass at published repair head b31385a; draft-only Code Quality Review skips. CodeRabbit approved and its hosted documentation check passes at 94.07%. Subsequent published-head inspection remains part of the delivery; physical release gates stay in TASK-018. No hardware acceptance, merge or release is claimed.
+
+---
+
+## TASK-017: Run the new failure cases in canonical CI
+
+**Priority:** P1 | **Tags:** validation, ci
+**Dependencies:** TASK-012, TASK-013, TASK-014, TASK-015, TASK-016
+**Estimated scope:** Medium, up to four files
+
+### Plan
+
+- Modify `tools/code-quality.sh` and `.github/workflows/shell-validation.yml` to execute all new fixtures under the appropriate shell/UID.
+- Update `tests/fixtures/service-lifecycle-cases.tsv` and `tests/fixtures/service-lifecycle-coverage.tsv` only for independently covered integration scenarios.
+- Keep regression paths and time limits aligned; do not loosen assertions or mask environment failures to obtain green results.
+
+### Acceptance criteria
+
+- [x] Canonical validation actually executes real-helper legacy migration, doctor malformed-hook, lock-path, contention, and graceful-stop failure cases.
+- [x] Host sh and BusyBox ash checks pass; security tests execute in an isolated UID-0 host with foreign-UID cases; target BusyBox 1.25.1 ash harness passes. Firmware libc/ARM/applets remain hardware acceptance.
+- [x] Full lifecycle integration, lint, formatting and artifact checksums pass against the final combined source, with published repair-head b31385a hosted review/check evidence.
+
+### Verification
+
+- [x] Run `sh tools/code-quality.sh` in the documented isolated validation host with declared prerequisites; exit 0 at source 5c28d8d.
+- [x] Run `sh tests/service-lifecycle-integration.sh`; separate `AGH_INTEGRATION_SHELL=busybox AGH_INTEGRATION_SHELL_ARG=ash busybox ash tests/service-lifecycle-integration.sh` also exits 0 for all 28 groups.
+- [x] Run `sh tools/check-md5.sh`, `sh tools/check-sha256.sh`, `sh tools/check-release-consistency.sh`, workflow lint and `git diff --check`.
+- [x] The combined passing result is a software validation gate; it is not evidence of ASUS firmware dispatch, DHCP leases or overnight physical-router behavior.
+
+### Completion record
+
+All local canonical checks pass, including lint/formatting and 162 syntax checks in each of sh, BusyBox 1.37 ash and the built 1.25.1 ash harness. Existing helper-extraction fixtures and the workflow command inventory were updated for the new dependencies without suppressing failures. PR #1033 review repair source b31385a also passes canonical validation and the separate 28-group BusyBox matrix; its existing cleanup diagnostic race is recorded in the release checklist. CI retains its 180-second per-check budget; the isolated local host used a recorded 600-second budget. All five executed hosted workflows pass at published repair head b31385a, draft-only review skips, and CodeRabbit approves. TASK-017 is complete for that source; recheck subsequent published heads before merge or release. TASK-018 stays In Progress with physical acceptance BLOCKED.
+
+---
+
 ## TASK-016: Verify graceful monitor shutdown before reporting success
 
 **Priority:** P1 | **Tags:** lifecycle, recovery, dns
