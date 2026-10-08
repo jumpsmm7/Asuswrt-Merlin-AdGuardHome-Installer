@@ -48,6 +48,7 @@ PATH="${BIN_DIR}:/bin:/usr/bin" . "${FUNCTIONS_FILE}"
 
 # Function wrappers keep BusyBox builds that prefer internal applets on the isolated process/socket fixtures.
 netstat() { "${BIN_DIR}/netstat" "$@"; }
+# pidof routes process discovery through the isolated command stub.
 pidof() { "${BIN_DIR}/pidof" "$@"; }
 entware_available() { return 0; }
 agh_monitor_count() { printf '%s\n' '1'; }

@@ -147,6 +147,7 @@ post_stop_capture_dnsmasq_requirements() {
 	STOP_DNSMASQ_REQUIRED=1
 	STOP_DNSMASQ_CONFIGS=/etc/dnsmasq.conf
 }
+# post_stop_complete assumes healthy daemon/DNS state so this fixture isolates monitor escalation.
 post_stop_complete() { return 0; }
 RECOVERY_CALLS=0
 RECOVERY_STATUS=0

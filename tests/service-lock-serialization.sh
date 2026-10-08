@@ -7,6 +7,8 @@ TEST_ROOT="${TMPDIR:-/tmp}/service-lock-serialization.$$"
 umask 077
 mkdir "${TEST_ROOT}"
 CHILD=""
+CLAIM_CHILD=""
+STOP_CHILD=""
 # fail reports a fixture failure.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
@@ -15,7 +17,12 @@ fail() {
 # cleanup releases and joins the fixture worker before removing its files.
 cleanup() {
 	: >"${TEST_ROOT}/release"
+	: >"${TEST_ROOT}/claim-release"
+	: >"${TEST_ROOT}/transition-release"
+	: >"${TEST_ROOT}/monitor-release"
 	[ -z "${CHILD}" ] || wait "${CHILD}" 2>/dev/null || true
+	[ -z "${CLAIM_CHILD}" ] || wait "${CLAIM_CHILD}" 2>/dev/null || true
+	[ -z "${STOP_CHILD}" ] || wait "${STOP_CHILD}" 2>/dev/null || true
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
@@ -28,23 +35,60 @@ cat >"${TEST_ROOT}/worker" <<'EOF_WORKER'
 set -u
 TEST_ROOT="$1"
 BACKEND="$2"
-MODE="${4:-normal}"
+MODE="${6:-${4:-normal}}"
 # shellcheck disable=SC1090
 . "${TEST_ROOT}/functions"
 # agh_log suppresses worker diagnostics.
 agh_log() { :; }
 # have_cmd forces either absent, incapable or descriptor-capable flock.
 have_cmd() { [ "${BACKEND}" != absent ] && command -v "$1" >/dev/null 2>&1; }
-# flock simulates a command present without descriptor support.
-flock() { [ "${BACKEND}" != incapable ] && command flock "$@"; }
+# flock simulates a command present without descriptor support and announces
+# that a descriptor stop has reached a genuinely contended lock.
+flock() {
+	[ "${BACKEND}" != incapable ] || return 1
+	if [ "${MODE}" = descriptor-stop-wait ] && [ "$#" -eq 1 ] && [ "$1" = 9 ]; then
+		if command flock -n 9; then return 1; fi
+		: >"${TEST_ROOT}/descriptor-blocked"
+	fi
+	command flock "$@"
+}
 # IPSet_Lock_Interrupt_Propagate has no enclosing transaction in this fixture.
 IPSet_Lock_Interrupt_Propagate() { :; }
+# sleep rejects unsupported fractional durations and announces owner cleanup's
+# bounded wait while a different live process holds the publication claim.
+sleep() {
+	local duration
+	duration="${1%s}"
+	case "${duration}" in "" | *[!0-9]*) return 1 ;; esac
+	if [ "${MODE}" = no-wait ]; then
+		: >"${TEST_ROOT}/unexpected-sleep"
+		return 1
+	fi
+	if [ "${MODE}" = bounded-wait ]; then
+		printf '%s\n' wait >>"${TEST_ROOT}/cleanup-waits"
+		return 0
+	fi
+	if [ "${MODE}" = live-owner-cleanup ] && [ -f "${TEST_ROOT}/release" ] && [ -L "${TEST_ROOT}/manager-service-lock/action.claim" ]; then
+		: >"${TEST_ROOT}/cleanup-waiting"
+	fi
+	command sleep "$@"
+}
+# wait_for_release bounds each injected pause with stock integer sleep.
+wait_for_release() {
+	local attempts
+	attempts=0
+	while [ ! -f "$1" ]; do
+		[ "${attempts}" -lt 30 ] || return 1
+		sleep 1 || return 1
+		attempts="$((attempts + 1))"
+	done
+}
 # mkdir pauses only after real ownership-controlled action publication.
 mkdir() {
 	command mkdir "$@" || return "$?"
 	if [ "${MODE}" = kill-publish ] && [ "${3:-}" = "${TEST_ROOT}/manager-service-lock/action" ]; then
 		: >"${TEST_ROOT}/transition-blocked"
-		while [ ! -f "${TEST_ROOT}/transition-release" ]; do sleep 0.05; done
+		wait_for_release "${TEST_ROOT}/transition-release" || return 1
 	fi
 }
 # rm pauses only after the real cleaner unlinks its immutable owner record.
@@ -53,7 +97,7 @@ rm() {
 	if { [ "${MODE}" = kill-cleanup ] && [ "${2:-}" = "${TEST_ROOT}/manager-service-lock/action/owner" ]; } ||
 		{ [ "${MODE}" = kill-reap ] && [ "${2:-}" = "${TEST_ROOT}/manager-service-lock/action/pid" ]; }; then
 		: >"${TEST_ROOT}/transition-blocked"
-		while [ ! -f "${TEST_ROOT}/transition-release" ]; do sleep 0.05; done
+		wait_for_release "${TEST_ROOT}/transition-release" || return 1
 	fi
 }
 # printf injects a real failed or interrupted staged owner-record write after
@@ -66,7 +110,7 @@ printf() {
 				IFS= read -r writer_pid </proc/self/stat || return 1
 				command printf '%s\n' "${writer_pid%% *}" >"${TEST_ROOT}/writer-pid"
 				: >"${TEST_ROOT}/transition-blocked"
-				while [ ! -f "${TEST_ROOT}/transition-release" ]; do sleep 0.05; done
+				wait_for_release "${TEST_ROOT}/transition-release" || return 1
 				;;
 		esac
 	fi
@@ -78,18 +122,41 @@ service_wait() {
 		start_adguardhome)
 			printf '%s\n' start-enter >>"${TEST_ROOT}/events"
 			: >"${TEST_ROOT}/entered"
-			while [ ! -f "${TEST_ROOT}/release" ]; do sleep 0.05; done
+			wait_for_release "${TEST_ROOT}/release" || return 1
 			printf '%s\n' start-exit >>"${TEST_ROOT}/events"
 			;;
 		stop_adguardhome) printf '%s\n' stop >>"${TEST_ROOT}/events" ;;
 		adguardhome_run)
-			while ! adguardhome_run ""; do sleep 0.05; done
+			attempts=0
+			while ! adguardhome_run ""; do
+				[ "${attempts}" -lt 30 ] || return 1
+				sleep 1 || return 1
+				attempts="$((attempts + 1))"
+			done
 			;;
 	esac
 }
 case "$3" in
 	cleanup) adguardhome_run_mkdir_cleanup "${TEST_ROOT}/manager-service-lock/action" "$4" "$5" ;;
-	*) adguardhome_run "$3" ;;
+	claim)
+		PROC_LOCK_DIR="${TEST_ROOT}/manager-service-lock/action"
+		IFS= read -r claim_pid </proc/self/stat || exit 1
+		PROC_LOCK_PID="${claim_pid%% *}"
+		claim_start="$(proc_process_start_time "${PROC_LOCK_PID}")" || exit 1
+		proc_lock_claim_acquire "${claim_start}" 1 || exit 1
+		: >"${TEST_ROOT}/claim-held"
+		wait_for_release "${TEST_ROOT}/claim-release" || exit 1
+		proc_lock_claim_release "${claim_start}"
+		;;
+	*)
+		adguardhome_run "$3"
+		status="$?"
+		if [ "${MODE}" = live-owner-cleanup ]; then
+			printf '%s\n' "${status}" >"${TEST_ROOT}/cleanup-status"
+			wait_for_release "${TEST_ROOT}/monitor-release" || exit 1
+		fi
+		exit "${status}"
+		;;
 esac
 EOF_WORKER
 SHELL_BIN="$(readlink "/proc/$$/exe")"
@@ -103,8 +170,8 @@ run_worker() {
 # wait_for_file bounds the worker startup wait.
 wait_for_file() {
 	attempts=0
-	while [ ! -f "$1" ] && [ "${attempts}" -lt 100 ]; do
-		sleep 0.05
+	while [ ! -f "$1" ] && [ "${attempts}" -lt 20 ]; do
+		sleep 1
 		attempts="$((attempts + 1))"
 	done
 	[ -f "$1" ] || fail 'service action did not enter'
@@ -204,12 +271,68 @@ run_worker absent stop_adguardhome || fail 'failed staged owner publication prev
 # A live or unverified publication claim returns busy immediately without a
 # sleep/retry and without erasing another process's identity.
 parent_start="$(awk '{ print $22 }' "/proc/$$/stat")"
-for identity in "$$ ${parent_start}" malformed; do
+for identity in "$$ ${parent_start}" malformed "$$:1 ${parent_start}" "$$ ${parent_start}:1" 12345; do
 	ln -s "${identity}" "${RUNTIME}/action.claim"
-	if run_worker absent stop_adguardhome; then fail 'contended publication claim admitted an action'; fi
+	if run_worker absent stop_adguardhome no-wait; then fail 'contended publication claim admitted an action'; fi
+	[ ! -f "${TEST_ROOT}/unexpected-sleep" ] || fail 'contender waited for a publication claim'
 	[ "$(readlink "${RUNTIME}/action.claim")" = "${identity}" ] || fail 'foreign publication claim changed'
 	rm "${RUNTIME}/action.claim"
 done
+
+# Owner cleanup preserves malformed and unsafe publication claims immediately.
+mkdir -m 700 "${RUNTIME}/action"
+printf '%s %s\n' "$$" "${parent_start}" >"${RUNTIME}/action/owner"
+for identity in malformed "$$:1 ${parent_start}" "$$ ${parent_start}:1" 12345; do
+	ln -s "${identity}" "${RUNTIME}/action.claim"
+	if run_worker absent cleanup "$$" "${parent_start}" no-wait; then fail 'cleanup accepted malformed claim ownership'; fi
+	[ ! -f "${TEST_ROOT}/unexpected-sleep" ] || fail 'cleanup waited on malformed claim ownership'
+	[ "$(readlink "${RUNTIME}/action.claim")" = "${identity}" ] || fail 'cleanup changed malformed claim ownership'
+	rm "${RUNTIME}/action.claim"
+done
+ln -s "$$ ${parent_start}" "${RUNTIME}/action.claim"
+if run_worker absent cleanup "$$" "${parent_start}" bounded-wait; then fail 'cleanup bypassed a persistent live claim'; fi
+[ "$(wc -l <"${TEST_ROOT}/cleanup-waits")" -eq 10 ] || fail 'cleanup retry bound changed'
+[ "$(readlink "${RUNTIME}/action.claim")" = "$$ ${parent_start}" ] || fail 'cleanup changed a persistent live claim'
+rm "${RUNTIME}/action.claim"
+printf '%s\n' unsafe >"${RUNTIME}/action.claim"
+if run_worker absent cleanup "$$" "${parent_start}" no-wait; then fail 'cleanup accepted an unsafe regular claim'; fi
+[ ! -f "${TEST_ROOT}/unexpected-sleep" ] || fail 'cleanup waited on an unsafe claim'
+[ "$(cat "${RUNTIME}/action.claim")" = unsafe ] || fail 'cleanup changed an unsafe claim'
+[ "$(cat "${RUNTIME}/action/owner")" = "$$ ${parent_start}" ] || fail 'unsafe-claim cleanup lost action ownership'
+rm "${RUNTIME}/action.claim" "${RUNTIME}/action/owner"
+rmdir "${RUNTIME}/action"
+
+# A monitor-owned action must finish cleanup after brief publication contention
+# even while its owner process remains alive for the next monitor iteration.
+rm -f "${TEST_ROOT}/entered" "${TEST_ROOT}/release" "${TEST_ROOT}/monitor-release" "${TEST_ROOT}/claim-release"
+run_worker absent start_adguardhome live-owner-cleanup &
+CHILD="$!"
+wait_for_file "${TEST_ROOT}/entered"
+owner_pid="$(sed -n '1p' "${RUNTIME}/action/pid")"
+run_worker absent claim &
+CLAIM_CHILD="$!"
+wait_for_file "${TEST_ROOT}/claim-held"
+: >"${TEST_ROOT}/release"
+attempts=0
+while [ ! -f "${TEST_ROOT}/cleanup-waiting" ] && [ ! -f "${TEST_ROOT}/cleanup-status" ] && [ "${attempts}" -lt 20 ]; do
+	sleep 1
+	attempts="$((attempts + 1))"
+done
+[ -f "${TEST_ROOT}/cleanup-waiting" ] || fail 'owner cleanup returned instead of waiting for a live publication claim'
+[ ! -f "${TEST_ROOT}/cleanup-status" ] || fail 'owner cleanup finished before the claim was released'
+if run_worker absent stop_adguardhome; then fail 'live cleanup contention admitted a second action'; fi
+[ -f "${RUNTIME}/action/owner" ] || fail 'contended cleanup lost action ownership'
+: >"${TEST_ROOT}/claim-release"
+wait "${CLAIM_CHILD}"
+CLAIM_CHILD=""
+wait_for_file "${TEST_ROOT}/cleanup-status"
+[ "$(cat "${TEST_ROOT}/cleanup-status")" = 0 ] || fail 'owner cleanup failed after publication contention ended'
+kill -0 "${owner_pid}" 2>/dev/null || fail 'monitor owner exited before cleanup was verified'
+[ ! -e "${RUNTIME}/action" ] && [ ! -L "${RUNTIME}/action.claim" ] || fail 'live monitor owner retained its completed action lock'
+run_worker absent stop_adguardhome || fail 'completed live-owner cleanup blocked a subsequent action'
+: >"${TEST_ROOT}/monitor-release"
+wait "${CHILD}"
+CHILD=""
 
 # Historical descriptor locks were 0644 after firmware readiness changed the
 # umask; probing these artifacts must be read-only and permit safe upgrades.
@@ -236,13 +359,14 @@ rm -f "${TEST_ROOT}/entered" "${TEST_ROOT}/release"
 run_worker descriptor start_adguardhome &
 CHILD="$!"
 wait_for_file "${TEST_ROOT}/entered"
-run_worker descriptor stop_adguardhome &
+run_worker descriptor stop_adguardhome descriptor-stop-wait &
 STOP_CHILD="$!"
-sleep 0.1
+wait_for_file "${TEST_ROOT}/descriptor-blocked"
 grep -q '^stop$' "${TEST_ROOT}/events" && fail 'descriptor stop overlapped startup'
 : >"${TEST_ROOT}/release"
 wait "${CHILD}"
 CHILD=""
 wait "${STOP_CHILD}" || fail 'waiting descriptor stop failed'
+STOP_CHILD=""
 [ "$(cat "${TEST_ROOT}/events")" = "$(printf '%s\n' start-enter start-exit stop)" ] || fail 'descriptor operation order changed'
 printf '%s\n' 'PASS: absent, incapable and descriptor-capable flock serialize service actions'

@@ -84,6 +84,7 @@ PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" . "${FUNCTIONS_FILE}"
 
 # Function wrappers keep BusyBox builds that prefer internal applets on the isolated socket fixtures.
 netstat() { "${BIN_DIR}/netstat" "$@"; }
+# pidof routes process discovery through the isolated command stub.
 pidof() { "${BIN_DIR}/pidof" "$@"; }
 entware_available() { return 0; }
 ensure_adguardhome_directory_permissions() {

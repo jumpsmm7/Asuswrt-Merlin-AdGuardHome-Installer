@@ -671,6 +671,7 @@ adguardhome_run() {
 	esac
 }
 
+# adguardhome_run_execute records action ownership and duration while preserving service_wait's status.
 adguardhome_run_execute() {
 	local action end owner pid_file runtime start status
 	action="$1"
@@ -705,6 +706,7 @@ adguardhome_run_directory_is_private() {
 	[ "${metadata}" = "${owner} rwx------" ]
 }
 
+# adguardhome_run_file_is_private accepts single-link files owned by this runtime, with explicit legacy-mode compatibility.
 adguardhome_run_file_is_private() {
 	local legacy owner
 	[ ! -L "$1" ] && [ -f "$1" ] || return 1
@@ -716,6 +718,7 @@ adguardhome_run_file_is_private() {
 	'
 }
 
+# adguardhome_run_link_is_private validates claim/transition symlink ownership without following its target.
 adguardhome_run_link_is_private() {
 	local owner
 	[ -L "$1" ] || return 1
@@ -726,6 +729,7 @@ adguardhome_run_link_is_private() {
 	'
 }
 
+# adguardhome_run_runtime_prepare creates or validates the private service-lock parent and persistent descriptor file.
 adguardhome_run_runtime_prepare() {
 	local lock_dir
 	lock_dir="/tmp/AdGuardHome-service-lock"
@@ -773,6 +777,7 @@ adguardhome_run_transition_begin() {
 	adguardhome_run_link_is_private "$1.transition" && [ "$(readlink "$1.transition" 2>/dev/null)" = "${record}" ]
 }
 
+# adguardhome_run_transition_clear removes only a well-formed transition owned by the current process identity.
 adguardhome_run_transition_clear() {
 	local expected_owner expected_start record start
 	[ -e "$1.transition" ] || [ -L "$1.transition" ] || return 0
@@ -788,6 +793,7 @@ adguardhome_run_transition_clear() {
 	rm -f "$1.transition"
 }
 
+# adguardhome_run_transition_recover reclaims interrupted publication/cleanup only with validated dead-mutator evidence.
 adguardhome_run_transition_recover() {
 	local current_start expected_owner expected_start lock_dir owner owner_start record
 	lock_dir="$1"
@@ -824,14 +830,37 @@ adguardhome_run_transition_recover() {
 	rm -f "${lock_dir}.transition"
 }
 
+# adguardhome_run_mkdir_cleanup serializes removal of the action owner's metadata and retains evidence on failure.
 adguardhome_run_mkdir_cleanup() {
-	local claim_pid claim_start PROC_LOCK_DIR PROC_LOCK_PID status
+	local attempts claim_owner claim_pid claim_start holder_pid holder_start PROC_LOCK_DIR PROC_LOCK_PID status
 	PROC_LOCK_DIR="$1"
 	IFS= read -r claim_pid </proc/self/stat || return 1
 	PROC_LOCK_PID="${claim_pid%% *}"
 	claim_start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
-	if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || return 1; fi
-	proc_lock_claim_matches "${PROC_LOCK_PID}" "${claim_start}" || proc_lock_claim_acquire "${claim_start}" 1 || return 1
+	if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then
+		adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || { [ ! -e "${PROC_LOCK_DIR}.claim" ] && [ ! -L "${PROC_LOCK_DIR}.claim" ]; } || return 1
+	fi
+	attempts=0
+	while ! proc_lock_claim_matches "${PROC_LOCK_PID}" "${claim_start}" && ! proc_lock_claim_acquire "${claim_start}" 1; do
+		# Cleanup belongs to the action owner, which may stay alive as a monitor.
+		# Wait briefly for a contender's publication claim without weakening the
+		# immediate-busy acquisition policy or guessing unsafe ownership stale.
+		[ "${attempts}" -lt 10 ] || return 1
+		adguardhome_run_owner_matches "$1" "$2" "$3" || return 1
+		if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then
+			if adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" && claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)"; then
+				holder_pid="${claim_owner%% *}"
+				holder_start="${claim_owner#* }"
+				case "${holder_pid}" in "" | *[!0-9]*) return 1 ;; esac
+				case "${holder_start}" in "" | *[!0-9]*) return 1 ;; esac
+				[ "${claim_owner}" = "${holder_pid} ${holder_start}" ] || return 1
+			else
+				[ ! -e "${PROC_LOCK_DIR}.claim" ] && [ ! -L "${PROC_LOCK_DIR}.claim" ] || return 1
+			fi
+		fi
+		attempts="$((attempts + 1))"
+		sleep 1 || return 1
+	done
 	adguardhome_run_mkdir_cleanup_claimed "$@"
 	status="$?"
 	if [ "${status}" -eq 0 ] || { [ ! -e "$1" ] && [ ! -L "$1" ]; }; then adguardhome_run_transition_clear "$1" || status=1; fi
@@ -882,6 +911,7 @@ adguardhome_run_mkdir_reap_stale() {
 	adguardhome_run_transition_clear "${lock_dir}"
 }
 
+# adguardhome_run_mkdir_acquire holds the publication claim while acquiring or recovering immutable action ownership.
 adguardhome_run_mkdir_acquire() {
 	local PROC_LOCK_DIR PROC_LOCK_PID status
 	PROC_LOCK_DIR="$1"
@@ -894,6 +924,7 @@ adguardhome_run_mkdir_acquire() {
 	return "${status}"
 }
 
+# adguardhome_run_mkdir_acquire_claimed rejects live/unknown owners and atomically publishes a new owner record.
 adguardhome_run_mkdir_acquire_claimed() {
 	local current_start lock_dir record stale_owner stale_start
 	lock_dir="$1"
@@ -979,6 +1010,7 @@ adguardhome_run_flock() {
 	return "${status}"
 }
 
+# adguardhome_run_flock_active reports held or unsafe service state using the persistent descriptor inode.
 adguardhome_run_flock_active() {
 	local lock_dir lock_file status
 	lock_dir="/tmp/AdGuardHome-service-lock"
@@ -997,6 +1029,7 @@ adguardhome_run_flock_active() {
 	return 0
 }
 
+# adguardhome_run_flock_cleanup releases owned action metadata before closing its descriptor lock.
 adguardhome_run_flock_cleanup() {
 	local pid_file status
 	pid_file="$1"
@@ -1014,6 +1047,7 @@ adguardhome_run_flock_restore_traps() {
 	[ -n "${saved_traps}" ] && eval "${saved_traps}"
 }
 
+# adguardhome_run_legacy_mkdir_active treats current action/transition state and live historical locks as busy.
 adguardhome_run_legacy_mkdir_active() {
 	local lock_dir
 	lock_dir="/tmp/AdGuardHome-service-lock"
@@ -1061,6 +1095,7 @@ adguardhome_run_legacy_lock_active() {
 	return 1
 }
 
+# adguardhome_run_mkdir owns one fallback service action until completion or identity-checked interruption cleanup.
 adguardhome_run_mkdir() {
 	local action lock_dir owner owner_start pid_file saved_traps status
 	action="$1"
@@ -1085,6 +1120,7 @@ adguardhome_run_mkdir() {
 	return "${status}"
 }
 
+# flock_supports_fd probes descriptor locking with an exclusively created file inside the validated private parent.
 flock_supports_fd() {
 	local TEST_LOCK status
 	TEST_LOCK="/tmp/AdGuardHome-service-lock/probe.$$"
@@ -2936,12 +2972,23 @@ proc_lock_claim_acquire() {
 		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
 		claim_pid="${claim_owner%% *}"
 		claim_start="${claim_owner#* }"
-		case "${claim_pid}:${claim_start}" in
-			*[!0-9:]* | :* | *:)
+		current_start=""
+		case "${claim_pid}" in
+			"" | *[!0-9]*)
 				[ "${try_only}" != 1 ] || return 1
-				current_start=""
 				;;
-			*) current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)" ;;
+			*)
+				case "${claim_start}" in
+					"" | *[!0-9]*) [ "${try_only}" != 1 ] || return 1 ;;
+					*)
+						if [ "${claim_owner}" = "${claim_pid} ${claim_start}" ]; then
+							current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)"
+						else
+							[ "${try_only}" != 1 ] || return 1
+						fi
+						;;
+				esac
+				;;
 		esac
 		if [ "${try_only}" = 1 ] && { [ "${current_start}" = "${claim_start}" ] || { [ -z "${current_start}" ] && kill -0 "${claim_pid}" 2>/dev/null; }; }; then return 1; fi
 		if [ -z "${current_start}" ] || [ "${current_start}" != "${claim_start}" ]; then

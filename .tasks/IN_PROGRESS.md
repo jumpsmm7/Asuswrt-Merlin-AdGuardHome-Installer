@@ -1,5 +1,28 @@
 # In Progress
 
+## TASK-019: Resolve PR #1033 automated review feedback
+
+**Priority:** P1 | **Tags:** review, locks, portability, tests
+**Scope:** User-requested resolution of existing agent feedback on October 8, 2026 (America/New_York); preserve v2.6.7 repair-only behavior, draft status and hardware acceptance gates. No merge or release.
+
+### Plan
+
+- Verify all unresolved inline threads and agent summaries against head a039ba5 before accepting suggestions.
+- Repair owner cleanup contention without changing immediate-busy acquisition or unsafe-claim preservation; prove the live-claim case with the real helpers.
+- Keep dnsmasq fixture lock/probe state under its private workspace and preserve helper-extraction failure status.
+- Replace fractional fixture sleeps with supported bounded integer waits and explicit synchronization.
+- Document touched shell helpers missing descriptions to address the automated coverage warning; refresh both touched runtime digest pairs.
+- Run focused sh/BusyBox/1.25.1 harness regressions, canonical local validation and relevant hosted checks. Push normal commits, reply on each original thread with evidence, then resolve and reread current review state.
+
+### Acceptance criteria
+
+- [ ] All applicable inline findings have verified corrections and passing regression evidence.
+- [ ] Agent summary warnings receive evidence-backed fixes or a documented reason for rejection.
+- [ ] Current source syntax, lint, formatting, lifecycle checks and artifact digests pass.
+- [ ] Original threads have fix/rejection replies and are resolved; current-head feedback and checks are inspected before reporting completion.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Priority:** P1 | **Tags:** release, hardware, dns

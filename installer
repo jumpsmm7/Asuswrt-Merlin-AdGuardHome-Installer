@@ -3499,6 +3499,7 @@ doctor_file_state() {
 	return 0
 }
 
+# doctor_managed_script_state diagnoses complete hook invariants and repairs only recognized owned content when requested.
 doctor_managed_script_state() {
 	local operation script_path expected_line fix
 	script_path="$1"
@@ -3574,6 +3575,7 @@ doctor_dns53_state() {
 	return 1
 }
 
+# doctor_fix_permissions restores owned service/config modes; managed hooks use the separate invariant-aware repair.
 doctor_fix_permissions() {
 	[ -d "${TARG_DIR}" ] && ensure_adguardhome_directory_permissions >/dev/null 2>&1 && doctor_fix_msg "AdGuardHome directory permissions"
 	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
@@ -3592,6 +3594,7 @@ doctor_pid_file_is_active() {
 	[ -d "/proc/${marker_pid}" ]
 }
 
+# doctor_run_lock_is_active preserves held or unverified current/legacy service state using read-only descriptor probes.
 doctor_run_lock_is_active() {
 	local lock_file pid_file status private_dir owner
 	private_dir="/tmp/AdGuardHome-service-lock"
@@ -3657,6 +3660,7 @@ doctor_run_lock_is_active() {
 	return 1
 }
 
+# doctor_fix_safe repairs supported file permissions and links while preserving active locks and recovery evidence.
 doctor_fix_safe() {
 	local link_target stale
 	doctor_fix_permissions
@@ -3711,6 +3715,7 @@ doctor_show_nvram_dns() {
 	done
 }
 
+# doctor reports installation and runtime health, with explicit safe repairs gated on Entware availability.
 doctor() {
 	local count fix ipset_file link_target marker port version branch backup_file entware_ready
 	DOCTOR_FAILED="0"
@@ -6860,6 +6865,7 @@ del_conf() {
 	done
 }
 
+# del_jffs_script removes selected installer-owned manager lines while preserving unrelated shared hook commands.
 del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
@@ -7055,6 +7061,7 @@ install_wan_event_scripts() {
 	return 0
 }
 
+# event_scripts_snapshot captures regular hook/config files and their metadata before aggregate event changes.
 event_scripts_snapshot() {
 	local SNAPSHOT_DIR SOURCE SNAPSHOT
 	SNAPSHOT_DIR="$1"
@@ -7301,6 +7308,7 @@ services_event_scripts_restore() {
 	event_scripts_restore "$1" /jffs/scripts/services-stop /jffs/scripts/service-event-end
 }
 
+# add_services_event_scripts publishes managed service hooks together and restores their snapshot on failure.
 add_services_event_scripts() {
 	local failed=0 SNAPSHOT_DIR
 	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.services-hooks.$$"
@@ -9615,6 +9623,7 @@ write_managed_hook() {
 	return 0
 }
 
+# write_command_script publishes a command-format hook through the common staged invariant check.
 write_command_script() {
 	write_managed_hook "$1" "$2" command
 }
@@ -9648,6 +9657,7 @@ write_conf() {
 	return 0
 }
 
+# write_manager_script verifies the manager entry point and publishes its single intended firmware hook call.
 write_manager_script() {
 	local COMMAND LINE
 	COMMAND="${ADDON_DIR}/AdGuardHome.sh"

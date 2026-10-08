@@ -48,18 +48,19 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ -f "${SCRIPT_PATH}" ] || fail "script not found: ${SCRIPT_PATH}"
 
 {
-	sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/p' "${SCRIPT_PATH}" | sed '$d'
-	sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p' "${SCRIPT_PATH}"
-	sed -n '/^proc_process_start_time() {$/,/^proc_restore_ipv6() {$/p' "${SCRIPT_PATH}" | sed '$d'
-	sed -n '/^have_cmd() {$/,/^}$/p; /^flock_supports_fd() {$/,/^}$/p' "${SCRIPT_PATH}"
-	sed -n '/^adguardhome_run_directory_is_private() {$/,/^}$/p; /^adguardhome_run_file_is_private() {$/,/^}$/p; /^adguardhome_run_runtime_prepare() {$/,/^}$/p' "${SCRIPT_PATH}"
+	sed -n '/^dnsmasq_delete_matching() {$/,/^interface_ipv4_addr() {$/ { /^interface_ipv4_addr() {$/d; p; }' "${SCRIPT_PATH}" || fail 'could not extract dnsmasq helpers'
+	sed -n '/^IPSet_Current_UID() {$/,/^}$/p; /^IPSet_Directory_Metadata() {$/,/^}$/p' "${SCRIPT_PATH}" || fail 'could not extract dnsmasq helpers'
+	sed -n '/^proc_process_start_time() {$/,/^proc_restore_ipv6() {$/ { /^proc_restore_ipv6() {$/d; p; }' "${SCRIPT_PATH}" || fail 'could not extract dnsmasq helpers'
+	sed -n '/^have_cmd() {$/,/^}$/p; /^flock_supports_fd() {$/,/^}$/p' "${SCRIPT_PATH}" || fail 'could not extract dnsmasq helpers'
+	sed -n '/^adguardhome_run_directory_is_private() {$/,/^}$/p; /^adguardhome_run_file_is_private() {$/,/^}$/p; /^adguardhome_run_runtime_prepare() {$/,/^}$/p' "${SCRIPT_PATH}" || fail 'could not extract dnsmasq helpers'
 } >"${FUNCTIONS_FILE}" || fail 'could not extract dnsmasq helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'dnsmasq helper extraction was empty'
-# Keep the extracted postconf helper inside the test sandbox instead of touching router paths.
+# Keep the extracted helpers inside the test sandbox instead of touching router paths.
 sed -i \
 	-e 's|CONFIG="/etc/dnsmasq.conf"|CONFIG="${DNSMASQ_CONF_FILE}"|' \
 	-e 's|CONFIG="/etc/dnsmasq-${1}.conf"|CONFIG="${DNSMASQ_SDN_CONF_FILE}"|' \
-	"${FUNCTIONS_FILE}" || fail 'could not sandbox dnsmasq config paths'
+	-e 's|/tmp/AdGuardHome-service-lock|${TEST_ROOT}/service-lock|g' \
+	"${FUNCTIONS_FILE}" || fail 'could not sandbox dnsmasq helper paths'
 
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
