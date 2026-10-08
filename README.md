@@ -754,6 +754,8 @@ The workflow downloads stable, beta, and edge archives from `https://static.adti
 - `armv7/` stores `linux_armv7` archives.
 - `armv5/` stores `linux_armv5` archives.
 
+These are archive-routing names, not a claim about the router CPU generation. The `armv5` compatibility archive is the package target used for older ARMv7 routers such as the ASUS RT-AC68U; its virtual validation guest is a Cortex-A9 with software float and VFP/NEON disabled. The separate `armv7` target represents a newer Cortex-A15 hard-float environment.
+
 Archives are written with channel-based local filenames, such as `AdGuardHome_stable_linux_arm64.tar.gz`, and `checksum.txt` is published after the archives and checksum sidecars are ready. Installers use `checksum.txt` to select the current archive, which avoids exposing a newly referenced archive before its SHA-256 sidecar is available.
 
 Each architecture folder also gets generated metadata:
@@ -780,6 +782,14 @@ The legacy-compatible MD5 path requires valid MD5 metadata and a matching calcul
 MD5 checksum sidecars remain part of the v2.6.5 release format for this compatibility policy; they are not the preferred verification path.
 
 ## Development checks
+
+Architecture-native virtual feature tests run in disposable ARM package targets. The `armv5` package target is exercised on an older ARMv7 Cortex-A9 software-float guest representing the ASUS RT-AC68U (VFP/NEON disabled); it is not an ARMv5 CPU generation. The separate `armv7` target uses a newer Cortex-A15 hard-float guest, and `armv8` uses AArch64. The [virtual testing guide](docs/virtual-arm-testing.md) lists covered contracts, environment dependencies and evidence rules. A complete passing matrix unblocks only its explicitly tested feature/change checks; untested behavior receives no coverage credit.
+
+After building the environments as described in the guide, run the hook, lock, lifecycle and native DNS contracts on the validation host:
+
+```sh
+sh tools/test-virtual-arm.sh --features hooks,locks,lifecycle,native_dns --output ../work/virtual-arm-results
+```
 
 Real-router release candidates must complete the version-controlled [v2.6.5 acceptance checklist](RELEASE-2.6.5-CHECKLIST.md); unexecuted mandatory hardware rows block release approval.
 

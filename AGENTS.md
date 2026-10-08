@@ -330,12 +330,14 @@ Validation hosts and CI runners, unlike router runtime scripts, explicitly allow
 * GNU coreutils `timeout` at `/usr/bin/timeout` for bounding regression and lint commands. Do not use a PATH-resolved or BusyBox `timeout` substitute.
 * The CI runner's package manager. GitHub Actions uses Ubuntu, so validation workflows may use `sudo apt-get update` and `sudo apt-get install` to provision declared checking tools.
 * `bzip2`, XZ Utils (`xz-utils`), and Zstandard (`zstd`) for the tzdata package conversion regression.
+* Docker, full-system QEMU, cross-compilers and guest-image build dependencies for the isolated ARM virtual feature suite. These tools belong to validation hosts/build containers, never the installed router runtime.
+* A host C compiler (`build-essential` on Debian/Ubuntu) for the virtual DNS response-parser regression.
 
 Install and verify them on Debian/Ubuntu validation hosts with:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd
+sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd build-essential
 python3 --version
 /usr/bin/timeout --version
 bzip2 --help >/dev/null
@@ -344,6 +346,8 @@ zstd --version
 ```
 
 These commands are validation-host exceptions only. They do not allow `python3`, GNU `timeout`, `apt-get`, `bzip2`, XZ Utils, or Zstandard dependencies in router-runtime scripts, and they do not imply that these commands are available in the router stock PATH. Agents and scanners must distinguish explicitly host-only validation paths from router-runtime paths.
+
+ARM virtual feature acceptance is scoped to the named contracts and exact tested candidate content in [the virtual testing guide](docs/virtual-arm-testing.md). The armv5 package target represents an ASUS RT-AC68U-class older ARMv7 Cortex-A9 guest with software float and VFP/NEON disabled. A complete passing armv5/armv7/armv8 package-target report is sufficient to unblock those software feature/change checks; pending physical-router acceptance must not independently block a passing covered virtual contract. Unknown scope, unexecuted or skipped scenarios, missing architectures, stale evidence and failures cannot pass that gate. Report architecture-native Linux/process/socket assertions separately from modeled firmware commands. Virtual acceptance does not imply firmware hook dispatch, physical client DHCP/isolation, persistent reboot behavior, WAN exposure, overnight soak or whole-release acceptance.
 
 For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 

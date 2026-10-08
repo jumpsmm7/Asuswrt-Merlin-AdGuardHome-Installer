@@ -2724,7 +2724,7 @@ private_ipv4_route_dns_options() {
 }
 
 resolv_conf_is_tmp_mount() {
-	df -h | grep -qoE '/tmp/resolv.conf'
+	df -P | grep -qoE '/tmp/resolv.conf'
 }
 
 resolv_conf_uses_rom() {

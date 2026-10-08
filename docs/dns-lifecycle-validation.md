@@ -19,6 +19,8 @@ The initial `wan_handoff` failure under an unprivileged shell is an environment 
 
 ## Router release checkpoint
 
+The [ARM virtual feature suite](virtual-arm-testing.md) supplies a separate software acceptance gate. Passing declared contracts across the legacy `armv5` package target (older RT-AC68U-class ARMv7 software float), newer `armv7` target and `armv8` target at the exact tested candidate content unblocks those feature/change checks, including their stated Linux/process/DNS or helper-fixture assertions. The physical rows below track additional firmware/client observations; their pending status does not block a passing covered virtual contract.
+
 Host tests cannot prove firmware service behavior, DHCP exchanges, or network isolation. Hardware testing was explicitly skipped by the user. Automated implementation checkpoints can be completed, but DHCP exchanges and isolation remain unverified on hardware.
 
 | Configuration | Checks | Status |

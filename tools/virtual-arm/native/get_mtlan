@@ -1,0 +1,5 @@
+#!/bin/sh
+# Model one enabled SDN; its interface, address, process and sockets are real.
+
+[ -r /run/virtual-arm-guest ] || exit 1
+printf '%s\n' '|-enable: [1]' '|-br_ifname: [br1]' '|-sdn_idx: [1]'

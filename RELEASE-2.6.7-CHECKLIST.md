@@ -12,6 +12,10 @@ Use **PASS**, **FAIL**, **BLOCKED**, or **NOT APPLICABLE**. An unrun mandatory r
 
 ## Repair scope and software evidence
 
+The [ARM virtual feature suite](docs/virtual-arm-testing.md) provides feature-scoped acceptance independent of the physical-router release rows. A complete passing three-architecture report unblocks only the contracts and candidate content it names. Firmware/client/reboot/soak rows remain separate observations; their pending status does not block an already passing covered virtual feature check. Record actual virtual results and their native/model boundaries rather than inferring a whole-release hardware waiver.
+
+In the virtual suite, `armv5` is an archive/package routing label for the older ASUS RT-AC68U-class ARMv7 Cortex-A9 software-float target; it is not an ARMv5 physical CPU row. The guest reports `armv7l` and disables VFP/NEON. The separate `armv7` target represents a newer Cortex-A15 hard-float environment.
+
 | Repair | Required behavior | Verification record |
 |---|---|---|
 | Legacy managed-hook migration (TASK-012) | Cleanup/regeneration leaves a valid first-line interpreter, one intended managed invocation, and final executable mode; unrelated shared commands survive; a failed write restores prior content and mode. | PASS — focused real-helper regressions; software record below. |
@@ -62,6 +66,28 @@ The separate BusyBox matrix printed timeout text after all PASS groups during wa
 
 Source SHA-256 at `b31385a`: installer `531ea3be43b4943cebe6a8998c20d6470a6476262153b4c404b0d9d45d957ceb`; manager `f201a1819736ac998027b276e999b3085d924573148c914f7082045e1bf85a19`. All three original inline agent threads received evidence replies and were resolved. The summary's predictable-probe warning does not apply to exclusive creation inside the validated owner-private directory; the existing privileged fixture verifies pre-created symlink rejection and target preservation. Any subsequent published head needs its own hosted CI/review inspection before merge or release. Physical-router rows remain BLOCKED.
 
+### Native ARM feature verification — October 8, 2026 America/New_York
+
+**Covered virtual feature acceptance: PASS and unblocked.** Final tested-content SHA-256: `08a676a9e204034ab2eb189b68628b3cf984229002a43aeecde64a6ab2411e3a`. Builder/source fingerprint: `24bb230a13c30665db96d28e1497a3e554406281837287bb7a1057520f55b702`. Evidence carries provenance label `1781f71ae76754e6f43ed7e47e91d4fa51b5a270` plus the verified working-tree changes; the exact content digest binds what ran. Completion documentation is excluded from that digest. Earlier software records above remain historical, not evidence for changed inputs.
+
+All guests use full-system QEMU TCG, Linux `6.1.157-agh-virtual`, native BusyBox 1.25.1 and native external tools. The legacy armv5 package guest is `vexpress-a9`, `cortex-a9,vfp=off,neon=off`, 256 MiB, armel software float; it reports `armv7l` and CPU features `half thumb fastmult edsp tls` (no VFP/NEON). The newer armv7 guest is Cortex-A15/armhf, 512 MiB; armv8 is Cortex-A53/AArch64, 1024 MiB. Candidate sources are read-only, guest fixture state is disposable and external guest networking is disabled. Builder image ID: `sha256:7d18b5ee72008387e677c84fd6a17dcbf94ff578edb151a12838c9922bfa559a`.
+
+| Command / final evidence ID | Result |
+|---|---|
+| For each target: `sh tools/virtual-arm/build-environments.sh TARGET /workspace/work/arm-virtualization/cache`; `build-armv5-sections.log`, `build-armv7-sections.log`, `build-armv8-sections.log` | PASS, exit 0; all native assets rebuilt at the final builder fingerprint. |
+| For each target: `sh tools/test-virtual-arm.sh --features all --architectures TARGET --cache /workspace/work/arm-virtualization/cache --output /workspace/work/arm-virtualization/final-TARGET-sections --defer-acceptance` | PASS, exit 0; 118/118 per target, 354 executions total. Per-target diagnostics deliberately retain `unblocks: false`. Evidence, environment, scenario logs and token-bound serial logs are under `final-armv5-sections/armv5`, `final-armv7-sections/armv7`, `final-armv8-sections/armv8`. |
+| `python3 tools/virtual-arm/check-evidence.py --features all --architectures armv5,armv7,armv8 --summary /workspace/work/arm-virtualization/final-acceptance.json` followed by the three final `evidence.json` paths | PASS, exit 0; `status: pass`, `unblocks: true`. Unblocked groups: hooks, transactions, topology, dns, lifecycle, locks, cache, settings, ipset, integrity and native_dns. Physical release acceptance is unchanged. |
+| `TEST_MAX_RUNTIME_SECONDS=600 SERVICE_LIFECYCLE_MAX_RUNTIME_SECONDS=5160 sh tools/code-quality.sh` in the isolated validation container; `canonical-final-sections.log` | PASS, exit 0; full real-helper regressions and 28-group lifecycle integration, evidence-policy/runner/DNS-parser checks, shell syntax, portability, warning-profile ShellCheck, shfmt, checksums and release consistency. UID 0, read-only source, no network; image `sha256:6bac2fcd6a3694b3c32f4a4c0f917314fef56b902c5666e4a37f80d32529c7ec`. |
+| `python3 tests/virtual-arm-evidence.py`; `python3 tests/virtual-arm-dns-query.py`; `actionlint -shellcheck= -pyflakes=`; staged diff whitespace check excluding the nested BusyBox patch's required context prefixes | PASS, exit 0; 21 evidence-policy tests and 96 UDP/TCP A/AAAA/PTR parser cases. The nested patch is validated by all three successful builds. Synthetic policy and host parser results are not native feature evidence. |
+
+Native beta, edge and stable binaries execute and validate configurations on each target. The stable binary alone supplies actual service lifecycle, API, UDP/TCP DNS, listener ownership, cache/restart, native resolver recovery and foreign-DNS-owner refusal coverage. Fixture groups execute real helpers while modeling firmware inputs. Even the native group models nvram/service/cru/SDN commands. These results do not establish ASUS firmware dispatch, physical DHCP/client isolation, Merlin kernel/libc equivalence, persistent reboot behavior, WAN exposure or overnight soak.
+
+Discovered product correction: resolver mount detection used optional `df -h`, which failed with the limited native BusyBox configuration. It now uses portable `df -P`; the limited-applet mounted/unmounted regression passes. Final manager MD5: `e167596847bc328fcf710de561ab89da`; SHA-256: `b0d4cee4f89cf915cfb50656c26833f7344a7bec83db810706aa78c7e6961235`.
+
+Fixture/infrastructure corrections preserve success/failure assertions: scoped IPSET fixture variables avoid ash local-variable shadowing; unsupported find pruning and fractional waits were replaced; service-stop contention uses an explicit handshake; cancelled watchdog sleep cannot fall through to a false timeout. RT-AC68U-class boot required the VExpress SYSREG/clock providers and compatibility time configuration; the mandatory DTB and actual no-FPU boot state are now verified. The DNS assertion previously accepted a matching record before checking later truncated answer/authority/additional records; it now validates all declared sections and matches only an answer record. The baseline section test produced 36 false passes; the corrected 96-case regression and final native DNS cases pass.
+
+An intermediate full matrix at digest `191bcb58…` failed cache serialization on all three targets (117/118 each): a fixture-only retry reduction expired before its intentionally delayed mount. Normal production retry budgets are now unchanged; only the explicit timeout scenario uses a separately bounded helper copy. The complete final matrix above passes cache serialization and all other scenarios on every target. Intermediate, partial, cancelled or stale runs are not acceptance evidence. Hosted execution/review of the newly published source remains pending; historical CodeRabbit approval does not approve these new inputs.
+
 ## Evidence and execution
 
 Run service restarts, failure injection, upgrade, uninstall and reboot on test hardware in a maintenance window with a pre-upgrade backup and a working recovery path. Save the prior hook content/mode and relevant settings before corrupt-hook fixtures. Do not replace a shared JFFS hook wholesale with the reported workaround: unrelated commands must survive.
@@ -78,14 +104,14 @@ Complete one inventory row per physical router before execution; add rows as nee
 |---|---|---|---|---|---|---|---|
 | ARMV7-01 | Unassigned | ARMv7 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED |
 | ARMV8-01 | Unassigned | ARMv8 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED |
-| ARMV5-01 | Unassigned | ARMv5 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED — test or explicit maintainer waiver required |
+| RT-AC68U-01 | ASUS RT-AC68U / unassigned firmware | ARMv7 Cortex-A9 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED — reproduction hardware not assigned |
 | REPORT-01 | Originally affected model/firmware, if available | Unrecorded | Unrecorded | v2.6.5/v2.6.6 report | Unrecorded | Unassigned | BLOCKED — reproduction hardware not assigned |
 
 | Required coverage | Status | Evidence / disposition |
 |---|---|---|
 | Supported current firmware on ARMv7 and ARMv8 | BLOCKED | No physical-router result recorded. |
 | Older supported firmware, where practical | BLOCKED | Select firmware or record an explicit coverage disposition. |
-| ARMv5 test or maintainer waiver | BLOCKED | No result or waiver recorded. |
+| Older RT-AC68U-class ARMv7 physical test or maintainer waiver | BLOCKED | No result or waiver recorded; the virtual `armv5` package-target result is not a physical-router result. |
 | Functional descriptor-lock backend | BLOCKED | Record capability result; binary presence alone is insufficient. |
 | mkdir/PID fallback, absent or descriptor-incapable flock | BLOCKED | Record any controlled override and its removal after testing. |
 | Main LAN, supported SDNs and legacy guest topology | BLOCKED | Record enabled networks and firmware `mtlancfg` capability. |
@@ -160,9 +186,10 @@ Use controlled fixtures without targeting unrelated processes or valuable files.
 
 | Requirement | Status | Evidence / disposition |
 |---|---|---|
-| Final candidate local software checks and both manifests | PASS | Source `b31385a`; full local quality run and separate BusyBox lifecycle matrix exit 0; review follow-up and cleanup diagnostic limitation recorded above. |
+| Final candidate local software checks and both manifests | PASS | Final content digest `08a676a9…`; full local quality exits 0 and all 354 native ARM feature executions pass; exact commands and corrected diagnostic limitations recorded above. |
+| Selected virtual feature/change contracts | PASS — unblocked | Complete three-target aggregate gate returns `unblocks: true` for all 11 covered groups at the final content digest. Physical rows do not block that scoped result. |
 | Version/banner/manifests agree | PASS | Banner and AI_VERSION are v2.6.7; both runtime MD5/SHA-256 sidecars agree. |
-| Hosted required checks and reviews at the published PR head | PASS at `b31385a` | All five executed workflows succeeded and CodeRabbit approved; draft-only review workflow skipped. Recheck a later published head before merge or release. |
+| Hosted required checks and reviews at the published PR head | PENDING for new ARM-suite source | Historical `b31385a` workflows/CodeRabbit passed; the new published head requires its own inspection. No current-head hosted pass is inferred from local results. |
 | Fresh, legacy, v2.6.5 and v2.6.6 upgrade coverage | BLOCKED | Hardware execution required. |
 | Reported corrupt hook repair and firmware invocation | BLOCKED | Hardware execution required. |
 | Client DHCP/local/reverse DNS and network isolation | BLOCKED | Hardware execution required. |

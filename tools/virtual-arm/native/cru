@@ -1,0 +1,9 @@
+#!/bin/sh
+# Record scheduler requests without asserting physical firmware cron dispatch.
+
+[ -r /run/virtual-arm-guest ] && [ -d /tmp/virtual-arm-native ] || exit 1
+case "${1:-}" in
+	a | d) printf '%s\n' "cru $*" >>/tmp/virtual-arm-native/firmware.calls ;;
+	l) : ;;
+	*) exit 1 ;;
+esac

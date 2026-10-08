@@ -1,0 +1,74 @@
+#!/bin/sh
+# Model firmware DNS regeneration while running native dnsmasq and real hooks.
+
+export LC_ALL=C
+MODEL_ROOT=/tmp/virtual-arm-native
+[ -r /run/virtual-arm-guest ] && [ -d "${MODEL_ROOT}" ] || exit 1
+
+# stop_instances validates recorded native process identities before signaling.
+stop_instances() {
+	for instance in main sdn; do
+		pid_file="${MODEL_ROOT}/dnsmasq-${instance}.pid"
+		[ -f "${pid_file}" ] || continue
+		pid="$(cat "${pid_file}")"
+		case "${pid}" in '' | *[!0-9]*) return 1 ;; esac
+		[ "${pid}" -gt 1 ] || return 1
+		if [ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ]; then
+			kill -TERM "${pid}" 2>/dev/null || return 1
+			attempt=0
+			while [ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ]; do
+				state="$(awk '{ sub(/^.*\) /, ""); print $1 }' "/proc/${pid}/stat" 2>/dev/null)"
+				[ "${state}" != Z ] || break
+				[ "${attempt}" -lt 5 ] || return 1
+				sleep 1
+				attempt="$((attempt + 1))"
+			done
+		fi
+		rm -f "${pid_file}" || return 1
+	done
+}
+
+# start_instance runs its actual installed postconf hook before a native daemon.
+start_instance() {
+	instance="$1"
+	config="$2"
+	hook="$3"
+	cp "${MODEL_ROOT}/dnsmasq-${instance}.base" "${config}" || return 1
+	[ -x "${hook}" ] || return 1
+	"${hook}" "${config}" || return 1
+	/usr/sbin/dnsmasq --keep-in-foreground --conf-file="${config}" \
+		>"${MODEL_ROOT}/dnsmasq-${instance}.log" 2>&1 &
+	pid="$!"
+	printf '%s\n' "${pid}" >"${MODEL_ROOT}/dnsmasq-${instance}.pid" || return 1
+	attempt=0
+	while :; do
+		kill -0 "${pid}" 2>/dev/null || return 1
+		if netstat -nlp 2>/dev/null | awk -v owner="${pid}/dnsmasq" '
+			$1 ~ /^(tcp|udp)/ {
+				for (field=1; field<=NF; field++) if ($field == owner) {
+					if ($1 ~ /^tcp/) tcp=1
+					if ($1 ~ /^udp/) udp=1
+				}
+			}
+			END { exit(tcp && udp ? 0 : 1) }'; then
+			return 0
+		fi
+		[ "${attempt}" -lt 10 ] || return 1
+		sleep 1
+		attempt="$((attempt + 1))"
+	done
+}
+
+printf '%s\n' "service ${1:-}" >>"${MODEL_ROOT}/firmware.calls" || exit 1
+case "${1:-}" in
+	stop_dnsmasq) stop_instances ;;
+	restart_dnsmasq)
+		stop_instances || exit 1
+		start_instance main /etc/dnsmasq.conf /jffs/scripts/dnsmasq.postconf || exit 1
+		start_instance sdn /etc/dnsmasq-1.conf /jffs/scripts/dnsmasq-sdn.postconf || exit 1
+		;;
+	*)
+		printf '%s\n' "Unsupported modeled firmware service: ${1:-}" >&2
+		exit 1
+		;;
+esac

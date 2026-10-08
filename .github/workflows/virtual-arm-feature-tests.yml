@@ -1,0 +1,129 @@
+name: Virtual ARM feature tests
+
+on:
+  push:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      features:
+        description: Comma-separated feature IDs or all; acceptance covers only this selection
+        required: true
+        default: all
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  arm-features:
+    name: Feature execution (${{ matrix.architecture }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [armv5, armv7, armv8]
+    env:
+      SELECTED_FEATURES: ${{ github.event.inputs.features || 'all' }}
+      AGH_VIRTUAL_ARM_BUILD_JOBS: '2'
+    steps:
+      - name: Check out immutable candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Validate selected contracts and evidence policy
+        run: |
+          set -eu
+          python3 tools/virtual-arm/check-evidence.py --select --features "${SELECTED_FEATURES}" >/dev/null
+          python3 tests/virtual-arm-evidence.py
+
+      - name: Restore native build cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: work/virtual-arm-cache
+          key: virtual-arm-v1-${{ runner.os }}-${{ matrix.architecture }}-${{ hashFiles('tools/virtual-arm/Dockerfile', 'tools/virtual-arm/build-environments.sh', 'tools/virtual-arm/environment.py', 'tools/virtual-arm/rootfs-manifest.py', 'tools/virtual-arm/check-native-libraries.py', 'tools/virtual-arm/sources.sha256', 'tools/virtual-arm/configs/**', 'tools/virtual-arm/patches/**', 'tools/virtual-arm/dns-query.c') }}
+
+      - name: Build pinned native guest
+        run: sh tools/virtual-arm/build-environments.sh "${{ matrix.architecture }}" work/virtual-arm-cache
+
+      - name: Execute selected features in full-system TCG
+        run: |
+          sh tools/test-virtual-arm.sh \
+            --features "${SELECTED_FEATURES}" \
+            --architectures "${{ matrix.architecture }}" \
+            --cache work/virtual-arm-cache \
+            --output work/virtual-arm-results \
+            --defer-acceptance
+
+      - name: Upload native execution artifacts
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: virtual-arm-${{ matrix.architecture }}
+          path: work/virtual-arm-results/
+          if-no-files-found: error
+          retention-days: 14
+
+  feature-acceptance:
+    name: ARM feature acceptance
+    if: always()
+    needs: arm-features
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SELECTED_FEATURES: ${{ github.event.inputs.features || 'all' }}
+      MATRIX_RESULT: ${{ needs.arm-features.result }}
+    steps:
+      - name: Check out immutable candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Download architecture evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: virtual-arm-*
+          path: work/virtual-arm-evidence
+          merge-multiple: true
+
+      - name: Require complete feature-scoped acceptance
+        run: |
+          set -eu
+          [ "${MATRIX_RESULT}" = success ] || {
+            printf '%s\n' "ARM feature matrix did not succeed: ${MATRIX_RESULT}" >&2
+            exit 1
+          }
+          python3 tools/virtual-arm/check-evidence.py \
+            --features "${SELECTED_FEATURES}" \
+            --architectures armv5,armv7,armv8 \
+            --summary work/virtual-arm-acceptance.json \
+            work/virtual-arm-evidence
+          {
+            printf '%s\n' '## ARM virtual feature acceptance' ''
+            printf '%s\n' 'Selected feature contracts pass on the armv5 compatibility package (older RT-AC68U-class ARMv7 software-float guest), newer armv7 hard-float guest and armv8 guest at the recorded tested-content digest.'
+            printf '%s\n' 'This unblocks the selected assertions. Firmware dispatch, physical DHCP/isolation, reboot persistence and overnight soak retain their separate requirements.' ''
+            printf '%s\n' '```json'
+            cat work/virtual-arm-acceptance.json
+            printf '%s\n' '```'
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload scoped acceptance decision
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: virtual-arm-feature-acceptance
+          path: work/virtual-arm-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -233,7 +233,7 @@ declared_case_count=$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }'
 SUITE_TIMEOUT_SECONDS=$(suite_timeout_seconds "${declared_case_count}" "${TIMEOUT_SECONDS}" "${SUITE_OUTER_TIMEOUT_SECONDS}") ||
 	fail "AGH_INTEGRATION_TIMEOUT produces a suite timeout that is not below ${SUITE_OUTER_TIMEOUT_SECONDS}s"
 (
-	sleep "${SUITE_TIMEOUT_SECONDS}"
+	sleep "${SUITE_TIMEOUT_SECONDS}" || exit 0
 	process_identity_matches "$$" "${SUITE_START_TIME}" || exit 0
 	printf '%s\n' "FAIL: service lifecycle integration suite exceeded ${SUITE_TIMEOUT_SECONDS}s for ${declared_case_count} serial cases" >&2
 	kill -TERM "$$" 2>/dev/null || true

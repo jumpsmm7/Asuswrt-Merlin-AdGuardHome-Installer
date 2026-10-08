@@ -33,8 +33,8 @@ sed -n '/^agh_timestamp() {$/,/^}$/p; /^agh_log() {$/,/^}$/p; /^IPSet_Enabled() 
 cat >"${BINARY_FILE}" <<'BINARY'
 #!/bin/sh
 [ "$1" = '--version' ] || exit 2
-[ "${VERSION_STATUS:-0}" -eq 0 ] || exit "${VERSION_STATUS}"
-printf '%s\n' "${VERSION_OUTPUT}"
+[ "${VERSION_FIXTURE_STATUS:-0}" -eq 0 ] || exit "${VERSION_FIXTURE_STATUS}"
+printf '%s\n' "${VERSION_FIXTURE_OUTPUT}"
 BINARY
 chmod +x "${BINARY_FILE}" || fail 'could not create version test binary'
 
@@ -111,10 +111,11 @@ logger() {
 # run_start_case exercises startup IPSET gating and verifies the resulting calls and status for a simulated AdGuardHome version.
 run_start_case() {
 	VERSION_OUTPUT="$1"
-	VERSION_STATUS="${2:-0}"
+	VERSION_FIXTURE_OUTPUT="$1"
+	VERSION_FIXTURE_STATUS="${2:-0}"
 	EXPECTED="$3"
 	EXPECTED_STATUS="${4:-0}"
-	export VERSION_OUTPUT VERSION_STATUS
+	export VERSION_FIXTURE_OUTPUT VERSION_FIXTURE_STATUS
 	: >"${CALLS_FILE}"
 
 	if IPSet_Setup_For_Start; then
@@ -130,8 +131,9 @@ run_start_case() {
 
 run_case() {
 	VERSION_OUTPUT="$1"
-	VERSION_STATUS="${2:-0}"
-	export VERSION_OUTPUT VERSION_STATUS
+	VERSION_FIXTURE_OUTPUT="$1"
+	VERSION_FIXTURE_STATUS="${2:-0}"
+	export VERSION_FIXTURE_OUTPUT VERSION_FIXTURE_STATUS
 	EXPECTED="$3"
 	: >"${CALLS_FILE}"
 
@@ -180,8 +182,9 @@ DISABLE_STATUS=0
 INSTALL_MODE=wan
 
 VERSION_OUTPUT='AdGuard Home, version v0.107.48'
-VERSION_STATUS=0
-export VERSION_OUTPUT VERSION_STATUS
+VERSION_FIXTURE_OUTPUT='AdGuard Home, version v0.107.48'
+VERSION_FIXTURE_STATUS=0
+export VERSION_FIXTURE_OUTPUT VERSION_FIXTURE_STATUS
 FAST_PATH_CALLS="${TEST_ROOT}/transaction-fast-path-calls"
 LOCK_CALLS=0
 SAVED_IPSET_LOCK_ACTIVE="${IPSET_LOCK_ACTIVE:-0}"

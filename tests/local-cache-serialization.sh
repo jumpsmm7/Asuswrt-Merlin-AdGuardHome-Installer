@@ -7,22 +7,28 @@ MANAGER="$(pwd)/AdGuardHome.sh"
 # Load declarations/defaults only, then extract the production helpers.
 sed '/^case "${1:-}" in$/,$d' "${MANAGER}" |
 	sed 's|/tmp/AdGuardHome|${WORK_DIR}/manager|g' >"${ROOT}/functions"
+# Scale only this fixture's lock retry budget, preserving real acquisition,
+# owner validation and cleanup while allowing integer-second contention waits.
+sed '/^proc_lock_run() {$/,/^}$/ {
+	s/"${attempts}" -ge 50/"${attempts}" -ge 5/g
+	s/"${attempts}" -lt 100/"${attempts}" -lt 5/g
+}' "${ROOT}/functions" >"${ROOT}/functions.bounded"
 cat >"${ROOT}/worker" <<'EOF_WORKER'
 #!/bin/sh
 set -u
-. "$1/functions"
+FUNCTIONS_PATH="$1/functions"
+[ ! -f "$1/fast-lock-retries" ] || FUNCTIONS_PATH="$1/functions.bounded"
+. "${FUNCTIONS_PATH}"
 WORK_DIR="$1"
 CONF_FILE="${WORK_DIR}/config"
 PROC_LOCK_FORCE_MKDIR="$2"
 CONFIG_LOCAL="${4:-NO}"
 NAME=cache-test
 PROCS=cache-test
-# Shorten only the lock retry delays for deterministic contention fixtures.
+# Force the integer-second fallback for deterministic contention fixtures.
 if [ -f "${WORK_DIR}/fast-lock-retries" ]; then
-	# which advertises the fast usleep stub and delegates other command lookups to the host.
-	which() { [ "${1:-}" != usleep ] || return 0; command which "$@"; }
-	# usleep shortens lock retry delays to 10 milliseconds on the validation host.
-	usleep() { command sleep 0.01; }
+	# which hides usleep while delegating other command lookups to the host.
+	which() { [ "${1:-}" != usleep ] || return 1; command which "$@"; }
 fi
 # pidof reports the simulated daemon running unless an unready marker exists.
 pidof() { [ ! -f "${WORK_DIR}/unready" ]; }
@@ -64,7 +70,7 @@ nvram() { printf '%s\n' 1; }
 # Keep firmware readiness polling fast in the real detached run-lock fixture.
 sleep() {
 	case "${1:-}" in
-		10s) command sleep 0.1 ;;
+		10s) command sleep 1 ;;
 		*) command sleep "$@" ;;
 	esac
 }

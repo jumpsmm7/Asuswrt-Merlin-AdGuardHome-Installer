@@ -217,6 +217,9 @@ run_check 'CodeRabbit and code-quality workflow config regression' sh tests/code
 run_check 'ShellCheck workflow dialect consistency regression' sh tests/shellcheck-workflow-dialect-consistency.sh
 run_check 'AGENTS.md PATH and package consistency regression' sh tests/agents-md-path-package-consistency.sh
 run_check 'code-quality.sh helper function regression' sh tests/code-quality-checks.sh
+run_check 'ARM virtual feature evidence gate regression' python3 tests/virtual-arm-evidence.py
+run_check 'ARM virtual runner failure regression' sh tests/virtual-arm-runner-failure.sh
+run_check 'ARM virtual DNS response validation regression' python3 tests/virtual-arm-dns-query.py
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh

@@ -29,11 +29,11 @@ fail() {
 	exit 1
 }
 
-# wait_for_file waits briefly for a file to exist and returns success if it appears within 100 attempts.
+# wait_for_file waits up to ten integer-second polling intervals for publication.
 wait_for_file() {
 	_wait_file="$1"
 	_wait_attempts=0
-	while [ ! -e "${_wait_file}" ] && [ "${_wait_attempts}" -lt 100 ]; do
+	while [ ! -e "${_wait_file}" ] && [ "${_wait_attempts}" -lt 10 ]; do
 		_wait_attempts="$((_wait_attempts + 1))"
 		command usleep 100000
 	done
@@ -42,7 +42,8 @@ wait_for_file() {
 
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-printf '%s\n' '#!/bin/sh' '[ "$1" = "100000" ] || exit 1' 'sleep 0.1' >"${TEST_ROOT}/usleep" ||
+# The fixture scales microsecond polling to portable integer-second waits.
+printf '%s\n' '#!/bin/sh' '[ "$1" = "100000" ] || exit 1' 'sleep 1' >"${TEST_ROOT}/usleep" ||
 	fail 'could not create usleep test shim'
 chmod 755 "${TEST_ROOT}/usleep" || fail 'could not chmod usleep test shim'
 PATH="${TEST_ROOT}:${PATH}"
@@ -1097,7 +1098,7 @@ _orphan_guard_pid="${ADGUARDHOME_DNS_GUARD_PID}"
 _orphan_ready_dir="${DNS_GUARD_READY_DIR}"
 rm -f "${DNS_HANDOFF_FILE}" || fail 'could not remove the direct guard handoff marker'
 _orphan_wait_attempts=0
-while command kill -0 "${_orphan_guard_pid}" 2>/dev/null && [ "${_orphan_wait_attempts}" -lt 100 ]; do
+while command kill -0 "${_orphan_guard_pid}" 2>/dev/null && [ "${_orphan_wait_attempts}" -lt 10 ]; do
 	_orphan_wait_attempts="$((_orphan_wait_attempts + 1))"
 	command usleep 100000
 done
@@ -1169,7 +1170,7 @@ SLEEP_OWNED_AFTER=1
 ADGUARDHOME_DNS_GUARD_RETRIES=3
 launch_dns_port_guard || fail 'DNS guard did not publish readiness'
 _guard_check_attempts=0
-while [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -lt 2 ] && [ "${_guard_check_attempts}" -lt 100 ]; do
+while [ "$(wc -l <"${NETSTAT_CALLS_FILE}")" -lt 2 ] && [ "${_guard_check_attempts}" -lt 10 ]; do
 	_guard_check_attempts="$((_guard_check_attempts + 1))"
 	command usleep 100000
 done
@@ -1913,7 +1914,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${REQUIRED_PRE_INTERRUPT_READY_FI
 ) &
 _required_pre_interrupt_pid="$!"
 _required_pre_interrupt_waits=0
-while [ ! -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] && [ "${_required_pre_interrupt_waits}" -lt 100 ]; do
+while [ ! -f "${REQUIRED_PRE_INTERRUPT_READY_FILE}" ] && [ "${_required_pre_interrupt_waits}" -lt 10 ]; do
 	_required_pre_interrupt_waits="$((_required_pre_interrupt_waits + 1))"
 	command usleep 100000
 done
@@ -2010,7 +2011,7 @@ rm -f "${INTERRUPT_READY_FILE}" "${INTERRUPT_GUARD_PID_FILE}"
 ) &
 _interrupt_start_pid="$!"
 _interrupt_wait_attempts=0
-while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_wait_attempts}" -lt 100 ]; do
+while [ ! -f "${INTERRUPT_READY_FILE}" ] && [ "${_interrupt_wait_attempts}" -lt 10 ]; do
 	_interrupt_wait_attempts="$((_interrupt_wait_attempts + 1))"
 	command usleep 100000
 done
@@ -2057,7 +2058,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_INTERRUPT_READY_FILE
 ) &
 _no_handoff_interrupt_pid="$!"
 _no_handoff_interrupt_waits=0
-while [ ! -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_interrupt_waits}" -lt 100 ]; do
+while [ ! -f "${NO_HANDOFF_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_interrupt_waits}" -lt 10 ]; do
 	_no_handoff_interrupt_waits="$((_no_handoff_interrupt_waits + 1))"
 	command usleep 100000
 done
@@ -2095,7 +2096,7 @@ rm -f "${STARTED_FILE}" "${DNS_HANDOFF_FILE}" "${NO_HANDOFF_PRE_INTERRUPT_READY_
 ) &
 _no_handoff_pre_interrupt_pid="$!"
 _no_handoff_pre_interrupt_waits=0
-while [ ! -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_pre_interrupt_waits}" -lt 100 ]; do
+while [ ! -f "${NO_HANDOFF_PRE_INTERRUPT_READY_FILE}" ] && [ "${_no_handoff_pre_interrupt_waits}" -lt 10 ]; do
 	_no_handoff_pre_interrupt_waits="$((_no_handoff_pre_interrupt_waits + 1))"
 	command usleep 100000
 done

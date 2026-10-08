@@ -1,5 +1,36 @@
 # Done
 
+## TASK-020: Build ARM virtual feature environments and scoped acceptance
+
+**Priority:** P1 | **Tags:** virtualization, arm, tests, ci
+**Scope:** User authorization on October 8, 2026 (America/New_York): native ARM package-target feature testing and repairs, with acceptance limited to covered feature/change contracts. The legacy armv5 package represents an ASUS RT-AC68U-class older ARMv7 CPU with software float, not a newer hard-float target.
+
+### Plan
+
+- Build disposable full-system Cortex-A9/software-float, Cortex-A15/hard-float and Cortex-A53/AArch64 guests with pinned kernels and native BusyBox 1.25.1; disable VFP/NEON for the RT-AC68U-class guest.
+- Exercise broad real-helper regressions and actual shipped AdGuardHome/dnsmasq processes, DNS sockets, API and lifecycle behavior; distinguish modeled firmware dependencies.
+- Bind fail-closed feature acceptance to exact candidate content, complete architecture coverage and hashed native execution evidence.
+- Reproduce defects, make minimal corrections, refresh runtime digests, and retest the final integrated matrix.
+- Add bounded local/CI execution, cache provenance and artifacts; record the software result without waiving firmware/physical release coverage.
+
+### Acceptance criteria
+
+- [x] All three declared environments boot and run native tools and shipped binaries; the older ARMv7 target uses software float with VFP/NEON disabled.
+- [x] All 118 scenarios pass on every target, totaling 354 executions; discovered product, fixture and infrastructure failures have corrections and retest evidence.
+- [x] Complete selected contracts unblock only their tested content; stale, incomplete, skipped, failed or unknown evidence is rejected.
+- [x] Full host quality, evidence-policy/runner/DNS-parser regressions, syntax, lint, formatting, workflow lint and artifact checks pass. Hosted execution of the new workflow remains pending at publication.
+- [x] Native/model boundaries and separate physical release gates are documented; PR #1033 stays draft, without merge or release.
+
+### Completion record
+
+Final tested-content SHA-256: `08a676a9e204034ab2eb189b68628b3cf984229002a43aeecde64a6ab2411e3a`; builder fingerprint: `24bb230a13c30665db96d28e1497a3e554406281837287bb7a1057520f55b702`. All three full runs exit 0 and the aggregate gate returns `status: pass`, `unblocks: true` for the 11 selected feature groups. The provenance commit label is `1781f71` plus the verified working-tree changes; content identity, rather than that historical label alone, binds the result. Exact commands, failures/fixes, evidence IDs and validation environment are in RELEASE-2.6.7-CHECKLIST.md.
+
+Native guest testing found a real runtime portability defect: resolver mount detection required optional `df -h`. It now uses `df -P` with limited-applet regression coverage and refreshed manager sidecars. Native fixtures also needed BusyBox-safe command usage, scoped variable names and synchronized integer waits. The serialization fixture preserves production retry budgets in normal scenarios and bounds only its dedicated timeout case. The suite watchdog no longer prints a false expiry when cancelled. The DNS assertion validates every declared answer, authority and additional record rather than accepting a matching prefix of a truncated response; 96 positive/negative host cases pass.
+
+Actual beta/edge/stable binaries execute and validate configuration on each CPU. Stable-only native lifecycle, UDP/TCP A/AAAA/PTR, listener ownership, restart, resolver recovery and foreign-owner refusal pass. Router nvram/service/cru/SDN dependencies remain modeled. TASK-018 hardware/firmware/client/reboot/WAN/soak coverage stays BLOCKED independently; this does not block the covered virtual feature result. Current published-head checks/review must be inspected before merge or release.
+
+---
+
 ## TASK-019: Resolve PR #1033 automated review feedback
 
 **Priority:** P1 | **Tags:** review, locks, portability, tests
