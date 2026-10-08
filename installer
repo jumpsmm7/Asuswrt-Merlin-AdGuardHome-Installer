@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.6                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.7                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -24,7 +24,7 @@ export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 umask 077
 
-AI_VERSION="v2.6.6"
+AI_VERSION="v2.6.7"
 export AI_VERSION
 readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
@@ -55,6 +55,7 @@ BLOCKLIST_ANALYZER_SELECTED_IDS_FILE=""
 SCRIPT_LOC=""
 SETUP_YAML_TMP_FILE=""
 BLOCKLIST_YAML_TMP_FILE=""
+MANAGED_HOOK_TMP_FILE=""
 if [ -r /proc/sys/kernel/random/uuid ]; then
 	INSTALLER_CACHE_NONCE="$(cat /proc/sys/kernel/random/uuid 2>/dev/null)"
 fi
@@ -2012,6 +2013,15 @@ installer_cleanup_tmp_file() {
 				rm -f "$2" 2>/dev/null
 			fi
 			;;
+		managed-hook:*)
+			case "$2" in
+				/jffs/scripts/*.agh.$$ | /jffs/scripts/*.agh.$$.content)
+					if [ "$2" = "${MANAGED_HOOK_TMP_FILE:-}" ] || [ "$2" = "${MANAGED_HOOK_TMP_FILE:-}.content" ]; then
+						rm -f "$2" 2>/dev/null
+					fi
+					;;
+			esac
+			;;
 	esac
 }
 
@@ -2054,6 +2064,8 @@ on_installer_exit() {
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
+	installer_cleanup_tmp_file managed-hook "${MANAGED_HOOK_TMP_FILE:-}"
+	installer_cleanup_tmp_file managed-hook "${MANAGED_HOOK_TMP_FILE:-}.content"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CANDIDATES_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_CONFIGURED_IDS_FILE:-}"
 	installer_cleanup_tmp_file blocklist-analysis "${BLOCKLIST_ANALYZER_ORPHANED_IDS_FILE:-}"
@@ -3488,24 +3500,62 @@ doctor_file_state() {
 }
 
 doctor_managed_script_state() {
-	local operation script_path expected_line
+	local operation script_path expected_line fix
 	script_path="$1"
 	operation="$2"
-	expected_line="[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh ${operation}"
+	fix="${3:-0}"
+	expected_line="$(managed_hook_expected_line "${operation}")" || return 1
+	if [ -L "${script_path}" ] || { [ -e "${script_path}" ] && [ ! -f "${script_path}" ]; }; then
+		doctor_status FAIL "${script_path} unsafe managed hook target" "Replace the symlink or special file manually; doctor will not follow it."
+		return 1
+	fi
 	if [ ! -f "${script_path}" ]; then
 		doctor_status WARN "${script_path} managed hook missing" "Re-run install to recreate the managed hook."
 		return 1
 	fi
-	if grep -q -F "${expected_line}" "${script_path}" 2>/dev/null; then
-		if [ ! -x "${script_path}" ]; then
-			doctor_status WARN "${script_path} managed hook present but not executable" "Run: sh installer doctor --fix"
+	if ! managed_hook_state_valid "${script_path}" "${expected_line}"; then
+		if [ "${fix}" = 1 ] && managed_hook_recognized "${script_path}" "${operation}"; then
+			if [ "${operation}" = '@service-event-end' ]; then
+				write_command_script "${script_path}" "${expected_line}" >/dev/null 2>&1
+			else
+				write_manager_script "${script_path}" "${operation}" >/dev/null 2>&1
+			fi && managed_hook_state_valid "${script_path}" "${expected_line}" || {
+				doctor_status FAIL "${script_path} managed hook repair failed" "Inspect the hook target and filesystem permissions, then rerun doctor --fix."
+				return 1
+			}
+			doctor_fix_msg "${script_path} managed hook header, invocation and permissions"
+		else
+			doctor_status WARN "${script_path} managed hook has an invalid header, permissions or AdGuardHome call count" "Run: sh installer doctor --fix; reinstall if the managed invocation is missing."
 			return 1
 		fi
-		doctor_status OK "${script_path} managed hook present and executable"
-		return 0
 	fi
-	doctor_status WARN "${script_path} managed hook missing expected AdGuardHome call" "Re-run install or add the managed AdGuardHome hook line."
-	return 1
+	doctor_status OK "${script_path} managed hook present with valid header, unique invocation and executable permissions"
+	return 0
+}
+
+# doctor_check_managed_hooks respects persisted DNS integration and current topology without changing either.
+doctor_check_managed_hooks() {
+	local fix dnsmasq_mode
+	fix="${1:-0}"
+	doctor_managed_script_state /jffs/scripts/init-start 'init-start &' "${fix}" || true
+	doctor_managed_script_state /jffs/scripts/services-stop 'services-stop &' "${fix}" || true
+	doctor_managed_script_state /jffs/scripts/service-event-end '@service-event-end' "${fix}" || true
+	dnsmasq_mode="$(conf_value ADGUARD_DNSMASQ_MODE 2>/dev/null)"
+	if [ "${dnsmasq_mode}" != disabled ]; then
+		if [ "${dnsmasq_mode}" = enabled ] || [ -e /jffs/scripts/dnsmasq.postconf ] || [ -L /jffs/scripts/dnsmasq.postconf ]; then
+			doctor_managed_script_state /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' "${fix}" || true
+		fi
+		case " $(nvram get rc_support 2>/dev/null) " in
+			*' mtlancfg '*)
+				if [ "${dnsmasq_mode}" = enabled ] || [ -e /jffs/scripts/dnsmasq-sdn.postconf ] || [ -L /jffs/scripts/dnsmasq-sdn.postconf ]; then
+					doctor_managed_script_state /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' "${fix}" || true
+				fi
+				;;
+		esac
+	fi
+	if adguard_ipset_allowed; then
+		doctor_managed_script_state /jffs/scripts/firewall-start 'firewall "$1"' "${fix}" || true
+	fi
 }
 
 doctor_dns53_state() {
@@ -3529,10 +3579,6 @@ doctor_fix_permissions() {
 	[ -f "/opt/etc/init.d/S99AdGuardHome" ] && chmod 755 "/opt/etc/init.d/S99AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/S99AdGuardHome executable bit"
 	[ -f "/opt/etc/init.d/rc.func.AdGuardHome" ] && chmod 644 "/opt/etc/init.d/rc.func.AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/etc/init.d/rc.func.AdGuardHome permissions"
 	[ -f "${ADDON_DIR}/AdGuardHome.sh" ] && chmod 755 "${ADDON_DIR}/AdGuardHome.sh" 2>/dev/null && doctor_fix_msg "${ADDON_DIR}/AdGuardHome.sh executable bit"
-	[ -f "/jffs/scripts/init-start" ] && chmod 755 "/jffs/scripts/init-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/init-start executable bit"
-	[ -f "/jffs/scripts/services-stop" ] && chmod 755 "/jffs/scripts/services-stop" 2>/dev/null && doctor_fix_msg "/jffs/scripts/services-stop executable bit"
-	[ -f "/jffs/scripts/dnsmasq.postconf" ] && chmod 755 "/jffs/scripts/dnsmasq.postconf" 2>/dev/null && doctor_fix_msg "/jffs/scripts/dnsmasq.postconf executable bit"
-	[ -f "/jffs/scripts/firewall-start" ] && chmod 755 "/jffs/scripts/firewall-start" 2>/dev/null && doctor_fix_msg "/jffs/scripts/firewall-start executable bit"
 	[ -f "${YAML_FILE}" ] && chmod 600 "${YAML_FILE}" 2>/dev/null && doctor_fix_msg "${YAML_FILE} permissions"
 	[ -f "${CONF_FILE}" ] && chmod 600 "${CONF_FILE}" 2>/dev/null && doctor_fix_msg "${CONF_FILE} permissions"
 }
@@ -3547,15 +3593,59 @@ doctor_pid_file_is_active() {
 }
 
 doctor_run_lock_is_active() {
-	local lock_file pid_file status
+	local lock_file pid_file status private_dir owner
+	private_dir="/tmp/AdGuardHome-service-lock"
+	if [ -e "${private_dir}" ] || [ -L "${private_dir}" ]; then
+		[ -d "${private_dir}" ] && [ ! -L "${private_dir}" ] || return 0
+		owner="$(awk '/^Uid:/ { print $3; exit }' "/proc/$$/status" 2>/dev/null)" || return 0
+		case "${owner}" in "" | *[!0-9]*) return 0 ;; esac
+		ls -ldn "${private_dir}" 2>/dev/null | awk -v owner="${owner}" '$1 == "drwx------" && $3 == owner { valid = 1 } END { exit valid ? 0 : 1 }' || return 0
+		# Action and ownership-transition markers are busy or unverified. Doctor never reaps them.
+		for status in "${private_dir}/action" "${private_dir}/action.claim" "${private_dir}/action.transition"; do
+			if [ -e "${status}" ] || [ -L "${status}" ]; then
+				return 0
+			fi
+		done
+		lock_file="${private_dir}/flock"
+		if [ -e "${lock_file}" ] || [ -L "${lock_file}" ]; then
+			[ -f "${lock_file}" ] && [ ! -L "${lock_file}" ] || return 0
+			ls -ln "${lock_file}" 2>/dev/null | awk -v owner="${owner}" '$1 == "-rw-------" && $2 == 1 && $3 == owner { valid = 1 } END { exit valid ? 0 : 1 }' || return 0
+			ai_have_cmd flock || return 0
+			(
+				exec 9<"${lock_file}" || exit 1
+				flock -n 9 >/dev/null 2>&1
+				status="$?"
+				[ "${status}" -eq 0 ] && flock -u 9 >/dev/null 2>&1
+				exit "${status}"
+			)
+			[ "$?" -eq 0 ] || return 0
+		fi
+	fi
 	lock_file="/tmp/AdGuardHome.lock"
 	pid_file="/tmp/AdGuardHome/pid"
+	[ ! -L /tmp/AdGuardHome ] && [ ! -L "${pid_file}" ] && [ ! -L "${lock_file}" ] || return 0
+	if [ -e /tmp/AdGuardHome ] || [ -e "${lock_file}" ]; then
+		owner="$(awk '/^Uid:/ { print $3; exit }' "/proc/$$/status" 2>/dev/null)" || return 0
+		case "${owner}" in "" | *[!0-9]*) return 0 ;; esac
+		if [ -e /tmp/AdGuardHome ]; then
+			[ -d /tmp/AdGuardHome ] || return 0
+			ls -ldn /tmp/AdGuardHome 2>/dev/null | awk -v owner="${owner}" '($1 == "drwx------" || $1 == "drwxr-xr-x") && $3 == owner { valid = 1 } END { exit valid ? 0 : 1 }' || return 0
+			# A legacy mkdir owner may not have published its PID yet.
+			[ -e "${pid_file}" ] || [ -e "${lock_file}" ] || return 0
+		fi
+		for status in "${pid_file}" "${lock_file}"; do
+			[ -e "${status}" ] || continue
+			[ -f "${status}" ] || return 0
+			ls -ln "${status}" 2>/dev/null | awk -v owner="${owner}" '($1 == "-rw-------" || $1 == "-rw-r--r--") && $2 == 1 && $3 == owner { valid = 1 } END { exit valid ? 0 : 1 }' || return 0
+		done
+	fi
 	if [ -f "${pid_file}" ] && doctor_pid_file_is_active "${pid_file}"; then
 		return 0
 	fi
 	if ai_have_cmd flock && [ -e "${lock_file}" ]; then
+		[ -f "${lock_file}" ] || return 0
 		(
-			exec 9<>"${lock_file}" || exit 1
+			exec 9<"${lock_file}" || exit 1
 			flock -n 9 >/dev/null 2>&1
 			status="$?"
 			[ "${status}" -eq 0 ] && flock -u 9 >/dev/null 2>&1
@@ -3574,14 +3664,15 @@ doctor_fix_safe() {
 	if [ -f "${AGH_FILE}" ] && { [ ! -L "/opt/sbin/AdGuardHome" ] || [ "${link_target}" != "${AGH_FILE}" ]; }; then
 		mkdir -p "/opt/sbin" 2>/dev/null && ln -sf "${AGH_FILE}" "/opt/sbin/AdGuardHome" 2>/dev/null && doctor_fix_msg "/opt/sbin/AdGuardHome symlink"
 	fi
-	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
+	# Historical descriptor locks retain their inode across old holders, waiters and new-version probes.
+	for stale in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome /tmp/AdGuardHome.pid /opt/var/run/AdGuardHome.pid /tmp/AdGuardHome.*.tmp "${TARG_DIR}"/.*.$$.* "${TARG_DIR}"/*.tmp.$$; do
 		[ -e "${stale}" ] || continue
 		case "${stale}" in
 			/tmp/AdGuardHome.dnsmasq.handoff | /tmp/AdGuardHome.dnsmasq.lock | /tmp/AdGuardHome.dns-handoff/active | /tmp/AdGuardHome.dns-handoff/lock)
 				doctor_pid_file_is_active "${stale}" && continue
 				[ "$(agh_monitor_count)" -eq 0 ] || continue
 				;;
-			/tmp/AdGuardHome.lock | /tmp/AdGuardHome)
+			/tmp/AdGuardHome)
 				doctor_run_lock_is_active && continue
 				;;
 			/opt/var/run/AdGuardHome.pid | /tmp/AdGuardHome.pid)
@@ -3659,10 +3750,11 @@ doctor() {
 	link_target="$(readlink "/opt/sbin/AdGuardHome" 2>/dev/null)"
 	[ -L "/opt/sbin/AdGuardHome" ] && [ "${link_target}" = "${AGH_FILE}" ] && doctor_status OK "/opt/sbin/AdGuardHome -> ${link_target}" || doctor_status FAIL "/opt/sbin/AdGuardHome target is ${link_target:-missing}" "Run: sh installer doctor --fix"
 	doctor_file_state "${ADDON_DIR}/AdGuardHome.sh" "-rwxr-xr-x" || true
-	doctor_managed_script_state "/jffs/scripts/init-start" "init-start &" || true
-	doctor_managed_script_state "/jffs/scripts/services-stop" "services-stop &" || true
-	doctor_managed_script_state "/jffs/scripts/dnsmasq.postconf" "dnsmasq pre_start" || true
-	doctor_managed_script_state "/jffs/scripts/firewall-start" 'firewall "$1"' || true
+	if [ "${entware_ready}" = 1 ]; then
+		doctor_check_managed_hooks "${fix}"
+	else
+		doctor_check_managed_hooks 0
+	fi
 	doctor_file_state "/opt/etc/init.d/S99AdGuardHome" "-rwxr-xr-x" || true
 	doctor_file_state "/opt/etc/init.d/rc.func.AdGuardHome" "-rw-r--r--" || true
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
@@ -6772,15 +6864,19 @@ del_jffs_script() {
 	local TARG LINE_NUM LINE_ABOVE OP
 	TARG="$1"
 	[ -f "${TARG}" ] || return 0
+	LINE_NUM="$(awk -v prefix="[ -x ${ADDON_DIR}/" '
+		{ line = $0; sub(/^[[:space:]]*/, "", line) }
+		index(line, prefix) == 1 { print NR ":" $0 }
+	' "${TARG}")" || return 1
 	if [ "${2:-}" ]; then
 		OP="$(printf '%.1s' "$2")"
 		if [ "$OP" = "!" ]; then
-			LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
+			LINE_NUM="$(printf '%s\n' "${LINE_NUM}" | grep -v "$(_quote "$2")" | cut -d':' -f1)"
 		else
-			LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | grep "$(_quote "$2")" | cut -d':' -f1)"
+			LINE_NUM="$(printf '%s\n' "${LINE_NUM}" | grep "$(_quote "$2")" | cut -d':' -f1)"
 		fi
 	else
-		LINE_NUM="$(grep -n -F "[ -x ${ADDON_DIR}/" "${TARG}" | cut -d':' -f1)"
+		LINE_NUM="$(printf '%s\n' "${LINE_NUM}" | cut -d':' -f1)"
 	fi
 	[ -z "${LINE_NUM}" ] && return
 	LINE_NUM="$(printf "%s\n" "${LINE_NUM}" | sort -rn)" || return 1
@@ -6965,7 +7061,7 @@ event_scripts_snapshot() {
 	shift
 	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
 	for SOURCE in "$@"; do
-		[ ! -L "${SOURCE}" ] || return 1
+		[ ! -L "${SOURCE}" ] && { [ ! -e "${SOURCE}" ] || [ -f "${SOURCE}" ]; } || return 1
 	done
 	(umask 077 && mkdir -p "${SNAPSHOT_DIR}") || return 1
 	chmod 700 "${SNAPSHOT_DIR}" || {
@@ -7214,7 +7310,7 @@ add_services_event_scripts() {
 		write_manager_script /jffs/scripts/services-stop "services-stop &" || failed=1
 	fi
 	if [ "${failed}" -eq 0 ]; then
-		write_command_script /jffs/scripts/service-event-end 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer' || failed=1
+		write_command_script /jffs/scripts/service-event-end "$(service_event_hook_command)" || failed=1
 	fi
 	if [ "${failed}" -ne 0 ]; then
 		services_event_scripts_restore "${SNAPSHOT_DIR}" || failed=1
@@ -9405,32 +9501,122 @@ uninst_all() {
 	end_op_message 0
 }
 
-write_command_script() {
-	local TARG COMMAND FILENAME
+# service_event_hook_command is the canonical command-format firmware hook, distinct from manager dispatch calls.
+service_event_hook_command() {
+	printf '%s\n' 'if printf "%s" "$@" | /bin/grep -qE "^(((start|stop|restart|kill|reload)_?.*AdGuardHome)$)"; then { sh /jffs/addons/AdGuardHome.d/AdGuardHome.sh "$(printf "%s" "$@" | /bin/grep -oE "(start|stop|restart|kill|reload)")" x & }; fi # Asuswrt-Merlin-AdGuardHome-Installer'
+}
+
+# managed_hook_expected_line returns the complete owned line used by generation and diagnosis.
+managed_hook_expected_line() {
+	case "$1" in
+		'@service-event-end') service_event_hook_command ;;
+		*) printf '%s\n' "[ -x ${ADDON_DIR}/AdGuardHome.sh ] && ${ADDON_DIR}/AdGuardHome.sh $1" ;;
+	esac
+}
+
+# managed_hook_header_valid accepts an executable absolute interpreter and preserves its optional arguments.
+managed_hook_header_valid() {
+	local interpreter
+	interpreter="$(sed -n '1s/^#![[:space:]]*\([^[:space:]]*\).*/\1/p' "$1")" || return 1
+	case "${interpreter}" in
+		/*) [ -f "${interpreter}" ] && [ -x "${interpreter}" ] ;;
+		*) return 1 ;;
+	esac
+}
+
+# managed_hook_recognized limits doctor repair to existing owned content.
+managed_hook_recognized() {
+	local operation
+	operation="$2"
+	awk -v manager="${ADDON_DIR}/AdGuardHome.sh" -v operation="${operation}" '
+		{ line = $0; sub(/^[[:space:]]*/, "", line) }
+		operation == "@service-event-end" {
+			if (index(line, "# Asuswrt-Merlin-AdGuardHome-Installer")) found = 1
+			next
+		}
+		index(line, "[ -x " manager " ] && " manager " ") == 1 || index(line, manager " ") == 1 || line == manager { found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$1"
+}
+
+# managed_hook_state_valid requires the final header, mode and exactly one complete owned invocation.
+managed_hook_state_valid() {
+	[ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ] || return 1
+	managed_hook_header_valid "$1" || return 1
+	[ "$(ls -ld "$1" 2>/dev/null | awk '{ print $1 }')" = '-rwxr-xr-x' ] || return 1
+	awk -v expected="$2" -v manager="${ADDON_DIR}/AdGuardHome.sh" '
+		$0 == expected { exact++ }
+		{
+			line = $0; sub(/^[[:space:]]*/, "", line)
+			if (index(expected, "# Asuswrt-Merlin-AdGuardHome-Installer")) {
+				if (index(line, "# Asuswrt-Merlin-AdGuardHome-Installer")) owned++
+			} else if (index(expected, "[ -x " manager " ] && " manager " ") == 1) {
+				if (index(line, "[ -x " manager " ] && " manager " ") == 1 || index(line, manager " ") == 1 || line == manager) owned++
+			} else if ($0 == expected) owned++
+		}
+		END { exit exact == 1 && owned == 1 ? 0 : 1 }
+	' "$1"
+}
+
+# write_managed_hook stages cleanup, header normalization and final permissions before publishing any content.
+write_managed_hook() {
+	local TARG LINE KIND STAGE CONTENT HEADER
 	TARG="$1"
-	COMMAND="$2"
-	FILENAME="${TARG##*/}"
-	if [ ! -f "${TARG}" ]; then
-		PTXT "${INFO} Creating ${FILENAME} file"
-		if ! PTXT "#!/bin/sh" >"${TARG}"; then
-			PTXT "${ERROR} Unable to create ${TARG}"
-			return 1
-		fi
-	fi
-	if ! chmod 755 "${TARG}"; then
-		PTXT "${ERROR} Unable to set executable permissions on ${TARG}"
+	LINE="$2"
+	KIND="$3"
+	STAGE="${TARG}.agh.$$"
+	CONTENT="${STAGE}.content"
+	[ ! -L "${TARG}" ] && { [ ! -e "${TARG}" ] || [ -f "${TARG}" ]; } || return 1
+	[ ! -e "${STAGE}" ] && [ ! -L "${STAGE}" ] && [ ! -e "${CONTENT}" ] && [ ! -L "${CONTENT}" ] || return 1
+	(umask 077 && set -C && : >"${STAGE}") || return 1
+	MANAGED_HOOK_TMP_FILE="${STAGE}"
+	if [ -f "${TARG}" ] && ! cp -p "${TARG}" "${STAGE}"; then
+		rm -f "${STAGE}"
 		return 1
 	fi
-	if [ "$(grep -c -F "${COMMAND}" "${TARG}")" -gt 0 ]; then
-		PTXT "${INFO} ${FILENAME} file already configured"
-	else
-		PTXT "${INFO} Configure ${FILENAME} file"
-		if ! PTXT "${COMMAND}" >>"${TARG}"; then
-			PTXT "${ERROR} Unable to update ${TARG}"
-			return 1
-		fi
+	if ! del_between_magic "${STAGE}" Asuswrt-Merlin-AdGuardHome-Installer ||
+		{ [ "${KIND}" = manager ] && ! del_jffs_script "${STAGE}" !manager; }; then
+		rm -f "${STAGE}"
+		return 1
 	fi
+	if [ ! -f "${STAGE}" ]; then
+		(umask 077 && set -C && : >"${STAGE}") || return 1
+	fi
+	HEADER="$(sed -n '1p' "${STAGE}")" || {
+		rm -f "${STAGE}"
+		return 1
+	}
+	if ! managed_hook_header_valid "${STAGE}"; then
+		case "${HEADER}" in
+			'#!'*)
+				rm -f "${STAGE}"
+				return 1
+				;;
+			*) HEADER='#!/bin/sh' ;;
+		esac
+	fi
+	if ! (umask 077 && set -C && awk -v header="${HEADER}" -v expected="${LINE}" -v manager="${ADDON_DIR}/AdGuardHome.sh" -v kind="${KIND}" '
+		BEGIN { print header }
+		NR == 1 && $0 == header { next }
+		{
+			line = $0; sub(/^[[:space:]]*/, "", line)
+			if (kind == "manager" && (index(line, manager " ") == 1 || line == manager)) next
+			if ($0 != expected) print
+		}
+	' "${STAGE}" >"${CONTENT}") || ! mv -f "${CONTENT}" "${STAGE}" ||
+		! PTXT "" >>"${STAGE}" || ! PTXT "${LINE}" >>"${STAGE}" ||
+		! chmod 755 "${STAGE}" || ! managed_hook_state_valid "${STAGE}" "${LINE}" ||
+		! mv -f "${STAGE}" "${TARG}"; then
+		rm -f "${STAGE}" "${CONTENT}"
+		PTXT "${ERROR} Unable to publish executable hook ${TARG}"
+		return 1
+	fi
+	MANAGED_HOOK_TMP_FILE=""
 	return 0
+}
+
+write_command_script() {
+	write_managed_hook "$1" "$2" command
 }
 
 write_conf() {
@@ -9463,45 +9649,11 @@ write_conf() {
 }
 
 write_manager_script() {
-	local TARG OP FILENAME COMMAND
-	TARG="$1"
-	OP="$2"
-	FILENAME="${TARG##*/}"
+	local COMMAND LINE
 	COMMAND="${ADDON_DIR}/AdGuardHome.sh"
-	if [ ! -f "${TARG}" ]; then
-		PTXT "${INFO} Creating ${FILENAME} file"
-		if ! PTXT "#!/bin/sh" >"${TARG}"; then
-			PTXT "${ERROR} Unable to create ${TARG}"
-			return 1
-		fi
-	fi
-	if ! chmod 755 "${TARG}" "${COMMAND}"; then
-		PTXT "${ERROR} Unable to set executable permissions for ${FILENAME}"
-		return 1
-	fi
-	del_between_magic "${TARG}" Asuswrt-Merlin-AdGuardHome-Installer || return 1
-	if [ "$(grep -c -F "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" "${TARG}")" -gt 0 ]; then
-		PTXT "${INFO} ${FILENAME} file already configured"
-	else
-		PTXT "${INFO} Configure ${FILENAME} file"
-		if grep -q "^${COMMAND}" "${TARG}"; then
-			if ! sed -i "s~^${COMMAND}~[ -x ${COMMAND} ] \&\& ${COMMAND} ${OP}~" "${TARG}"; then
-				PTXT "${ERROR} Unable to update ${TARG}"
-				return 1
-			fi
-		else
-			del_jffs_script "${TARG}" !manager || return 1
-			if [ "$(tail -1 "${TARG}" | grep -c '^$')" -eq 0 ] && ! PTXT "" >>"${TARG}"; then
-				PTXT "${ERROR} Unable to update ${TARG}"
-				return 1
-			fi
-			if ! PTXT "[ -x ${COMMAND} ] && ${COMMAND} ${OP}" >>"${TARG}"; then
-				PTXT "${ERROR} Unable to update ${TARG}"
-				return 1
-			fi
-		fi
-	fi
-	return 0
+	[ -f "${COMMAND}" ] && [ ! -L "${COMMAND}" ] && chmod 755 "${COMMAND}" || return 1
+	LINE="$(managed_hook_expected_line "$2")" || return 1
+	write_managed_hook "$1" "${LINE}" manager
 }
 
 yaml_nvars_append() {

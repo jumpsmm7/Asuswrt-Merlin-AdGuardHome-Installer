@@ -18,6 +18,11 @@ trap 'rm -rf "${TEST_ROOT}"' EXIT HUP INT TERM
 sed -n \
 	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^rollback_result_needs_attention() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
+awk '
+	/^(doctor_check_managed_hooks|managed_hook_[a-z_]+|service_event_hook_command|write_managed_hook|write_manager_script|write_command_script|del_between_magic|del_jffs_script|adguard_ipset_allowed)\(\) \{/ { copying = 1 }
+	copying { print }
+	copying && /^}/ { copying = 0 }
+' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract managed-hook helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'doctor functions were not found'
 grep -q '^rollback_result_needs_attention() {$' "${FUNCTIONS_FILE}" || fail 'rollback attention helper was not found'
 grep -q '^doctor() {$' "${FUNCTIONS_FILE}" || fail 'installer has no doctor command helper'
@@ -41,6 +46,9 @@ chmod 755 "${BIN_DIR}/netstat" || fail 'could not chmod netstat stub'
 
 PATH="${BIN_DIR}:/bin:/usr/bin" . "${FUNCTIONS_FILE}"
 
+# Function wrappers keep BusyBox builds that prefer internal applets on the isolated process/socket fixtures.
+netstat() { "${BIN_DIR}/netstat" "$@"; }
+pidof() { "${BIN_DIR}/pidof" "$@"; }
 entware_available() { return 0; }
 agh_monitor_count() { printf '%s\n' '1'; }
 web_port_owned_by_agh() { return 0; }

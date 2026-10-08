@@ -97,6 +97,11 @@ awk '
 	/^create_dir\(\)/,/^}/
 	/^download_file\(\)/,/^}/
 	/^write_command_script\(\)/,/^}/
+	/^write_managed_hook\(\)/,/^}/
+	/^managed_hook_header_valid\(\)/,/^}/
+	/^managed_hook_state_valid\(\)/,/^}/
+	/^del_between_magic\(\)/,/^}/
+	/^del_jffs_script\(\)/,/^}/
 	/^write_conf\(\)/,/^}/
 ' "${REPO_DIR}/installer" >"${FUNCTIONS_FILE}"
 printf '%s\n' 'adguard_committed_binary_cleanup_retry() { return 0; }' >>"${FUNCTIONS_FILE}"
