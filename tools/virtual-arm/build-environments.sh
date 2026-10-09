@@ -6,7 +6,8 @@ export LC_ALL=C
 export KBUILD_BUILD_USER=agh-validation KBUILD_BUILD_HOST=qemu
 export KBUILD_BUILD_TIMESTAMP='2025-09-30 00:00:00 UTC'
 
-# fail reports an infrastructure error without publishing acceptance metadata.
+# fail reports an infrastructure error to stderr and exits without publishing
+# acceptance metadata.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -162,7 +163,8 @@ mkdir -p "${TARGET}/rootfs/usr/bin" "${TARGET}/rootfs/usr/sbin" "${TARGET}/rootf
 	"${TARGET}/rootfs/etc" "${TARGET}/rootfs/dev" "${TARGET}/rootfs/proc" "${TARGET}/rootfs/sys" \
 	"${TARGET}/rootfs/tmp" "${TARGET}/rootfs/opt" "${TARGET}/rootfs/jffs"
 
-# install_native copies one explicitly selected executable, preserving stock applets.
+# install_native validates one selected native ELF, replaces its destination,
+# and installs it mode 0755 while preserving the stock applets.
 install_native() {
 	native_name="$1"
 	destination="$2"

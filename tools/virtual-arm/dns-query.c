@@ -16,24 +16,31 @@
 #define PACKET_SIZE 4096
 #define NAME_SIZE 256
 
+/** Report an assertion failure to stderr and terminate with a failing status. */
 static void fail(const char *message)
 {
 	fprintf(stderr, "DNS assertion failed: %s\n", message);
 	exit(1);
 }
 
+/** Decode two readable DNS wire bytes as an unsigned network-order value. */
 static uint16_t get16(const unsigned char *bytes)
 {
 	return (uint16_t)((unsigned int)bytes[0] * 256U + bytes[1]);
 }
 
+/** Encode an unsigned value into two writable DNS wire bytes in network order. */
 static void put16(unsigned char *bytes, uint16_t value)
 {
 	bytes[0] = (unsigned char)(value >> 8);
 	bytes[1] = (unsigned char)(value & 255U);
 }
 
-/* Bound pointer traversal and wire consumption separately for compressed names. */
+/**
+ * Decode a bounded DNS name into the caller's NAME_SIZE buffer.
+ * Return bytes consumed at the original offset, independently of pointer
+ * traversal, and fail on malformed labels or a non-backward compression hop.
+ */
 static size_t read_name(const unsigned char *packet, size_t length, size_t offset,
 	char *name)
 {
@@ -76,6 +83,11 @@ static size_t read_name(const unsigned char *packet, size_t length, size_t offse
 	return used;
 }
 
+/**
+ * Encode a dotted query name into a caller-provided NAME_SIZE wire buffer.
+ * Return its encoded size, including the terminating root label, or fail when
+ * a label or the complete encoded name exceeds the supported bounds.
+ */
 static size_t write_name(unsigned char *packet, const char *name)
 {
 	size_t written = 0;
@@ -96,6 +108,10 @@ static size_t write_name(unsigned char *packet, const char *name)
 	return written;
 }
 
+/**
+ * Send or receive exactly length TCP bytes, retrying interrupted operations.
+ * Fail on a socket error or early EOF instead of accepting a partial frame.
+ */
 static void transfer(int fd, unsigned char *bytes, size_t length, int writing)
 {
 	while (length) {
@@ -109,7 +125,10 @@ static void transfer(int fd, unsigned char *bytes, size_t length, int writing)
 	}
 }
 
-/* hold owns real TCP and UDP sockets so startup refusal can preserve its PID. */
+/**
+ * Bind real TCP and UDP sockets to the resolved address, announce readiness,
+ * and retain ownership until terminated so startup tests can verify its PID.
+ */
 static void hold(const struct addrinfo *address)
 {
 	int udp = socket(address->ai_family, SOCK_DGRAM, 0);
@@ -123,6 +142,11 @@ static void hold(const struct addrinfo *address)
 		pause();
 }
 
+/**
+ * Run a numeric-address UDP/TCP DNS assertion or hold foreign-owner sockets.
+ * Query mode validates the complete response and requires an exact A, AAAA or
+ * PTR answer; malformed input, transport failure or a missing answer fails.
+ */
 int main(int argc, char **argv)
 {
 	struct addrinfo hints, *address;

@@ -23,6 +23,7 @@ class EvidenceRejection(unittest.TestCase):
     """Keep false-success rejection separate from actual ARM feature execution."""
 
     def setUp(self):
+        """Create synthetic repository inputs and one report per architecture."""
         self.temporary = tempfile.TemporaryDirectory(prefix="arm-evidence-policy-")
         self.root = Path(self.temporary.name)
         self.repository = self.root / "repository"
@@ -53,9 +54,11 @@ class EvidenceRejection(unittest.TestCase):
             self.create_report(architecture)
 
     def tearDown(self):
+        """Remove the temporary repository and generated evidence files."""
         self.temporary.cleanup()
 
     def create_report(self, architecture):
+        """Build a passing synthetic report and its matching serial artifacts."""
         directory = self.root / "evidence" / architecture
         directory.mkdir(parents=True)
         target = GATE.TARGETS[architecture]
@@ -124,9 +127,11 @@ class EvidenceRejection(unittest.TestCase):
         self.write_report(architecture)
 
     def write_report(self, architecture):
+        """Persist the current synthetic report for one architecture."""
         self.paths[architecture].write_text(json.dumps(self.reports[architecture]) + "\n")
 
     def invoke(self, extra=(), architectures=None):
+        """Run the evidence gate with optional arguments and architecture paths."""
         arguments = ["--repository", str(self.repository), "--features", "hooks"] + list(extra)
         for architecture in architectures or GATE.ARCHITECTURES:
             arguments.append(str(self.paths[architecture]))
@@ -136,10 +141,12 @@ class EvidenceRejection(unittest.TestCase):
         return result, json.loads(output.getvalue())
 
     def assert_rejected(self, message, extra=(), architectures=None):
+        """Assert that the evidence gate rejects the supplied synthetic inputs."""
         with self.assertRaisesRegex(ValueError, message):
             self.invoke(extra, architectures)
 
     def test_exact_complete_matrix_unblocks_selected_contract(self):
+        """Accept a complete passing matrix and preserve physical release status."""
         status, summary = self.invoke()
         self.assertEqual(status, 0)
         self.assertTrue(summary["unblocks"])
@@ -147,6 +154,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assertEqual(summary["physical_release_acceptance"], "unchanged")
 
     def test_partial_execution_never_unblocks(self):
+        """Keep partial architecture execution from unblocking the feature."""
         status, summary = self.invoke(["--architectures", "armv5", "--partial"], ["armv5"])
         self.assertEqual(status, 0)
         self.assertFalse(summary["unblocks"])
@@ -154,21 +162,25 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("requires armv5,armv7,armv8", ["--architectures", "armv5"], ["armv5"])
 
     def test_unknown_empty_duplicate_selection_rejected(self):
+        """Reject empty, duplicate, and unknown feature selections."""
         for selection in ("", "hooks,", "unknown", "hooks,hooks"):
             with self.subTest(selection=selection):
                 self.assert_rejected("selection|unknown feature", ["--features", selection])
 
     def test_missing_architecture_and_scenario_rejected(self):
+        """Reject reports missing an architecture or its required scenario."""
         self.assert_rejected("missing architecture", architectures=["armv5", "armv7"])
         self.reports["armv5"]["results"] = []
         self.write_report("armv5")
         self.assert_rejected("missing scenarios")
 
     def test_duplicate_architecture_rejected(self):
+        """Reject duplicate architecture reports in the acceptance set."""
         with self.assertRaisesRegex(ValueError, "duplicate evidence architecture"):
             self.invoke(architectures=["armv5", "armv5", "armv7", "armv8"])
 
     def test_failure_skip_and_timeout_cannot_pass(self):
+        """Reject failed, skipped, and timed-out scenario result combinations."""
         original = copy.deepcopy(self.reports["armv5"])
         for status, exit_status in (("skip", 0), ("timeout", 124), ("fail", 1), ("pass", 124)):
             self.reports["armv5"] = copy.deepcopy(original)
@@ -179,6 +191,7 @@ class EvidenceRejection(unittest.TestCase):
                 self.assert_rejected("failed/skipped/timed out")
 
     def test_stale_source_and_test_and_log_rejected(self):
+        """Reject evidence whose tested source, test, or log digest is stale."""
         installer = self.repository / "installer"
         original = installer.read_bytes()
         installer.write_bytes(original + b"# runtime edit\n")
@@ -193,6 +206,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("log digest mismatch")
 
     def test_documentation_and_commit_labels_do_not_change_content(self):
+        """Ignore documentation-only files and commit labels in content acceptance."""
         for directory in ("docs", ".tasks", ".git"):
             (self.repository / directory).mkdir()
             (self.repository / directory / "completion.md").write_text("completion text\n")
@@ -202,6 +216,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assertTrue(self.invoke()[1]["unblocks"])
 
     def test_archive_configuration_and_mode_changes_invalidate_evidence(self):
+        """Reject changed architecture archives and executable-mode mutations."""
         archive = self.repository / "armv5/archive.tar.gz"
         archive.write_bytes(b"changed architecture artifact")
         self.assert_rejected("stale tested content")
@@ -210,6 +225,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("stale tested content")
 
     def test_host_user_mode_or_wrong_guest_rejected(self):
+        """Reject user-mode evidence and guests reporting the wrong architecture."""
         self.reports["armv5"]["environment"]["execution_class"] = "qemu-user"
         self.write_report("armv5")
         self.assert_rejected("user-mode")
@@ -219,11 +235,13 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("booted guest architecture")
 
     def test_environment_modification_rejected(self):
+        """Reject evidence when cached machine or CPU metadata changes."""
         self.reports["armv5"]["environment"]["cpu"] = "cortex-a15"
         self.write_report("armv5")
         self.assert_rejected("machine/CPU")
 
     def test_armv5_is_an_armv7_software_float_target(self):
+        """Require the armv5 package contract to model an RT-AC68U-class ARMv7 target."""
         target = self.reports["armv5"]["environment"]["target"]
         self.assertEqual(target["router_model"], "ASUS RT-AC68U")
         self.assertEqual(target["cpu_architecture"], "armv7")
@@ -235,6 +253,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("package ABI and CPU target metadata")
 
     def test_armv5_hardware_float_options_rejected(self):
+        """Reject armv5 evidence that enables hardware floating-point execution."""
         environment = self.reports["armv5"]["environment"]
         environment["cpu_options"] = "cortex-a9"
         self.write_report("armv5")
@@ -245,18 +264,21 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("software-float/no-FPU")
 
     def test_armv5_device_tree_provenance_is_required(self):
+        """Require device-tree provenance for the vexpress armv5 compatibility guest."""
         environment = self.reports["armv5"]["environment"]
         environment.pop("dtb_sha256")
         self.write_report("armv5")
         self.assert_rejected("armv5 device tree")
 
     def test_other_targets_reject_device_tree_provenance(self):
+        """Reject device-tree metadata attached to targets that do not use one."""
         environment = self.reports["armv7"]["environment"]
         environment["dtb_sha256"] = "7" * 64
         self.write_report("armv7")
         self.assert_rejected("unexpected device tree metadata")
 
     def test_guest_completion_and_serial_artifacts_required(self):
+        """Require completed guest markers and an intact serial log artifact."""
         self.reports["armv5"]["guest_complete"] = False
         self.write_report("armv5")
         self.assert_rejected("guest completion")
@@ -273,6 +295,7 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("serial log artifact")
 
     def test_current_build_source_fingerprint_required(self):
+        """Reject evidence built from a stale native environment source fingerprint."""
         environment = self.reports["armv5"]["environment"]
         environment["source_manifest_sha256"] = "0" * 64
         path = self.paths["armv5"].parent / "environment.json"
@@ -284,11 +307,13 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("stale native build source")
 
     def test_provenance_error_cannot_leave_successful_status(self):
+        """Reject a report that records a provenance or runtime error as successful."""
         self.reports["armv5"]["error"] = "Cached native root filesystem was modified"
         self.write_report("armv5")
         self.assert_rejected("provenance or runtime error")
 
     def test_scope_expansion_and_log_escape_rejected(self):
+        """Reject expanded feature scope and log paths that escape the report directory."""
         self.reports["armv5"]["requested_features"] = ["hooks", "dns"]
         self.write_report("armv5")
         self.assert_rejected("feature scope")
@@ -298,10 +323,12 @@ class EvidenceRejection(unittest.TestCase):
         self.assert_rejected("log escapes")
 
     def test_duplicate_json_keys_rejected(self):
+        """Reject evidence JSON containing duplicate object keys."""
         self.paths["armv5"].write_text('{"architecture":"armv5","architecture":"armv7"}\n')
         self.assert_rejected("duplicate JSON key")
 
     def test_rejected_recheck_removes_previous_green_summary(self):
+        """Remove a stale green summary when a later evidence recheck is rejected."""
         summary = self.root / "acceptance.json"
         summary.write_text('{"status":"pass","unblocks":true}\n')
         self.reports["armv5"]["results"][0]["status"] = "fail"

@@ -7,7 +7,8 @@ MODEL_ROOT=/tmp/virtual-arm-native
 REPO_ROOT=/repo
 FOREIGN_PID=''
 
-# fail preserves native process, socket and firmware-model evidence on failure.
+# fail prints the failure plus native process/socket and firmware-model logs,
+# then exits so registered traps can stop the isolated fixture resources.
 fail() {
 	printf '%s\n' "FAIL: virtual ARM native: $*" >&2
 	netstat -nlp >&2 2>/dev/null || true
@@ -20,12 +21,14 @@ fail() {
 	exit 1
 }
 
-# pass records exact native assertions rather than firmware-equivalence claims.
+# pass writes an assertion result to stdout; it does not claim firmware
+# equivalence for modeled operations.
 pass() {
 	printf '%s\n' "PASS: virtual ARM native: $*"
 }
 
-# cleanup stops only this isolated guest's test processes and resolver mount.
+# cleanup terminates this fixture's foreign owner and modeled DNS processes,
+# then removes only its resolver mount.
 cleanup() {
 	[ -z "${FOREIGN_PID}" ] || kill -TERM "${FOREIGN_PID}" 2>/dev/null || true
 	if [ -x /sbin/service ]; then /sbin/service stop_dnsmasq >/dev/null 2>&1 || true; fi
@@ -35,12 +38,14 @@ cleanup() {
 	if df -P 2>/dev/null | grep -q '/tmp/resolv.conf'; then umount /tmp/resolv.conf 2>/dev/null || true; fi
 }
 
-# query checks complete native UDP/TCP DNS messages with exact expected answers.
+# query invokes the native UDP/TCP DNS checker and turns any mismatch into a
+# fixture failure.
 query() {
 	/usr/bin/agh-dns-query "$@" || fail "native DNS query failed: $*"
 }
 
-# assert_dnsmasq verifies identity and real TCP/UDP ownership for both instances.
+# assert_dnsmasq sets the instance config scope, verifies process/socket
+# ownership, performs DNS queries, and records the assertion result.
 assert_dnsmasq() {
 	local port
 	port="$1"
@@ -53,7 +58,8 @@ assert_dnsmasq() {
 	pass "main and modeled SDN native dnsmasq own TCP/UDP port ${port} and answer DNS"
 }
 
-# write_preferences sets product inputs while exposing firmware modeling explicitly.
+# write_preferences overwrites the isolated product preference file with the
+# requested DNS mode/local-cache inputs and explicit modeled settings.
 write_preferences() {
 	cat >/opt/etc/AdGuardHome/.config <<EOF
 ADGUARD_INSTALL_MODE="lan"

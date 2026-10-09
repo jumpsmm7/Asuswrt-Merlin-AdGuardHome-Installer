@@ -40,6 +40,7 @@ class DnsAnswerValidation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """Compile the native DNS query helper once for the test class."""
         cls.temporary = tempfile.TemporaryDirectory(prefix="virtual-arm-dns-query-")
         cls.binary = Path(cls.temporary.name) / "agh-dns-query"
         try:
@@ -51,9 +52,11 @@ class DnsAnswerValidation(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """Remove the temporary native DNS helper and its build directory."""
         cls.temporary.cleanup()
 
     def exercise(self, transport, kind, form):
+        """Serve one crafted DNS response and assert the helper's validation result."""
         record_type, expected, data = {
             "A": (1, "192.168.77.42", socket.inet_pton(socket.AF_INET, "192.168.77.42")),
             "AAAA": (28, "fd00:77::42", socket.inet_pton(socket.AF_INET6, "fd00:77::42")),
@@ -87,9 +90,11 @@ class DnsAnswerValidation(unittest.TestCase):
             data_offset = owner_offset + 12
 
             def ptr_record(pointer):
+                """Build a PTR record whose RDATA is the supplied name pointer."""
                 return b"\xc0\x0c" + struct.pack("!HHIH", 12, 1, 60, len(pointer)) + pointer
 
             def cname_record(pointer):
+                """Build a CNAME record for compression-chain validation cases."""
                 return b"\xc0\x0c" + struct.pack("!HHIH", 5, 1, 60, len(pointer)) + pointer
 
             additional_header = struct.pack("!HHIH", 1, 1, 60, 4)
@@ -124,6 +129,7 @@ class DnsAnswerValidation(unittest.TestCase):
         errors = []
 
         def respond():
+            """Receive one query and send the crafted response over the test transport."""
             try:
                 connection = None
                 try:
@@ -169,6 +175,7 @@ class DnsAnswerValidation(unittest.TestCase):
             thread.join(timeout=4)
 
     def test_complete_and_truncated_declared_answers(self):
+        """Check complete and truncated answer sections over UDP and TCP."""
         for transport in ("udp", "tcp"):
             for kind in ("A", "AAAA", "PTR"):
                 for form in ("single", "complete", "missing", "short-header", "short-data"):
@@ -176,6 +183,7 @@ class DnsAnswerValidation(unittest.TestCase):
                         self.exercise(transport, kind, form)
 
     def test_declared_authority_and_additional_records(self):
+        """Check declared authority and additional sections, including truncation."""
         for transport in ("udp", "tcp"):
             for kind in ("A", "AAAA", "PTR"):
                 for form in ("complete-authority", "missing-authority", "short-authority-header",
@@ -187,6 +195,7 @@ class DnsAnswerValidation(unittest.TestCase):
 
 
     def test_compression_pointers_reference_prior_labels(self):
+        """Check backward, forward, self, and chained DNS compression pointers."""
         for transport in ("udp", "tcp"):
             for form in ("backward-pointer", "self-pointer", "forward-pointer", "backward-chain",
                          "forward-chain", "chain-forward", "chain-self"):

@@ -129,6 +129,7 @@ run_start_case() {
 	[ "${ACTUAL}" = "${EXPECTED}" ] || fail "unexpected startup gate result for ${VERSION_OUTPUT}: ${ACTUAL}"
 }
 
+# run_case exercises setup and refresh gating, then verifies the recorded calls for one version fixture.
 run_case() {
 	VERSION_OUTPUT="$1"
 	VERSION_FIXTURE_OUTPUT="$1"

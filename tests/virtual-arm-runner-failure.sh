@@ -36,6 +36,7 @@ def exercise(root, name, source, docker=False, close_error=False, remove_error=F
     launched = []
 
     def launch(arguments, **kwargs):
+        """Start the selected fake serial process and retain it for cleanup checks."""
         process = real_popen([sys.executable, str(command)] if docker else arguments, **kwargs)
         launched.append(process)
         return process
@@ -44,16 +45,20 @@ def exercise(root, name, source, docker=False, close_error=False, remove_error=F
         """Close the real log, then inject a filesystem close failure."""
 
         def __init__(self, stream):
+            """Wrap a real log stream whose close operation will fail predictably."""
             self.stream = stream
 
         def write(self, value):
+            """Forward scenario output to the underlying real log stream."""
             return self.stream.write(value)
 
         def close(self):
+            """Close the stream and then raise the injected close failure."""
             self.stream.close()
             raise OSError("injected scenario log close failure")
 
     def open_file(path, *arguments, **kwargs):
+        """Replace only the selected scenario log with the close-failure wrapper."""
         stream = real_open(path, *arguments, **kwargs)
         return FaultyLog(stream) if close_error and path.name == "example.log" else stream
 
@@ -203,6 +208,7 @@ with tempfile.TemporaryDirectory(prefix="virtual-arm-postcheck-") as temporary:
     output = root / "results"
 
     def output_fixture(command):
+        """Return deterministic command output for the post-run provenance fixture."""
         if command[0] == "qemu-system-arm":
             return "test QEMU version"
         if command[0] == "git":
@@ -210,9 +216,11 @@ with tempfile.TemporaryDirectory(prefix="virtual-arm-postcheck-") as temporary:
         return "b" * 64
 
     def initramfs_fixture(repository, cache, destination, *unused):
+        """Write a marker initramfs without performing an ARM build."""
         destination.write_bytes(b"host fixture; no ARM execution")
 
     def guest_fixture(command, directory, *unused):
+        """Return a synthetic passing guest result for post-run error handling."""
         (directory / "serial.log").write_text("host fixture; no ARM execution\n")
         return {"status": "pass"}, [], True, ""
 

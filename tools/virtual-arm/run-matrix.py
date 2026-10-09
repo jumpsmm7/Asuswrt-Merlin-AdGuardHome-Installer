@@ -68,23 +68,28 @@ RUNTIME_FILES = ("installer", "AdGuardHome.sh", "S99AdGuardHome", "rc.func.AdGua
 
 
 def digest_bytes(value):
+    """Return the lowercase SHA-256 digest of the provided bytes."""
     return hashlib.sha256(value).hexdigest()
 
 
 def digest_file(path):
+    """Return a file's SHA-256 digest without loading it all into memory."""
     with path.open("rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def timestamp():
+    """Return the current timezone-aware UTC timestamp in ISO 8601 format."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 def checked_output(command):
+    """Run a command and return stripped stdout, propagating execution failures."""
     return subprocess.check_output(command, text=True).strip()
 
 
 def atomic_json(path, value):
+    """Publish sorted JSON through a sibling staging file and atomic replacement."""
     temporary = path.with_name(path.name + ".new")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
     temporary.replace(path)
@@ -167,6 +172,7 @@ def source_payload(repository, rows, architecture):
 
 
 def build_initramfs(repository, cache, output, rows, architecture, configuration, selection):
+    """Write a gzip/newc guest image with native rootfs, candidate and control files."""
     entries = {}
     rootfs = cache / "rootfs"
     if not rootfs.is_dir():
@@ -205,6 +211,7 @@ def build_initramfs(repository, cache, output, rows, architecture, configuration
 
 
 def qemu_command(architecture, cache, initramfs, token):
+    """Return an isolated TCG launch command using host QEMU or the tools container."""
     executable, machine, _, memory, _ = MACHINES[architecture]
     arguments = [executable, "-machine", machine, "-cpu", CPU_OPTIONS[architecture], "-m", memory,
                  "-accel", "tcg", "-nographic", "-monitor", "none", "-nic", "none",
@@ -232,6 +239,7 @@ def run_guest(command, directory, rows, token, boot_seconds, scenario_seconds, e
     messages = queue.Queue()
 
     def read_output():
+        """Queue process stdout lines and an EOF sentinel for the bounded parser."""
         for line in iter(process.stdout.readline, b""):
             messages.put(line)
         messages.put(None)
@@ -362,6 +370,7 @@ def run_guest(command, directory, rows, token, boot_seconds, scenario_seconds, e
 
 
 def main():
+    """Execute selected guest scenarios, retain evidence and return acceptance status."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
     parser.add_argument("--features", required=True)

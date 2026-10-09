@@ -9,7 +9,8 @@ OUTPUT="${REPOSITORY}/../work/virtual-arm-results"
 CACHE_DIR="${AGH_VIRTUAL_ARM_CACHE:-${REPOSITORY}/../work/virtual-arm-cache}"
 DEFER_ACCEPTANCE=0
 
-# usage describes the explicit feature scope and diagnostic-only subset option.
+# usage prints the explicit feature scope and diagnostic-only subset option;
+# callers choose whether the output goes to stdout or stderr.
 usage() {
 	printf '%s\n' 'Usage: tools/test-virtual-arm.sh [--features ID,ID] [--architectures armv5,armv7,armv8] [--output DIR] [--cache DIR] [--defer-acceptance]' \
 		'armv5 selects the older RT-AC68U-class ARMv7 Cortex-A9 software-float guest; it is not an ARMv5 CPU guest.' \

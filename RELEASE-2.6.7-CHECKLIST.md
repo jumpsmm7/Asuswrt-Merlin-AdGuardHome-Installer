@@ -96,7 +96,43 @@ A controlled actual-helper reproduction explains a reachable early exit: `sync` 
 
 Three confirmed review corrections are included: required BusyBox configuration rejects missing `FLOCK` or `USLEEP`; DNS compression pointers must reference an earlier label at every traversal hop; malformed guest `END` fields are validated before log-stream removal, and cleanup continues through stream/container-removal faults. Baseline tests reproduced six UDP/TCP DNS false passes and malformed-result `KeyError` with a leaked real child process. The corrected parser passes 110 response cases; runner regressions check malformed/empty/negative/oversized numbers, retained logs, real child reap/pipe closure and container cleanup. Independent review found no remaining concrete runner defect.
 
-Final input digest for this follow-up: `e1585f14cb8cfab1cc3bac302b631b16c6115129c821f97f3f7ef4e1eb416270`; builder fingerprint: `f328d35447979db60ce381808cba41d6ca39eb0776f008e3581830cfd26aa9a6`. All three rebuilt environments exit 0 (`review-build-armv5.log`, `review-build-armv7.log`, `review-build-armv8.log`). Complete final native runs and canonical host verification are in progress under `review-final-armv5`, `review-final-armv7`, `review-final-armv8` and `review-canonical-final.log`; no new complete-matrix or hosted acceptance result is claimed by this pending record. Physical release acceptance remains separate and BLOCKED.
+Final input digest for this follow-up: `e1585f14cb8cfab1cc3bac302b631b16c6115129c821f97f3f7ef4e1eb416270`; builder fingerprint: `f328d35447979db60ce381808cba41d6ca39eb0776f008e3581830cfd26aa9a6`. All three rebuilt environments exit 0 (`review-build-armv5.log`, `review-build-armv7.log`, `review-build-armv8.log`). Fresh complete native runs each pass all 118 scenarios (354 executions) and exit 0; aggregate acceptance returns `status: pass`, `unblocks: true` for all 11 covered groups. Per-target runs intentionally defer acceptance. Evidence retains the provenance commit label `62c6143` plus the tested changes now published in `a1d3f81`; exact content identity binds the result. Physical release acceptance remains separate and BLOCKED.
+
+Final commands, with work/cache paths outside the repository:
+
+```sh
+sh tools/test-virtual-arm.sh --features all --architectures TARGET --cache /workspace/work/arm-virtualization/cache --output /workspace/work/arm-virtualization/review-final-TARGET --defer-acceptance
+python3 tools/virtual-arm/check-evidence.py --features all --architectures armv5,armv7,armv8 --summary /workspace/work/arm-virtualization/review-final-acceptance.json /workspace/work/arm-virtualization/review-final-armv5/armv5/evidence.json /workspace/work/arm-virtualization/review-final-armv7/armv7/evidence.json /workspace/work/arm-virtualization/review-final-armv8/armv8/evidence.json
+sh /workspace/work/v2.6.7-validation/run-quality.sh /workspace/Asuswrt-Merlin-AdGuardHome-Installer /workspace/work/arm-virtualization/review-canonical-final.log
+```
+
+`TARGET` was executed separately as `armv5`, `armv7` and `armv8`. Evidence IDs: `review-final-armv5/armv5`, `review-final-armv7/armv7`, `review-final-armv8/armv8`, `review-final-acceptance.json`. Canonical host quality exits 0 in the same isolated UID-0, read-only-source, network-disabled validation image recorded above; regressions, lifecycle integration, checksums, ShellCheck and shfmt pass. All 21 evidence-policy tests and 110 DNS response cases, runner cleanup regressions and focused build-gate checks pass.
+
+Published repair `a1d3f81` has replies and resolutions for all three confirmed CodeRabbit findings. Its hosted [pull-request ARM run 37870592896](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/37870592896) and [push ARM run 37870588001](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/37870588001) pass all three targets and aggregate acceptance. The hosted gate records Git-checkout digest `254fb76a78488c0dd21c035969497cdf15f3d1cf67f32987ebd2d543945d5402`: 38 local tracked executable masks were owner-only, explaining the distinct local digest above despite identical bytes. A reconstruction from Git blobs/modes exactly reproduces the hosted digest. Local validation executable masks now match versioned modes. Hosted Code Quality, Shell validation, Semgrep, OSV and OpenSSF pass; CodeRabbit approved `a1d3f81`. These are results for that repair source, not for later documentation inputs. The separate [GitHub AI review job 113627542305](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/37870595662/job/113627542305) failed before creating its review request with monthly quota exhaustion (HTTP 402, quota). No billing/settings or check-policy change was made.
+
+The user also requested that all agent configuration files agree on the new tests. `AGENTS.md` now owns concrete host/native validation commands, manifest-derived scope, required guest applet and DNS/runner cleanup regressions, provenance rules and published-head inspection. Its exact Amazon Q mirror, `CLAUDE.md`, `.cursorrules`, `REVIEW.md`, the Codex review prompt, `.coderabbit.yaml` and both Qodo skill entry points use that shared contract. Nine guidance files were aligned without changing connection-only JSON/TOML settings. Format parsing, exact mirror validation and seven existing guidance/configuration regressions pass; these instruction-only files leave the tested-content digest unchanged.
+
+Guidance verification commands (each exit 0; PASS output retained in the tool transcript):
+
+```sh
+/usr/bin/timeout 60 sh tests/agents-md-path-package-consistency.sh
+/usr/bin/timeout 60 sh tests/coderabbit-and-workflow-config-checks.sh
+/usr/bin/timeout 60 sh tests/skill-frontmatter-validation.sh
+/usr/bin/timeout 60 sh tests/qodo-provider-thread-resolution.sh
+/usr/bin/timeout 60 sh tests/qodo-pr-resolver-doc-consistency.sh
+/usr/bin/timeout 60 sh tests/qodo-get-rules-query-output-consistency.sh
+/usr/bin/timeout 60 sh tests/qodo-get-rules-config-validation.sh
+```
+
+Independent guidance review confirms that referenced paths/commands exist, the Amazon Q mirror is byte-identical, and no unsupported configuration keys, router runtime dependencies or relaxed acceptance gates were introduced.
+
+### CodeRabbit pre-merge documentation follow-up
+
+CodeRabbit's pre-merge walkthrough reported documentation coverage of 69.62% against an 80% threshold; its other four pre-merge checks passed. The user authorized clearing all pre-merge checks. Added accurate purpose docstrings/comments for undocumented virtual runner, parser-test, native guest and touched shell helpers without changing their executable behavior. The independent span-based audit now finds documentation for all 77 standalone Python functions/methods, nine embedded Python definitions, 162 touched shell helpers and eight C functions. Those are local audit counts; they do not assert CodeRabbit's own coverage percentage.
+
+Executable Python ASTs remain identical after removing docstring expressions, and preprocessed C is byte-identical. Focused evidence-policy, 110-response DNS and runner cleanup regressions pass. Shell syntax, warning-level ShellCheck, shfmt and all artifact digests pass for the touched source. The manager gained one purpose comment, so its sidecars were refreshed: MD5 `ec0d7663df228f685e7e0c35be028af1`, SHA-256 `40ff186b83036c9befaf59c67db2936d6abb5f26eace04583829e9ff617352c3`.
+
+Final documentation-source content digest: `c07f53f48f37014b04d0684827059b70dbfe6261f3bfe02c5c3222c0551844fe`; builder fingerprint: `3a2d79cc550a49cadb9fff6584235681be23bd15893c7c1ccb5968fa06e2e013`. Fresh native rebuilds (`premerge-build-armv5.log`, `premerge-build-armv7.log`, `premerge-build-armv8.log`), canonical host validation (`premerge-canonical-final.log`), complete final ARM execution and hosted CodeRabbit pre-merge/ARM acceptance are pending. Earlier complete runs remain historical evidence; the unchanged 80% threshold and all acceptance checks remain enabled.
 
 ## Evidence and execution
 
@@ -196,10 +232,11 @@ Use controlled fixtures without targeting unrelated processes or valuable files.
 
 | Requirement | Status | Evidence / disposition |
 |---|---|---|
-| Final candidate local software checks and both manifests | PASS | Final content digest `08a676a9…`; full local quality exits 0 and all 354 native ARM feature executions pass; exact commands and corrected diagnostic limitations recorded above. |
-| Selected virtual feature/change contracts | PASS — unblocked | Complete three-target aggregate gate returns `unblocks: true` for all 11 covered groups at the final content digest. Physical rows do not block that scoped result. |
+| Final candidate local software checks and both manifests | PENDING for documentation source | Repair source `a1d3f81` passed full local quality and all 354 native executions; documentation source `c07f53f4…` requires fresh matching evidence. |
+| Selected virtual feature/change contracts | PASS at repair source; final source PENDING | Complete three-target local/hosted gates unblock all 11 covered groups at their recorded repair-source digests. Documentation-source evidence must match its new digest. Physical rows do not block a passing scoped result. |
 | Version/banner/manifests agree | PASS | Banner and AI_VERSION are v2.6.7; both runtime MD5/SHA-256 sidecars agree. |
-| Hosted required checks and reviews at the published PR head | PENDING for new ARM-suite source | Historical `b31385a` workflows/CodeRabbit passed; the new published head requires its own inspection. No current-head hosted pass is inferred from local results. |
+| Hosted software checks and CodeRabbit pre-merge review at the published PR head | PENDING for documentation source | Repair-source `a1d3f81` software workflows/ARM acceptance pass and CodeRabbit approved; the documented source requires its own inspection and coverage result. |
+| GitHub-generated AI code-scanning review | BLOCKED — external quota | The job failed before review creation with HTTP 402 monthly quota exhaustion. No code finding was produced and no check policy/billing setting was changed. |
 | Fresh, legacy, v2.6.5 and v2.6.6 upgrade coverage | BLOCKED | Hardware execution required. |
 | Reported corrupt hook repair and firmware invocation | BLOCKED | Hardware execution required. |
 | Client DHCP/local/reverse DNS and network isolation | BLOCKED | Hardware execution required. |

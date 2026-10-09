@@ -55,6 +55,7 @@ dns_guard_readiness_matches_identity() {
 }
 dns_handoff_marker_matches_identity() { return 0; }
 remove_current_dns_guard_readiness() { rm -rf "${DNS_GUARD_READY_DIR}"; }
+# start_dns_port_guard holds the fixture guard process until its caller exercises the stop path.
 start_dns_port_guard() {
 	trap 'exit 0' HUP INT TERM
 	: >"${GUARD_STARTED_FILE}"
@@ -71,6 +72,7 @@ which() {
 	[ "$1" = usleep ] && [ "${USLEEP_AVAILABLE}" -eq 1 ] && printf '%s\n' "${TMP_ROOT}/usleep"
 }
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
+# test_usleep records the requested microsecond delay before invoking the real usleep shim.
 test_usleep() {
 	printf '%s\n' "usleep $*" >>"${CALLS_FILE}"
 	command usleep "$@"

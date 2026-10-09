@@ -2723,6 +2723,7 @@ private_ipv4_route_dns_options() {
 	return 1
 }
 
+# resolv_conf_is_tmp_mount reports whether the temporary resolver file is a mount point.
 resolv_conf_is_tmp_mount() {
 	df -P | grep -qoE '/tmp/resolv.conf'
 }

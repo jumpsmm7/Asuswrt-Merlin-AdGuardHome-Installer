@@ -6,7 +6,8 @@ export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/
 # shellcheck disable=SC1091
 . /etc/agh-virtual-arm.conf
 
-# marker keeps trusted result records distinguishable from scenario diagnostics.
+# marker writes a token-bound, tab-delimited result record to stdout so trusted
+# records remain distinguishable from scenario diagnostics.
 marker() {
 	printf 'AGH_VM\t%s\t' "${RUN_TOKEN}"
 	printf '%s\t' "$@"
@@ -14,7 +15,8 @@ marker() {
 }
 
 cd /repo || exit 1
-# smoke_tool rejects native loader/ISA/tool failures before reporting a healthy boot.
+# smoke_tool runs one native command through a temporary log, emits its first
+# diagnostic line, and exits on loader/ISA/tool failure before boot is healthy.
 smoke_tool() {
 	local name result
 	name="$1"

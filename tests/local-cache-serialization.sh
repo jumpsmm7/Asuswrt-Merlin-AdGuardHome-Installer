@@ -30,6 +30,7 @@ PROCS=cache-test
 # checks can observe each other's short-lived fd9 probe as an active service.
 # Later phases remove this marker and exercise the real service-activity guard.
 if [ -f "${WORK_DIR}/initial-sync" ]; then
+	# adguard_local_cache_service_active disables only the initial probe so the pair tests resolver-lock serialization.
 	adguard_local_cache_service_active() { return 1; }
 fi
 # Force the integer-second fallback for deterministic contention fixtures.
