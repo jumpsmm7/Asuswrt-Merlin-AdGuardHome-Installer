@@ -71,6 +71,8 @@ def write_native_report(directory):
 
 def main():
     """Run real regressions before producing fresh, candidate-bound coverage reports."""
+    if any(name in os.environ for name in ("SONAR_TOKEN", "RAW_SONAR_TOKEN")):
+        raise RuntimeError("Coverage regressions must run before Sonar credentials are provided")
     os.chdir(REPOSITORY)
     if REPORTS.is_symlink():
         raise RuntimeError("Coverage report directory must not be a symlink")

@@ -1,5 +1,40 @@
 # Done
 
+## TASK-022: Resolve ready-review SonarCloud and Qodo findings
+
+**Priority:** P1 | **Tags:** review, security, coverage, hooks, locks, tests
+**Scope:** User follow-up on October 9, 2026 America/New_York: PR #1033 is now ready for review. Resolve its current SonarCloud findings and unresolved Qodo feedback while preserving repair-only behavior, the older ARMv7/software-float target, scoped virtual acceptance and separate physical release gates.
+
+### Plan
+
+- Inventory current-head SonarCloud issues, coverage/security gate conditions and Qodo inline/summary feedback; deduplicate and independently reproduce valid failures.
+- Repair guest dependency confinement, indented managed-hook handling, read-only stale-owner activity detection and accurate historical-lock diagnostics with focused negative/safety regressions.
+- Resolve valid scanner findings without disabling checks, weakening thresholds or rewriting unrelated code. Produce real coverage evidence for supported host Python/C sources and preserve the documented shell coverage limitation.
+- Run focused checks, checksum/release validation, canonical host quality and fresh matching native ARM evidence for changed tested inputs; rebuild native tooling when required.
+- Publish normal leased branch updates, reply with evidence and resolve addressed/rejected findings; inspect final-head Qodo, CodeRabbit, SonarCloud and software/ARM checks. Preserve the user's ready-for-review status and record external service blockers separately.
+
+### Acceptance criteria
+
+- [x] All four Qodo inline findings have reproduced fixes, published evidence replies and resolutions; the current Qodo summary reports zero bugs/rule violations. Its alternative designs are not additional findings.
+- [x] SonarCloud's 51 original findings and one follow-up finding are closed by corrections. Hosted quality gate and zero-unresolved enforcement pass: zero unresolved/accepted issues, A reliability/security/maintainability and 91.8% new-code coverage; thresholds and supported-source coverage scope are unchanged.
+- [x] BusyBox 1.25.1/POSIX runtime compatibility, artifact sidecars, focused negative/safety regressions and the complete isolated canonical host suite pass.
+- [x] Fresh rebuilt armv5/armv7/armv8 environments each pass 118 scenarios, 354 total; matching aggregate evidence unblocks all 11 selected feature groups. Superseded results cannot unblock.
+- [x] Published implementation review/check states are inspected; the user's ready status and separate physical TASK-018 gates are preserved. Final workflow-hardening publication gets its own hosted inspection before delivery; no merge, tag, release, policy waiver or billing/settings change.
+
+### Completion record
+
+Published runtime/scanner corrections: `94be8a5f6cfbe7d7e63d4543b70a3f1fadab5e58`; follow-up read-only DNS query parameter: `c454e77701545dd923e6945de33443569e41bd8d`. Qodo payload confinement now uses canonical archive names and no-follow directory-descriptor reads; tests reject traversal, symlink escape and directory swaps. Managed-hook cleanup recognizes the reproduced indented guard suffix and preserves unrelated commands. Read-only service probes ignore only proven dead canonical PID/start-time identities, preserving live, malformed and unsafe metadata; actual SIGKILL cases pass. Doctor correctly distinguishes retained historical descriptor inodes without unlinking them.
+
+Exact BusyBox 1.25.1 hook/doctor/lock/cache checks, 26 evidence-policy tests, real-child serial-protocol checks, host artifact regressions, 259 DNS protocol/CLI/socket cases and strict host/all-three-target C compilation pass. Genuine coverage runs 44 tests and measures Python 924/989 lines plus 272/320 branches, native C 214/227 lines plus 134/152 branches. The final combined line/branch result is 91.47%. Supporting Python/C repairs, HTTPS-only download redirects and the unprivileged builder default address scanner findings without suppressions or coverage-denominator exclusions. Sonar run `37947173480`, quality-gate job `113876910604`, passes at `c454e77` with 91.8% new-code coverage and zero unresolved issues.
+
+Final tested-content SHA-256: `7c0a81678581085fbd5a8f3ab9a6239c13ac0f4e36cfabf9297d96783b17c96f`; builder fingerprint: `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. Fresh `accepted-armv5`, `accepted-armv7`, `accepted-armv8` executions exit 0; `final-acceptance.json` returns `status: pass`, `unblocks: true`, all three architectures and all 11 feature groups. The armv5 package target remains an RT-AC68U-class older ARMv7 Cortex-A9 with software float and VFP/NEON disabled. Canonical isolated host validation (`canonical-quality-final.log`) exits 0. Earlier portability failure logs and invalidated native runs are preserved; they never contribute to acceptance. The corrected fixture uses stock-compatible `which`.
+
+All four Qodo findings have published evidence replies/resolutions and a Round 1 summary (`6083218635`); Qodo's refreshed review reports zero findings. CodeRabbit's review of `c454e77` passes all five pre-merge checks with 94.77% documentation coverage and raises one additional valid credential-boundary finding. Coverage/tzdata tests now execute before the Sonar token is exported. The collector also rejects presence of either Sonar credential variable, including empty values, before loading regressions or writing reports. Independent negative checks and workflow ordering checks pass; a fresh credential-free measurement again passes all 44 tests. This workflow-only correction does not change either ARM content identity. Original-thread reply/resolution follows publication; final publication's hosted reviews and all three ARM jobs plus acceptance are inspected before delivery.
+
+At this record, `c454e77` hosted Sonar, canonical quality, shell/checksum, Semgrep, OSV and Scorecard workflow checks pass. Push ARM run `37947163503` passes all three targets and aggregate acceptance job `113883286609`; the pull-request matrix still awaits its final target and acceptance. Final publication gets its own complete hosted inspection. The separate generated GitHub AI review fails before producing a code finding because of HTTP 402 monthly quota exhaustion. This external service condition is not waived or treated as a software pass. PR #1033 remains ready for review. TASK-018 physical firmware/client/DHCP/isolation/reboot/WAN/48-hour-soak acceptance remains BLOCKED independently.
+
+---
+
 ## TASK-021: Resolve ARM-suite review findings and hosted acceptance failure
 
 **Priority:** P1 | **Tags:** review, virtualization, arm, ci, tests
