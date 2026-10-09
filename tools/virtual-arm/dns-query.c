@@ -40,6 +40,7 @@ static size_t read_name(const unsigned char *packet, size_t length, size_t offse
 	size_t used = 0, written = 0, steps = 0;
 	int jumped = 0;
 	for (;;) {
+		size_t label_start = offset;
 		unsigned int label;
 		if (offset >= length || ++steps > length)
 			fail("invalid or looping compressed name");
@@ -49,11 +50,15 @@ static size_t read_name(const unsigned char *packet, size_t length, size_t offse
 		if (label == 0)
 			break;
 		if ((label & 192U) == 192U) {
+			size_t target;
 			if (offset >= length)
 				fail("truncated compression pointer");
 			if (!jumped)
 				used++;
-			offset = (size_t)((label & 63U) * 256U + packet[offset]);
+			target = (size_t)((label & 63U) * 256U + packet[offset]);
+			if (target >= label_start)
+				fail("compression pointer does not refer backwards");
+			offset = target;
 			jumped = 1;
 			continue;
 		}

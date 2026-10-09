@@ -1,5 +1,28 @@
 # In Progress
 
+## TASK-021: Resolve ARM-suite review findings and hosted acceptance failure
+
+**Priority:** P1 | **Tags:** review, virtualization, arm, ci, tests
+**Scope:** User follow-up on October 8, 2026 America/New_York: resolve current PR #1033 CodeRabbit feedback and the failed ARMv7 execution/aggregate acceptance checks. Preserve the RT-AC68U-class older ARMv7 software-float target, feature-scoped unblocking, draft status and separate physical release gates.
+
+### Plan
+
+- Verify all current unresolved review threads and exact-head hosted logs against `62c6143`; reproduce each valid claim before changing behavior.
+- Repair required BusyBox option validation, DNS compression-pointer rejection and malformed guest result handling/cleanup with focused failure regressions.
+- Diagnose the early cache-serialization failure from the hosted ARMv7 run; correct only the reproduced product or fixture cause and retain real ownership/serialization assertions and normal retry budgets.
+- Rebuild changed native tooling, run affected checks and the complete matching three-target matrix, and verify host quality/CI configuration.
+- Publish normal leased branch updates, reply on each original review thread with evidence, resolve confirmed corrections, and observe the new published head until hosted ARM execution and feature acceptance are terminal. Record any external review-capacity blocker without bypassing it.
+
+### Acceptance criteria
+
+- [ ] Every current in-scope CodeRabbit finding has a verified fix or evidence-backed rejection, reply and resolution.
+- [ ] The hosted ARMv7 failure has a demonstrated cause and passing regression evidence; failure/skip/stale evidence still cannot unblock.
+- [ ] Fresh exact-content native ARM matrix and host checks pass without concealing earlier failures.
+- [ ] New-head hosted ARMv5/ARMv7/ARMv8 feature execution and aggregate acceptance succeed; pending results are not reported complete.
+- [ ] PR remains draft; no physical release, merge, check-policy waiver or billing/settings change.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Priority:** P1 | **Tags:** release, hardware, dns

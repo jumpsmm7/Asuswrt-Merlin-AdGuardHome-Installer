@@ -301,9 +301,19 @@ def run_guest(command, directory, rows, token, boot_seconds, scenario_seconds, e
                     scenario_started = time.monotonic()
                     print(f"{expected_architecture}: {fields[3]}/{fields[4]}", flush=True)
                 elif kind == "END" and len(fields) == 8 and current is not None and fields[3:5] == [current["feature"], current["scenario"]]:
+                    maximum_elapsed = scenario_seconds + scenario_grace_seconds
+                    if (not re.fullmatch(r"[0-9]{1,3}", fields[5]) or
+                            len(fields[6]) > len(str(maximum_elapsed)) or
+                            not re.fullmatch(r"[0-9]+", fields[6])):
+                        error = "Malformed guest scenario exit status or elapsed time"
+                        break
+                    exit_status, elapsed_seconds = int(fields[5]), int(fields[6])
+                    if exit_status > 255 or elapsed_seconds > maximum_elapsed:
+                        error = "Guest scenario exit status or elapsed time is out of range"
+                        break
                     current.pop("stream").close()
-                    current.update(exit_status=int(fields[5]), elapsed_seconds=int(fields[6]),
-                                   status="pass" if fields[5] == "0" else "fail")
+                    current.update(exit_status=exit_status, elapsed_seconds=elapsed_seconds,
+                                   status="pass" if exit_status == 0 else "fail")
                     current["log_sha256"] = digest_file(directory / current["log"])
                     results.append(current)
                     print(f"{expected_architecture}: {current['scenario']} {current['status']} (exit {current['exit_status']})", flush=True)
@@ -321,20 +331,28 @@ def run_guest(command, directory, rows, token, boot_seconds, scenario_seconds, e
                     error = "Malformed or unexpected guest result marker"
                     break
     finally:
-        if current is not None:
-            current.pop("stream").close()
-        if process.poll() is None:
-            process.terminate()
+        try:
+            if current is not None:
+                stream = current.pop("stream", None)
+                if stream is not None:
+                    stream.close()
+        finally:
             try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        process.wait()
-        if command[:2] == ["docker", "run"]:
-            container = command[command.index("--name") + 1]
-            subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
-        reader.join(timeout=2)
-        process.stdout.close()
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                process.wait()
+            finally:
+                try:
+                    if command[:2] == ["docker", "run"]:
+                        container = command[command.index("--name") + 1]
+                        subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
+                finally:
+                    reader.join(timeout=2)
+                    process.stdout.close()
     if error:
         print(f"{expected_architecture}: {error}; full serial log: {serial_path}", file=sys.stderr, flush=True)
         if boot["status"] != "pass":

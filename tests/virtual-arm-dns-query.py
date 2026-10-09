@@ -19,6 +19,11 @@ def wire_name(name):
                     for label in name.split(".")) + b"\0"
 
 
+def compression_pointer(offset):
+    """Encode an explicit message offset for compression traversal cases."""
+    return struct.pack("!H", 0xc000 | offset)
+
+
 def receive_exact(connection, count):
     """Read one TCP DNS frame, including short stream reads."""
     result = b""
@@ -77,6 +82,37 @@ class DnsAnswerValidation(unittest.TestCase):
             "matching-authority-only": (0, 1, 0, record, False),
             "matching-additional-only": (0, 0, 1, record, False),
         }
+        if kind == "PTR":
+            owner_offset = 12 + len(wire_name("client.test")) + 4
+            data_offset = owner_offset + 12
+
+            def ptr_record(pointer):
+                return b"\xc0\x0c" + struct.pack("!HHIH", 12, 1, 60, len(pointer)) + pointer
+
+            def cname_record(pointer):
+                return b"\xc0\x0c" + struct.pack("!HHIH", 5, 1, 60, len(pointer)) + pointer
+
+            additional_header = struct.pack("!HHIH", 1, 1, 60, 4)
+            additional_data = socket.inet_pton(socket.AF_INET, "192.168.77.42")
+            forms.update({
+                "backward-pointer": (1, 0, 0, ptr_record(compression_pointer(12)), True),
+                "self-pointer": (1, 0, 0, ptr_record(compression_pointer(data_offset)), False),
+                "forward-pointer": (1, 0, 1,
+                                    ptr_record(compression_pointer(data_offset + 2)) +
+                                    wire_name("client.test") + additional_header + additional_data, False),
+                "backward-chain": (1, 0, 0, ptr_record(compression_pointer(owner_offset)), True),
+                "forward-chain": (1, 0, 1,
+                                  ptr_record(compression_pointer(data_offset + 2)) +
+                                  compression_pointer(12) + additional_header + additional_data, False),
+                # The second PTR first jumps backward, then encounters a forward
+                # CNAME pointer whose target still precedes the original PTR data.
+                "chain-forward": (2, 0, 0,
+                                  cname_record(compression_pointer(data_offset + 2)) +
+                                  ptr_record(compression_pointer(data_offset)), False),
+                "chain-self": (2, 0, 0,
+                               cname_record(compression_pointer(data_offset)) +
+                               ptr_record(compression_pointer(data_offset)), False),
+            })
         answer_count, authority_count, additional_count, records, accepted = forms[form]
         socktype = socket.SOCK_STREAM if transport == "tcp" else socket.SOCK_DGRAM
         server = socket.socket(socket.AF_INET, socktype)
@@ -148,6 +184,14 @@ class DnsAnswerValidation(unittest.TestCase):
                              "matching-authority-only", "matching-additional-only"):
                     with self.subTest(transport=transport, kind=kind, form=form):
                         self.exercise(transport, kind, form)
+
+
+    def test_compression_pointers_reference_prior_labels(self):
+        for transport in ("udp", "tcp"):
+            for form in ("backward-pointer", "self-pointer", "forward-pointer", "backward-chain",
+                         "forward-chain", "chain-forward", "chain-self"):
+                with self.subTest(transport=transport, form=form):
+                    self.exercise(transport, "PTR", form)
 
 
 if __name__ == "__main__":

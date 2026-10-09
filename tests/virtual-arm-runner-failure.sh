@@ -25,13 +25,63 @@ token = "0123456789abcdef0123456789abcdef"
 rows = [["hooks", "example", "tests/example.sh"]]
 
 
-def exercise(root, name, source, **options):
+def exercise(root, name, source, docker=False, close_error=False, remove_error=False, **options):
+    """Use real serial subprocesses and require their reap/pipe cleanup on failure."""
     directory = root / name
     directory.mkdir()
     command = directory / "fake-serial.py"
     command.write_text(source)
+    real_popen = runner.subprocess.Popen
+    real_open = Path.open
+    launched = []
+
+    def launch(arguments, **kwargs):
+        process = real_popen([sys.executable, str(command)] if docker else arguments, **kwargs)
+        launched.append(process)
+        return process
+
+    class FaultyLog:
+        """Close the real log, then inject a filesystem close failure."""
+
+        def __init__(self, stream):
+            self.stream = stream
+
+        def write(self, value):
+            return self.stream.write(value)
+
+        def close(self):
+            self.stream.close()
+            raise OSError("injected scenario log close failure")
+
+    def open_file(path, *arguments, **kwargs):
+        stream = real_open(path, *arguments, **kwargs)
+        return FaultyLog(stream) if close_error and path.name == "example.log" else stream
+
+    arguments = ["docker", "run", "--name", "host-fixture-only"] if docker else [sys.executable, str(command)]
     started = time.monotonic()
-    boot, results, done, error = runner.run_guest([sys.executable, str(command)], directory, rows, token, 1, 1, "armv5", **options)
+    with mock.patch.object(runner.subprocess, "Popen", side_effect=launch), \
+            mock.patch.object(Path, "open", side_effect=open_file, autospec=True), \
+            mock.patch.object(runner.subprocess, "run") as remove_container:
+        if remove_error:
+            remove_container.side_effect = runner.subprocess.TimeoutExpired("docker rm", 30)
+        try:
+            boot, results, done, error = runner.run_guest(arguments, directory, rows, token, 1, 1, "armv5", **options)
+        finally:
+            for process in launched:
+                leaked = process.poll() is None
+                pipe_closed = process.stdout.closed
+                # A red regression must also clean up its own fixture processes.
+                if leaked:
+                    process.kill()
+                    process.wait()
+                if not pipe_closed:
+                    process.stdout.close()
+                assert not leaked, name + " left its serial/QEMU subprocess running"
+                assert pipe_closed, name + " left its serial pipe open"
+            if docker:
+                remove_container.assert_called_once_with(
+                    ["docker", "rm", "-f", "host-fixture-only"],
+                    stdout=runner.subprocess.DEVNULL, stderr=runner.subprocess.DEVNULL, timeout=30, check=False)
     assert error and not (done and all(result["status"] == "pass" for result in results)), name
     assert (directory / "serial.log").is_file(), name
     assert time.monotonic() - started < 5, name + " did not terminate promptly"
@@ -66,6 +116,37 @@ with tempfile.TemporaryDirectory(prefix="virtual-arm-runner-") as temporary:
     started = f"AGH_VM\t{token}\tSTART\thooks\texample\t"
     _, _, done, error = exercise(root, "hung-scenario", "import time\nprint(" + repr(good_boot) + ", flush=True)\nprint(" + repr(started) + ", flush=True)\ntime.sleep(30)\n", scenario_grace_seconds=0)
     assert not done and error == "Guest scenario timeout: example"
+
+    for name, exit_status, elapsed in (
+            ("empty-status", "", "1"), ("bad-status", "invalid", "1"),
+            ("negative-status", "-1", "1"), ("large-status", "256", "1"),
+            ("empty-elapsed", "0", ""), ("bad-elapsed", "0", "invalid"),
+            ("negative-elapsed", "0", "-1"), ("large-elapsed", "0", "32"),
+            ("oversized-elapsed", "0", "9" * 5000)):
+        malformed_end = f"AGH_VM\t{token}\tEND\thooks\texample\t{exit_status}\t{elapsed}\t"
+        records = [good_boot, started, "retained malformed-END evidence", malformed_end]
+        source = "import time\n" + "\n".join("print(" + repr(record) + ", flush=True)" for record in records) + "\ntime.sleep(30)\n"
+        _, results, done, error = exercise(root, "malformed-end-" + name, source)
+        assert not done and not results and "exit status or elapsed time" in error, name
+        assert "retained malformed-END evidence" in (root / ("malformed-end-" + name) / "example.log").read_text()
+
+    malformed_end = f"AGH_VM\t{token}\tEND\thooks\texample\tbad\t1\t"
+    records = [good_boot, started, "retained malformed-END evidence", malformed_end]
+    source = "import time\n" + "\n".join("print(" + repr(record) + ", flush=True)" for record in records) + "\ntime.sleep(30)\n"
+    _, results, done, error = exercise(root, "malformed-end-docker", source, docker=True)
+    assert not done and not results and "exit status or elapsed time" in error
+    try:
+        exercise(root, "log-close-failure", source, docker=True, close_error=True)
+    except OSError as error:
+        assert "injected scenario log close failure" in str(error), error
+    else:
+        raise AssertionError("scenario log close failure was hidden")
+    try:
+        exercise(root, "container-remove-failure", source, docker=True, remove_error=True)
+    except runner.subprocess.TimeoutExpired:
+        pass
+    else:
+        raise AssertionError("container-removal timeout was hidden")
 
 native_rows = [["native_dns", "virtual-arm-native", "tests/virtual-arm-native.sh"]]
 for architecture in runner.MACHINES:

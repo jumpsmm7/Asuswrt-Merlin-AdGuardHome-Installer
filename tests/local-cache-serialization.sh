@@ -25,6 +25,13 @@ PROC_LOCK_FORCE_MKDIR="$2"
 CONFIG_LOCAL="${4:-NO}"
 NAME=cache-test
 PROCS=cache-test
+# The initial pair isolates resolver-lock serialization from the service
+# activity probe.  That probe is intentionally nonblocking: two readiness
+# checks can observe each other's short-lived fd9 probe as an active service.
+# Later phases remove this marker and exercise the real service-activity guard.
+if [ -f "${WORK_DIR}/initial-sync" ]; then
+	adguard_local_cache_service_active() { return 1; }
+fi
 # Force the integer-second fallback for deterministic contention fixtures.
 if [ -f "${WORK_DIR}/fast-lock-retries" ]; then
 	# which hides usleep while delegating other command lookups to the host.
@@ -142,12 +149,14 @@ wait_for_file() {
 for fallback in 0 1; do
 	: >"${ROOT}/calls"
 	printf '%s\n' 'ADGUARD_LOCAL="YES"' >"${ROOT}/config"
+	: >"${ROOT}/initial-sync"
 	run_worker "${fallback}" sync &
 	first=$!
 	run_worker "${fallback}" sync &
 	second=$!
 	wait "${first}"
 	wait "${second}"
+	rm "${ROOT}/initial-sync"
 	[ "$(grep -c '^mount$' "${ROOT}/calls")" -eq 1 ]
 	# A stale monitor snapshot must not override a newly saved preference.
 	printf '%s\n' 'ADGUARD_LOCAL="NO"' >"${ROOT}/config"
