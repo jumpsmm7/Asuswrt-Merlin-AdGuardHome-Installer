@@ -1,0 +1,25 @@
+#!/bin/sh
+# Explicit file-backed firmware model; never accesses host or router NVRAM.
+
+export LC_ALL=C
+MODEL_ROOT=/tmp/virtual-arm-native
+[ -r /run/virtual-arm-guest ] && [ -d "${MODEL_ROOT}/nvram" ] || exit 1
+key="${2%%=*}"
+case "${1:-}" in
+	get | set)
+		case "${key}" in '' | *[!A-Za-z0-9_]*) exit 1 ;; esac
+		;;
+esac
+case "${1:-}" in
+	get)
+		[ ! -f "${MODEL_ROOT}/nvram/${key}" ] || cat "${MODEL_ROOT}/nvram/${key}"
+		;;
+	set)
+		case "${2:-}" in *=*) ;; *) exit 1 ;; esac
+		printf '%s\n' "${2#*=}" >"${MODEL_ROOT}/nvram/${key}"
+		;;
+	commit)
+		printf '%s\n' commit >>"${MODEL_ROOT}/firmware.calls"
+		;;
+	*) exit 1 ;;
+esac

@@ -6,7 +6,7 @@ These instructions apply to Qodo code reviews for the entire repository.
 
 Review pull-request changes against the runtime, compatibility, security, lifecycle, and router-specific requirements below. Focus on defects introduced or exposed by the changed code.
 
-This repository also contains `AGENTS.md` files for coding-agent behavior. This file is specifically for code-review findings.
+Read the repository-root [AGENTS.md](AGENTS.md) as the canonical engineering and review guardrails. This file adds Qodo review guidance and must not weaken or contradict those guardrails; `AGENTS.md` wins when guidance conflicts.
 
 ## Review posture
 
@@ -663,7 +663,7 @@ ShellCheck may be recommended as an additional off-router validation when availa
 shellcheck -s sh scriptname
 ```
 
-Do not require validation that depends on:
+Do not require router-side validation that depends on:
 
 * Python
 * Perl
@@ -675,6 +675,10 @@ Do not require validation that depends on:
 * Installation or removal of router packages
 
 unless the changed feature explicitly requires that environment.
+
+Declared validation-host/build paths follow the `AGENTS.md` toolchain exception: Python 3, provisioned GNU tools (including explicit `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers and a host C compiler are allowed there. These tools are not new router-runtime dependencies.
+
+Use the shared [ARM virtual validation](AGENTS.md#arm-virtual-validation) commands and [virtual testing guide](docs/virtual-arm-testing.md) for virtual tooling and covered feature changes. Treat the armv5 archive as the older RT-AC68U-class ARMv7 Cortex-A9 software-float target with VFP/NEON disabled. Host parser/evidence/runner tests do not substitute for a complete matching three-target native report and the published head's aggregate acceptance. Keep native assertions separate from modeled firmware behavior; missing, stale, failed or skipped evidence cannot unblock, while a passing selected feature contract does not waive unrelated physical release gates.
 
 Do not request expensive, network-heavy, package-install, firmware-changing, service-restarting, or destructive validation merely to prove a review finding.
 

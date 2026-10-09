@@ -330,20 +330,57 @@ Validation hosts and CI runners, unlike router runtime scripts, explicitly allow
 * GNU coreutils `timeout` at `/usr/bin/timeout` for bounding regression and lint commands. Do not use a PATH-resolved or BusyBox `timeout` substitute.
 * The CI runner's package manager. GitHub Actions uses Ubuntu, so validation workflows may use `sudo apt-get update` and `sudo apt-get install` to provision declared checking tools.
 * `bzip2`, XZ Utils (`xz-utils`), and Zstandard (`zstd`) for the tzdata package conversion regression.
+* Docker, full-system QEMU, cross-compilers and guest-image build dependencies for the isolated ARM virtual feature suite. These tools belong to validation hosts/build containers, never the installed router runtime.
+* A host C compiler (`build-essential` on Debian/Ubuntu) for the virtual DNS response-parser regression.
 
 Install and verify them on Debian/Ubuntu validation hosts with:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd
+sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd build-essential docker.io
 python3 --version
 /usr/bin/timeout --version
 bzip2 --help >/dev/null
 /usr/bin/xz --version
 zstd --version
+docker --version
 ```
 
+Before ARM guest builds, ensure the Docker daemon is running and the validation account can access it; verify with `docker info`. The isolated builder supplies QEMU and cross-compilers.
+
 These commands are validation-host exceptions only. They do not allow `python3`, GNU `timeout`, `apt-get`, `bzip2`, XZ Utils, or Zstandard dependencies in router-runtime scripts, and they do not imply that these commands are available in the router stock PATH. Agents and scanners must distinguish explicitly host-only validation paths from router-runtime paths.
+
+ARM virtual feature acceptance is scoped to the named contracts and exact tested candidate content in [the virtual testing guide](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/3d3169b14f2fb67605fb74f98e089644490a825c/docs/virtual-arm-testing.md). The armv5 package target represents an ASUS RT-AC68U-class older ARMv7 Cortex-A9 guest with software float and VFP/NEON disabled. A complete passing armv5/armv7/armv8 package-target report is sufficient to unblock those software feature/change checks; pending physical-router acceptance must not independently block a passing covered virtual contract. Unknown scope, unexecuted or skipped scenarios, missing architectures, stale evidence and failures cannot pass that gate. Report architecture-native Linux/process/socket assertions separately from modeled firmware commands. Virtual acceptance does not imply firmware hook dispatch, physical client DHCP/isolation, persistent reboot behavior, WAN exposure, overnight soak or whole-release acceptance.
+
+### ARM virtual validation
+
+Linked source snapshots document the v2.6.7 validation baseline and resolve from both this file and its Amazon Q mirror. Use the current checkout's manifest and tooling as the authority for execution.
+
+Use [tools/virtual-arm/features.tsv](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/3d3169b14f2fb67605fb74f98e089644490a825c/tools/virtual-arm/features.tsv) as the scenario inventory and [docs/virtual-arm-testing.md](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/3d3169b14f2fb67605fb74f98e089644490a825c/docs/virtual-arm-testing.md) for provisioning and evidence commands. Report the actual selected scenario count from the run; counts are not fixed acceptance requirements. `--features` selects covered assertions and `--architectures` selects execution targets. Acceptance still requires matching complete armv5, armv7 and armv8 reports for the same selected scope and tested content. A single-target `--defer-acceptance` run is diagnostic and cannot unblock a feature.
+
+The canonical host suite is `sh tools/code-quality.sh`. Focused virtual-tooling checks are:
+
+```sh
+python3 tests/virtual-arm-evidence.py
+sh tests/virtual-arm-runner-failure.sh
+python3 tests/virtual-arm-dns-query.py
+sh tests/local-cache-serialization.sh
+```
+
+These host checks validate evidence rejection, protocol parsing and fixture behavior; they are not native ARM acceptance. The DNS regression compiles the real C query helper with strict warnings and exercises complete/truncated records plus valid backward and invalid self/forward compression pointers at every traversal hop over real local UDP/TCP. Runner regressions must reject malformed, negative or oversized result fields, retain failure logs, reap subprocesses, close serial pipes and continue container cleanup through log-close/removal errors. Cache fixtures must preserve real resolver serialization and service-activity guard assertions while declaring any isolated dependency model.
+
+Full native execution and aggregate validation use explicit scope:
+
+```sh
+sh tools/test-virtual-arm.sh --features all --architectures armv5,armv7,armv8 \
+  --cache ../work/virtual-arm-cache --output ../work/virtual-arm-results
+python3 tools/virtual-arm/check-evidence.py --features all --architectures armv5,armv7,armv8 \
+  ../work/virtual-arm-results
+```
+
+The pinned BusyBox 1.25.1 guest builder must check effective `CONFIG_FLOCK=y` and `CONFIG_USLEEP=y` after configuration generation, before compilation and environment publication. These are validation-guest requirements; supported router firmware still requires optional `flock` capability probing and its fallback. Docker, full-system QEMU, cross-compilers, a host C compiler and provisioned GNU/Python tools are permitted only in declared validation-host/build paths. Distinguish native guest CPU/kernel/process/socket assertions from modeled firmware commands, and credit beta/edge execution/configuration separately from stable service lifecycle coverage.
+
+Changes to tested inputs require fresh matching evidence; changed builder inputs require rebuilding all affected cached environments. Preserve earlier failure logs. After publishing a candidate, inspect that published head's three architecture jobs and aggregate `ARM feature acceptance` result in [the virtual workflow](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/3d3169b14f2fb67605fb74f98e089644490a825c/.github/workflows/virtual-arm-feature-tests.yml). Pending, failed, skipped, cancelled, missing or stale results cannot be reported as complete, and host checks or historical runs cannot substitute for the selected native matrix. Passing covered feature contracts does not waive physical release gates or unrelated checks.
 
 For touched shell scripts or shell fixtures, run the syntax check that matches the target environment when available:
 

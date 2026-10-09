@@ -19,6 +19,8 @@ triggers:
 
 Fetch Qodo review issues for your current branch's PR/MR, fix them interactively or in batch, and reply to each inline comment with the decision. Supports GitHub, GitLab, Bitbucket, Azure DevOps, and Gerrit.
 
+Before validating or applying feedback in this repository, read the canonical [AGENTS.md](../../../AGENTS.md) and the Qodo [REVIEW.md](../../../REVIEW.md). Provider workflows and review prompts must preserve those guardrails. Follow the shared [ARM virtual validation](../../../AGENTS.md#arm-virtual-validation) commands and [virtual testing guide](../../../docs/virtual-arm-testing.md) when relevant; host checks, native assertions and modeled firmware coverage are distinct evidence.
+
 ## Prerequisites
 
 ### Required Tools:

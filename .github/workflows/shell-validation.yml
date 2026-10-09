@@ -87,6 +87,7 @@ jobs:
           failed=0
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-modes.sh || failed=1
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-event-script-transactions.sh || failed=1
+          /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-managed-hook-invariants.sh || failed=1
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-cli-lan-mode.sh || failed=1
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/wan-nat-predicate-parity.sh || failed=1
           /usr/bin/timeout --kill-after=10 180 busybox ash tests/installer-ipset-setup-save-failure.sh || failed=1
@@ -121,6 +122,16 @@ jobs:
 
       - name: Run monitor stop config fallback regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/monitor-stop-config-fallback.sh
+
+      - name: Run monitor stop postcondition regression
+        run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/monitor-stop-postconditions.sh
+
+      - name: Run service-lock path and serialization regressions
+        run: |
+          failed=0
+          sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/service-lock-path-safety.sh || failed=1
+          sudo -n /usr/bin/timeout --kill-after=10 180 busybox ash tests/service-lock-serialization.sh || failed=1
+          exit "${failed}"
 
       - name: Run deterministic startup signal recovery regression
         run: /usr/bin/timeout --kill-after=10 180 busybox ash tests/rc-startup-signal-determinism.sh

@@ -13,6 +13,7 @@ TEST_ROOT="${TMPDIR:-/tmp}/installer-doctor-fix-safety.$$"
 FUNCTIONS_FILE="${TEST_ROOT}/installer-doctor-functions"
 BIN_DIR="${TEST_ROOT}/bin"
 LOG_FILE="${TEST_ROOT}/commands.log"
+export LOG_FILE
 ACTIVE_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.handoff"
 DANGLING_MARKER="${TEST_ROOT}/AdGuardHome.dnsmasq.lock"
 mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
@@ -25,11 +26,18 @@ trap cleanup EXIT HUP INT TERM
 sed -n \
 	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
+awk '
+	/^(doctor_check_managed_hooks|managed_hook_[a-z_]+|service_event_hook_command|write_managed_hook|write_manager_script|write_command_script|del_between_magic|del_jffs_script|adguard_ipset_allowed)\(\) \{/ { copying = 1 }
+	copying { print }
+	copying && /^}/ { copying = 0 }
+' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract managed-hook helpers'
 sed "s#/tmp/AdGuardHome\.dnsmasq\.handoff#${ACTIVE_MARKER}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate active marker path'
 /bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update isolated fixture'
 DANGLING_MARKER_SED="$(printf '%s\n' "${DANGLING_MARKER}" | sed 's/[\&#]/\\&/g')" || fail 'could not escape dangling marker path'
 sed "s#/tmp/AdGuardHome\.dnsmasq\.lock#${DANGLING_MARKER_SED}#g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate dangling marker path'
 /bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update dangling marker fixture'
+sed "s|/tmp/AdGuardHome-service-lock|${TEST_ROOT}/service-lock|g; s|/tmp/AdGuardHome|${TEST_ROOT}/legacy|g" "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.tmp" || fail 'could not isolate service lock paths'
+/bin/mv "${FUNCTIONS_FILE}.tmp" "${FUNCTIONS_FILE}" || fail 'could not update isolated service lock fixture'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'doctor functions were not found'
 grep -q '^doctor() {$' "${FUNCTIONS_FILE}" || fail 'installer has no doctor command helper'
 
@@ -74,6 +82,10 @@ ln -s "${TEST_ROOT}/missing-marker-target" "${DANGLING_MARKER}" || fail 'could n
 
 PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" . "${FUNCTIONS_FILE}"
 
+# Function wrappers keep BusyBox builds that prefer internal applets on the isolated socket fixtures.
+netstat() { "${BIN_DIR}/netstat" "$@"; }
+# pidof routes process discovery through the isolated command stub.
+pidof() { "${BIN_DIR}/pidof" "$@"; }
 entware_available() { return 0; }
 ensure_adguardhome_directory_permissions() {
 	printf '%s\n' 'permissions checked' >>"${LOG_FILE}"
@@ -141,5 +153,86 @@ if grep -q "^rm .*${ACTIVE_MARKER}" "${LOG_FILE}"; then
 	fail 'doctor --fix attempted to remove an active dnsmasq handoff marker'
 fi
 [ -f "${ACTIVE_MARKER}" ] || fail 'active marker was removed'
+
+# Private service locks retain their inode and are inspected without following unsafe targets.
+SERVICE_LOCK_DIR="${TEST_ROOT}/service-lock"
+/bin/mkdir -p "${SERVICE_LOCK_DIR}/action" || fail 'could not create active private lock fixture'
+/bin/chmod 700 "${SERVICE_LOCK_DIR}" "${SERVICE_LOCK_DIR}/action" || fail 'could not secure private lock fixture'
+doctor_run_lock_is_active || fail 'doctor ignored an active or unverified private action lock'
+/bin/rmdir "${SERVICE_LOCK_DIR}/action" || fail 'could not remove isolated action fixture'
+printf '%s\n' 'stable lock inode contents' >"${SERVICE_LOCK_DIR}/flock" || fail 'could not create descriptor lock fixture'
+/bin/chmod 600 "${SERVICE_LOCK_DIR}/flock" || fail 'could not secure descriptor lock fixture'
+LOCK_INODE="$(ls -i "${SERVICE_LOCK_DIR}/flock" | awk '{ print $1 }')"
+doctor_run_lock_is_active && fail 'doctor reported an uncontended validated descriptor as active'
+doctor --fix >"${TEST_ROOT}/second-doctor-output" 2>&1 || true
+[ "$(ls -i "${SERVICE_LOCK_DIR}/flock" | awk '{ print $1 }')" = "${LOCK_INODE}" ] || fail 'doctor replaced or removed the stable descriptor inode'
+grep -qx 'stable lock inode contents' "${SERVICE_LOCK_DIR}/flock" || fail 'doctor truncated descriptor lock contents'
+/bin/rm -f "${SERVICE_LOCK_DIR}/flock" || fail 'could not remove isolated descriptor fixture'
+printf '%s\n' 'foreign lock target contents' >"${TEST_ROOT}/foreign-lock-target" || fail 'could not create foreign lock target'
+/bin/ln -s "${TEST_ROOT}/foreign-lock-target" "${SERVICE_LOCK_DIR}/flock" || fail 'could not create unsafe descriptor fixture'
+doctor_run_lock_is_active || fail 'doctor treated an unsafe descriptor target as idle'
+grep -qx 'foreign lock target contents' "${TEST_ROOT}/foreign-lock-target" || fail 'doctor followed or truncated descriptor symlink target'
+/bin/rm -f "${SERVICE_LOCK_DIR}/flock" || fail 'could not remove unsafe descriptor fixture'
+/bin/mkdir -p "${TEST_ROOT}/legacy" || fail 'could not create unpublished legacy lock fixture'
+doctor_run_lock_is_active || fail 'doctor treated an unpublished legacy mkdir owner as idle'
+/bin/chmod 755 "${TEST_ROOT}/legacy" || fail 'could not create historical mkdir mode fixture'
+printf '%s\n' 'historical stable descriptor contents' >"${TEST_ROOT}/legacy.lock" || fail 'could not create historical descriptor fixture'
+/bin/chmod 644 "${TEST_ROOT}/legacy.lock" || fail 'could not create historical descriptor mode fixture'
+LEGACY_LOCK_INODE="$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')"
+(
+	# Use actual removal for isolated historical paths to detect cleanup-order and inode regressions.
+	rm() {
+		case "$*" in
+			"-rf ${TEST_ROOT}/legacy.lock" | "-rf ${TEST_ROOT}/legacy") command rm "$@" ;;
+			*) return 0 ;;
+		esac
+	}
+	doctor_fix_safe >"${TEST_ROOT}/legacy-doctor-fix-output" 2>&1
+) || fail 'historical lock repair fixture failed'
+[ -f "${TEST_ROOT}/legacy.lock" ] || fail 'doctor unlinked the stable historical descriptor inode'
+[ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'doctor replaced the stable historical descriptor inode'
+grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'doctor truncated historical descriptor contents'
+doctor_run_lock_is_active && fail 'doctor stranded idle historical metadata as an unpublished active lock'
+doctor --fix >"${TEST_ROOT}/legacy-doctor-output" 2>&1 || true
+awk -v marker="${TEST_ROOT}/legacy.lock" '
+	/^\[OK\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "no active service lock detected") { found = 1 }
+	/^\[WARN\]/ && index($0, marker) { incorrect = 1 }
+	END { exit found && !incorrect ? 0 : 1 }
+' "${TEST_ROOT}/legacy-doctor-output" || fail 'doctor warned about the intentionally retained idle historical descriptor'
+[ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'doctor diagnostic replaced the historical descriptor inode'
+grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'doctor diagnostic changed historical descriptor contents'
+if ai_have_cmd flock; then
+	(
+		exec 8<"${TEST_ROOT}/legacy.lock" || fail 'could not open held historical descriptor fixture'
+		flock -n 8 || fail 'could not hold historical descriptor fixture'
+		doctor --fix >"${TEST_ROOT}/legacy-held-doctor-output" 2>&1 || true
+		awk -v marker="${TEST_ROOT}/legacy.lock" '
+			/^\[WARN\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "--fix preserves it") && index($0, "router reboot") { found = 1 }
+			END { exit found ? 0 : 1 }
+		' "${TEST_ROOT}/legacy-held-doctor-output" || fail 'doctor omitted actionable preservation advice for a held historical descriptor'
+		flock -u 8 || fail 'could not release historical descriptor fixture'
+	) || exit 1
+fi
+(
+	# ai_have_cmd simulates firmware without the optional descriptor-lock applet.
+	ai_have_cmd() {
+		[ "$1" != flock ] && which "$1" >/dev/null 2>&1
+	}
+	doctor >"${TEST_ROOT}/legacy-unverified-doctor-output" 2>&1 || true
+	awk -v marker="${TEST_ROOT}/legacy.lock" '
+		/^\[WARN\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "active or unverified") && index($0, "--fix preserves it") { found = 1 }
+		END { exit found ? 0 : 1 }
+	' "${TEST_ROOT}/legacy-unverified-doctor-output" || fail 'doctor claimed an unverified historical descriptor was idle'
+) || exit 1
+[ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'held or unverified diagnostics replaced the historical descriptor inode'
+grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'held or unverified diagnostics changed historical descriptor contents'
+for pending_marker in action.claim action.transition; do
+	case "${pending_marker}" in
+		action.claim) /bin/ln -s '1234 1234' "${SERVICE_LOCK_DIR}/${pending_marker}" ;;
+		action.transition) printf '%s\n' '1234 1234 5678 5678' >"${SERVICE_LOCK_DIR}/${pending_marker}" ;;
+	esac
+	doctor_run_lock_is_active || fail "doctor ignored a pending ${pending_marker} ownership transition"
+	/bin/rm -f "${SERVICE_LOCK_DIR}/${pending_marker}" || fail 'could not remove isolated pending ownership marker'
+done
 
 printf '%s\n' 'PASS: doctor --fix reports unsafe states without modifying DNS/firewall/NVRAM or active markers'

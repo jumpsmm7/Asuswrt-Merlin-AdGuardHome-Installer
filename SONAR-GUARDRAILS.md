@@ -43,6 +43,16 @@ Do not replace the explicit coverage-exclusion list with a blanket `*` or `**`
 pattern. Adding a language with supported coverage reporting requires adding
 its report to CI rather than extending the exclusion.
 
+The ready-review Sonar job executes
+`.github/scripts/collect-virtual-arm-coverage.py` before scanning. It measures
+the host Python tools with branch coverage and exercises the native DNS C
+helper with instrumented UDP/TCP regressions. The scanner imports Python XML
+and Sonar generic XML translated from actual gcov line and branch counters.
+These supported sources stay in the coverage denominator. A failed regression
+prevents successful report publication; earlier reports are removed before
+measurement. Coverage proves exercised host-tool behavior, not ARM execution
+or physical-router acceptance.
+
 ## Review rule
 
 Automated reviewers must treat Sonar parser output as a signal to verify, not as authority to rewrite router code. A Sonar-only parser complaint is not actionable until it is checked against BusyBox/POSIX compatibility and the relevant repository validation. Conversely, confirmed target-shell incompatibility remains actionable even when Sonar does not report it.
