@@ -258,7 +258,7 @@ static size_t tcp_response(int fd, struct dns_query *query, unsigned char *reply
 }
 
 /** Exchange one UDP datagram and reject socket errors or truncated messages. */
-static size_t udp_response(int fd, struct dns_query *query, unsigned char *reply)
+static size_t udp_response(int fd, const struct dns_query *query, unsigned char *reply)
 {
 	ssize_t count;
 	if (send(fd, query->bytes, query->length, 0) != (ssize_t)query->length)
