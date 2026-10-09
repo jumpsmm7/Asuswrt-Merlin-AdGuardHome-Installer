@@ -1,5 +1,39 @@
 # In Progress
 
+## TASK-022: Resolve ready-review SonarCloud and Qodo findings
+
+**Priority:** P1 | **Tags:** review, security, coverage, hooks, locks, tests
+**Scope:** User follow-up on October 9, 2026 America/New_York: PR #1033 is now ready for review. Resolve its current SonarCloud findings and unresolved Qodo feedback while preserving repair-only behavior, the older ARMv7/software-float target, scoped virtual acceptance and separate physical release gates.
+
+### Plan
+
+- Inventory current-head SonarCloud issues, coverage/security gate conditions and Qodo inline/summary feedback; deduplicate and independently reproduce valid failures.
+- Repair guest dependency confinement, indented managed-hook handling, read-only stale-owner activity detection and accurate historical-lock diagnostics with focused negative/safety regressions.
+- Resolve valid scanner findings without disabling checks, weakening thresholds or rewriting unrelated code. Produce real coverage evidence for supported host Python/C sources and preserve the documented shell coverage limitation.
+- Run focused checks, checksum/release validation, canonical host quality and fresh matching native ARM evidence for changed tested inputs; rebuild native tooling when required.
+- Publish normal leased branch updates, reply with evidence and resolve addressed/rejected findings; inspect final-head Qodo, CodeRabbit, SonarCloud and software/ARM checks. Preserve the user's ready-for-review status and record external service blockers separately.
+
+### Acceptance criteria
+
+- [ ] Four current Qodo inline findings have reproduced fixes, evidence replies and resolutions. The summary's two alternative approaches are not additional findings; its recommendation agrees with scoped virtual acceptance and separate physical release gates.
+- [ ] SonarCloud's current issue inventory and failing coverage/security conditions are resolved or individually documented with concrete evidence and any genuine access limitation.
+- [ ] Runtime changes remain BusyBox 1.25.1/POSIX compatible; affected sidecars, targeted safety tests and complete isolated canonical host validation pass.
+- [ ] Final matching three-target native execution and aggregate acceptance pass for changed tested content; pending/stale/skipped evidence is not reported complete.
+- [ ] Published-head review/check states are inspected; PR stays ready for review with no merge, tag, release, check-policy waiver or billing/settings change. Physical TASK-018 gates remain separate.
+
+### Execution record
+
+- Authenticated CI logs contain all 51 unresolved Sonar issues: one reliability, 41 maintainability and nine security findings. Supporting Python/C tools, builder downloads and default-user policy have focused corrections; fresh hosted analysis must confirm closure.
+- Qodo's payload escape is reproduced and prevented using canonical archive names and no-follow directory-descriptor reads. Regression cases reject parent traversal, absolute paths, symlink escapes and parent swaps while decoding a valid guest image.
+- Ordinary hook indentation already worked. The remaining reproduced gap is an indented owned guard with a `# !manager` suffix; cleanup now agrees with validation and preserves unrelated commands/comments. Doctor distinguishes intentionally retained descriptor inodes from removable handoff markers.
+- Read-only service probes require strictly validated dead PID/start-time identities before ignoring crashed metadata. Actual SIGKILL publication/cleanup cases preserve metadata; live, malformed and unsafe records remain busy. Independent review caught and regressed noncanonical leading-zero identities.
+- Exact BusyBox 1.25.1 hook/doctor/lock/cache checks, 26 evidence-policy tests, host-tool and serial-protocol regressions, 259 real DNS protocol/CLI/socket cases and strict host/all-three-target C compilation pass. All modified Python functions score at most 14 under an estimator calibrated against Sonar's eight original scores; the limit remains 15.
+- Fresh candidate coverage executes 44 tests. Python measured 924/989 lines and 270/320 branches; native C measured 214/227 lines and 134/152 branches, or 91.35% combined. CI imports actual execution reports, keeps supported sources in the denominator and retains all existing thresholds. Hosted new-code coverage remains pending.
+- Builder source fingerprint is `eeb2c4d151b006598dfdb411caaf5f1e4ab1530684ae8a504779eea490c43339`. All three guests rebuilt successfully. The first canonical run passed behavioral/static checks but correctly failed portability on a new fixture's `command -v` lookup. It now uses the required `which`; both portability checks and Doctor's safety test pass. Canonical and full native evidence are rerunning at corrected tested-content digest `67139f867e43e874c0425112bd49a51ae0cc86452ea142e1325e80ae4fbf23ed`. Superseded native runs never unblock acceptance.
+- Documentation audit finds purpose documentation for all 144 standalone Python, 13 embedded Python, 169 touched shell and 21 C definitions. Manager/installer MD5 and SHA-256 sidecars are refreshed. Publish the reviewed fixes after focused validation so hosted Sonar/Qodo analysis runs alongside complete final-content validation; remote review/check completion remains pending.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Priority:** P1 | **Tags:** release, hardware, dns

@@ -9,6 +9,7 @@ import json
 import re
 import stat
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -65,6 +66,7 @@ GUEST_MACHINES = {architecture: target["guest_uname"] for architecture, target i
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 MANIFEST_FIELDS = ("feature", "scenario", "test", "evidence_class", "assertions", "exclusions")
+ACCEPTANCE_SCOPE = "Only the selected manifest assertions at this tested content digest"
 
 
 def require(condition, message):
@@ -93,6 +95,7 @@ def unique_object(pairs):
 
 def read_json(path):
     """Read a JSON object using the evidence's strict duplicate-key policy."""
+    require(path.is_file() and not path.is_symlink(), f"missing or nonregular JSON artifact: {path}")
     with path.open(encoding="utf-8") as handle:
         result = json.load(handle, object_pairs_hook=unique_object)
     require(isinstance(result, dict), f"expected a JSON object: {path}")
@@ -141,6 +144,15 @@ def selection_text(rows):
     return "".join(f"{row['feature']}\t{row['scenario']}\t{row['test']}\n" for row in rows)
 
 
+def tested_directory_paths(root):
+    """Enumerate executable directory inputs without bytecode or documentation."""
+    for path in root.rglob("*"):
+        if "__pycache__" in path.parts or path.suffix in (".pyc", ".md"):
+            continue
+        if path.is_file() or path.is_symlink():
+            yield path
+
+
 def tested_paths(repository):
     """Enumerate executable inputs and policy documents used by scenarios."""
     paths = []
@@ -151,11 +163,7 @@ def tested_paths(repository):
     for directory in ("tests", "tools", "armv5", "armv7", "armv8"):
         root = repository / directory
         require(root.is_dir(), f"missing tested input directory: {directory}")
-        for path in root.rglob("*"):
-            if "__pycache__" in path.parts or path.suffix in (".pyc", ".md"):
-                continue
-            if path.is_file() or path.is_symlink():
-                paths.append(path)
+        paths.extend(tested_directory_paths(root))
     workflow = repository / ".github/workflows/virtual-arm-feature-tests.yml"
     if workflow.is_file():
         paths.append(workflow)
@@ -195,7 +203,9 @@ def hash_field(value, label):
 def build_source_digest(repository):
     """Use the builder's cache identity for saved-artifact validation too."""
     source = repository / "tools/virtual-arm"
-    specification = importlib.util.spec_from_file_location("arm_build_environment", source / "environment.py")
+    # Selected repository content is hashed, never imported as executable code.
+    specification = importlib.util.spec_from_file_location(
+        "arm_build_environment", Path(__file__).with_name("environment.py"))
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
     return module.source_digest(source)
@@ -239,17 +249,8 @@ def check_serial(report, report_path, rows):
     require(records == expected, "serial boot/scenario/completion records differ from report")
 
 
-def check_environment(report, report_path, architecture, source_digest):
-    """Verify the declared native full-system environment and boot identity."""
-    environment = report.get("environment")
-    require(isinstance(environment, dict), "missing native environment")
-    require(environment.get("schema_version") == 1 and environment.get("architecture") == architecture, "environment architecture/schema mismatch")
-    require(environment.get("execution_class") == "qemu-full-system-tcg", "host or user-mode execution is not ARM feature acceptance")
-    machine, cpu = ENVIRONMENTS[architecture]
-    require((environment.get("machine"), environment.get("cpu")) == (machine, cpu), "unexpected ARM machine/CPU")
-    require(environment.get("cpu_options") == CPU_OPTIONS[architecture], "unexpected ARM CPU feature options")
-    require(environment.get("target") == TARGETS[architecture], "package ABI and CPU target metadata mismatch")
-    require(environment.get("busybox", {}).get("version") == "1.25.1", "native BusyBox 1.25.1 evidence required")
+def check_native_provenance(environment, architecture, source_digest):
+    """Require current builder and complete kernel, shell and package identities."""
     for component in ("kernel", "busybox"):
         require(isinstance(environment.get(component), dict), f"missing native {component} identity")
         for field in ("sha256", "source_sha256", "config_sha256"):
@@ -261,6 +262,15 @@ def check_environment(report, report_path, architecture, source_digest):
     for field in ("rootfs_manifest_sha256", "source_manifest_sha256"):
         hash_field(environment.get(field), field)
     require(environment["source_manifest_sha256"] == source_digest, "stale native build source/configuration fingerprint")
+    require(isinstance(environment.get("native_packages"), list) and environment["native_packages"], "missing native tool inventory")
+    package_architecture = TARGETS[architecture]["debian_architecture"]
+    for package in environment["native_packages"]:
+        require(isinstance(package, dict) and package.get("name") and package.get("version") and package.get("architecture") in (package_architecture, "all"), "invalid native package identity")
+        hash_field(package.get("deb_sha256"), "native package source")
+
+
+def check_compiler(environment, architecture):
+    """Require the selected native compiler and legacy software-float contract."""
     compiler = environment.get("compiler")
     require(isinstance(compiler, dict) and compiler.get("target") and compiler.get("flags"), "missing native compiler/CPU ABI identity")
     require(compiler["target"] == COMPILER_TARGETS[architecture], "native compiler target does not match package ABI")
@@ -272,16 +282,10 @@ def check_environment(report, report_path, architecture, source_digest):
     elif architecture == "armv7":
         require("-mfloat-abi=hard" in flags and "-mfpu=" in flags,
                 "armv7 target is not the declared hard-float CPU environment")
-    require(isinstance(environment.get("native_packages"), list) and environment["native_packages"], "missing native tool inventory")
-    package_architecture = TARGETS[architecture]["debian_architecture"]
-    for package in environment["native_packages"]:
-        require(isinstance(package, dict) and package.get("name") and package.get("version") and package.get("architecture") in (package_architecture, "all"), "invalid native package identity")
-        hash_field(package.get("deb_sha256"), "native package source")
-    environment_file = report_path.parent / "environment.json"
-    require(environment_file.is_file() and not environment_file.is_symlink(), "missing regular environment.json artifact")
-    require(read_json(environment_file) == environment, "environment artifact differs from report")
-    environment_hash = file_sha256(environment_file)
-    require(report.get("environment_digest") == environment_hash, "environment digest mismatch")
+
+
+def check_guest_boot(report, environment, architecture, environment_hash):
+    """Match the recorded guest boot to the hashed native build and CPU target."""
     boot = report.get("guest_boot", {})
     require(isinstance(boot, dict) and boot.get("status") == "pass", "guest boot was not verified")
     require(boot.get("reported_architecture") == architecture, "booted guest architecture mismatch")
@@ -295,12 +299,39 @@ def check_environment(report, report_path, architecture, source_digest):
         require(not re.search(r"(?i)(^|\s)(?:vfp\S*|neon)(?=$|\s)", cpu_features),
                 "armv5 RT-AC68U guest exposes VFP or NEON")
     require(isinstance(boot.get("token"), str) and len(boot["token"]) >= 16, "missing boot/run identity token")
+
+
+def check_execution(report):
+    """Require isolated native execution with strictly positive integer bounds."""
     execution = report.get("execution", {})
     require(isinstance(execution, dict) and execution.get("engine") == "qemu-system-tcg", "unexpected execution engine")
     require(execution.get("network") == "none" and execution.get("source_read_only") is True, "guest isolation contract not verified")
     for field in ("boot_timeout_seconds", "scenario_timeout_seconds"):
         value = execution.get(field)
         require(type(value) is int and value > 0, f"missing positive execution bound: {field}")
+
+
+def check_environment(report, report_path, architecture, source_digest):
+    """Verify the declared native full-system environment and boot identity."""
+    environment = report.get("environment")
+    require(isinstance(environment, dict), "missing native environment")
+    require(environment.get("schema_version") == 1 and environment.get("architecture") == architecture, "environment architecture/schema mismatch")
+    require(environment.get("execution_class") == "qemu-full-system-tcg", "host or user-mode execution is not ARM feature acceptance")
+    machine, cpu = ENVIRONMENTS[architecture]
+    require((environment.get("machine"), environment.get("cpu")) == (machine, cpu), "unexpected ARM machine/CPU")
+    require(environment.get("cpu_options") == CPU_OPTIONS[architecture], "unexpected ARM CPU feature options")
+    require(environment.get("target") == TARGETS[architecture], "package ABI and CPU target metadata mismatch")
+    require(environment.get("busybox", {}).get("version") == "1.25.1", "native BusyBox 1.25.1 evidence required")
+    check_native_provenance(environment, architecture, source_digest)
+    check_compiler(environment, architecture)
+    environment_file = report_path.parent / "environment.json"
+    require(environment_file.is_file() and not environment_file.is_symlink(), "missing regular environment.json artifact")
+    require(environment_file.resolve().is_relative_to(report_path.parent.resolve()), "environment artifact escapes evidence directory")
+    require(read_json(environment_file) == environment, "environment artifact differs from report")
+    environment_hash = file_sha256(environment_file)
+    require(report.get("environment_digest") == environment_hash, "environment digest mismatch")
+    check_guest_boot(report, environment, architecture, environment_hash)
+    check_execution(report)
 
 
 def check_report(path, rows, features, architecture, expected_digest, repository, source_digest):
@@ -348,6 +379,41 @@ def check_report(path, rows, features, architecture, expected_digest, repository
     return report
 
 
+def prepare_summary(path):
+    """Clear only an earlier owned decision and reject unsafe output leaves."""
+    path = Path(path)
+    require(path.suffix == ".json" and not any(ord(character) < 32 for character in path.name),
+            "summary must be a JSON filename without control characters")
+    # The parent is an explicit caller-selected output directory. Resolve it
+    # once; untrusted evidence never supplies this directory or destination.
+    destination = path.parent.resolve() / path.name
+    require(not destination.is_symlink(), "summary must not be a symlink")
+    if destination.exists():
+        require(destination.is_file(), "summary must be a regular file")
+        previous = read_json(destination)
+        require(previous.get("schema_version") == 1 and previous.get("status") == "pass"
+                and type(previous.get("unblocks")) is bool and previous.get("scope") == ACCEPTANCE_SCOPE,
+                "refusing to overwrite a file that is not an ARM acceptance summary")
+        # A rejected recheck must never leave a previous green decision behind.
+        destination.unlink()
+    return destination
+
+
+def write_summary(destination, text):
+    """Publish a decision atomically without following an output symlink."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
+                                     prefix=".arm-acceptance-", suffix=".json.tmp",
+                                     delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(text)
+            stream.close()
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def main(argv=None):
     """Expose selection, content fingerprinting and fail-closed acceptance modes."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -361,14 +427,12 @@ def main(argv=None):
     parser.add_argument("--partial", action="store_true", help="validate execution artifacts without unblocking a feature")
     parser.add_argument("--summary", type=Path)
     arguments = parser.parse_args(argv)
-    if arguments.summary:
-        # A rejected recheck must never leave a previous green decision behind.
-        arguments.summary.unlink(missing_ok=True)
+    summary_destination = prepare_summary(arguments.summary) if arguments.summary else None
     repository = arguments.repository.resolve()
     if arguments.content_digest:
         require(not arguments.select and not arguments.evidence, "content-digest mode cannot validate evidence")
         print(content_digest(repository))
-        return 0
+        return
     manifest = arguments.manifest or repository / "tools/virtual-arm/features.tsv"
     rows = load_manifest(manifest, repository)
     all_features = list(dict.fromkeys(row["feature"] for row in rows))
@@ -377,7 +441,7 @@ def main(argv=None):
     if arguments.select:
         require(not arguments.evidence and not arguments.partial, "selection mode cannot validate evidence")
         sys.stdout.write(selection_text(selected_rows))
-        return 0
+        return
     architectures = selection(arguments.architectures, ARCHITECTURES, "architecture")
     require(arguments.partial or set(architectures) == set(ARCHITECTURES), "feature acceptance requires armv5,armv7,armv8; --partial never unblocks")
     require(arguments.evidence, "no execution evidence supplied")
@@ -405,17 +469,15 @@ def main(argv=None):
         "scenarios_per_architecture": len(selected_rows),
         "unblocks": accepted,
         "unblocked_features": features if accepted else [],
-        "scope": "Only the selected manifest assertions at this tested content digest",
+        "scope": ACCEPTANCE_SCOPE,
         "excluded": sorted({row["exclusions"] for row in selected_rows}),
         "physical_release_acceptance": "unchanged",
         "commit_labels": sorted({report["commit_label"] for report in reports.values()}),
     }
     text = json.dumps(summary, indent=2, sort_keys=True) + "\n"
-    if arguments.summary:
-        arguments.summary.parent.mkdir(parents=True, exist_ok=True)
-        arguments.summary.write_text(text, encoding="utf-8")
+    if summary_destination:
+        write_summary(summary_destination, text)
     sys.stdout.write(text)
-    return 0
 
 
 if __name__ == "__main__":

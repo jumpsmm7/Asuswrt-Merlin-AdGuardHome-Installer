@@ -7,12 +7,33 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
-def sha256(path):
-    """Hash a build artifact without loading it all into memory."""
+BUILD_TARGETS = {
+    "armv5": ("arm-linux-gnueabi-", "armel"),
+    "armv7": ("arm-linux-gnueabihf-", "armhf"),
+    "armv8": ("aarch64-linux-gnu-", "arm64"),
+}
+
+
+def confined_file(path, root):
+    """Require a regular artifact whose resolved path stays in its chosen root."""
+    path = Path(path)
+    root = Path(root).resolve(strict=True)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"missing or nonregular build artifact: {path}")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"build artifact escapes selected root: {path}")
+    return resolved
+
+
+def sha256(path, root):
+    """Hash a confined regular artifact without loading it all into memory."""
+    path = confined_file(path, root)
     digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
+    with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
@@ -20,13 +41,14 @@ def sha256(path):
 
 def source_digest(source):
     """Bind cache validity to builders, native helper and pinned configuration."""
+    source = Path(source).resolve(strict=True)
     files = [source / name for name in (
         "Dockerfile", "build-environments.sh", "environment.py",
         "rootfs-manifest.py", "check-native-libraries.py", "sources.sha256", "dns-query.c")]
     files += list((source / "configs").glob("*.config"))
     files += list((source / "patches").glob("*.patch"))
     records = [{"path": path.relative_to(source).as_posix(),
-                "sha256": sha256(path)} for path in sorted(files)]
+                "sha256": sha256(path, source)} for path in sorted(files)]
     return hashlib.sha256(json.dumps(records, sort_keys=True,
                                     separators=(",", ":")).encode()).hexdigest()
 
@@ -36,14 +58,38 @@ def command_line(*arguments):
     return subprocess.check_output(arguments, text=True).splitlines()[0]
 
 
+def publish_environment(target, environment):
+    """Atomically publish a fixed provenance leaf without following symlinks."""
+    destination = target / "environment.json"
+    if destination.is_symlink():
+        raise ValueError("environment.json must not be a symlink")
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target,
+                                     prefix=".environment-", suffix=".json.tmp",
+                                     delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(json.dumps(environment, sort_keys=True, indent=2) + "\n")
+            stream.close()
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def record(source, target, architecture, compiler, compiler_flags, deb_arch):
     """Publish provenance only after all requested native tools are installed."""
+    source = Path(source).resolve(strict=True)
+    target = Path(target).resolve(strict=True)
+    if BUILD_TARGETS.get(architecture) != (compiler, deb_arch):
+        raise ValueError("unsupported architecture/compiler/package target")
+    # Execute the installed tool's own helper, never a caller-selected SOURCE.
     spec = importlib.util.spec_from_file_location(
-        "rootfs_manifest", source / "rootfs-manifest.py")
+        "rootfs_manifest", Path(__file__).with_name("rootfs-manifest.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     native_packages = []
-    for package in sorted((Path("/native-packages") / deb_arch).glob("*.deb")):
+    package_root = Path("/native-packages") / deb_arch
+    for package in sorted(package_root.glob("*.deb")):
+        package = confined_file(package, package_root)
         name, version, package_arch = subprocess.check_output(
             ["dpkg-deb", "-f", str(package), "Package", "Version", "Architecture"],
             text=True).splitlines()
@@ -51,7 +97,7 @@ def record(source, target, architecture, compiler, compiler_flags, deb_arch):
         native_packages.append({"name": name.split(": ", 1)[-1],
                                 "version": version.split(": ", 1)[-1],
                                 "architecture": package_arch.split(": ", 1)[-1],
-                                "deb_sha256": sha256(package)})
+                                "deb_sha256": sha256(package, package_root)})
     profiles = {
         # The armv5 label is an archive/package compatibility name.  Its
         # validation guest models the older RT-AC68U Cortex-A9 (ARMv7) and
@@ -76,8 +122,11 @@ def record(source, target, architecture, compiler, compiler_flags, deb_arch):
         "gawk": "usr/bin/gawk", "openssl": "usr/sbin/openssl",
         "agh-dns-query": "usr/bin/agh-dns-query",
     }
-    kernel_release = (target / "build-kernel/include/config/kernel.release").read_text().strip()
-    rootfs_digest = module.rootfs_content_digest(target / "rootfs")
+    kernel_release = confined_file(target / "build-kernel/include/config/kernel.release", target).read_text().strip()
+    rootfs = target / "rootfs"
+    if rootfs.is_symlink() or not rootfs.is_dir() or not rootfs.resolve().is_relative_to(target):
+        raise ValueError("rootfs escapes selected build target or is not a directory")
+    rootfs_digest = module.rootfs_content_digest(rootfs)
     environment = {
         "schema_version": 1,
         "architecture": architecture,
@@ -91,21 +140,21 @@ def record(source, target, architecture, compiler, compiler_flags, deb_arch):
                     "router_model": profile["router_model"],
                     "guest_uname": profile["guest_architecture"]},
         "console": "ttyAMA0", "kernel_release": kernel_release,
-        "kernel_sha256": sha256(target / "kernel"),
+        "kernel_sha256": sha256(target / "kernel", target),
         "busybox_version": "v1.25.1",
-        "busybox_sha256": sha256(target / "rootfs/bin/busybox"),
+        "busybox_sha256": sha256(target / "rootfs/bin/busybox", target),
         "rootfs_content_digest": rootfs_digest,
         "rootfs_manifest_sha256": rootfs_digest,
         "source_manifest_sha256": source_digest(source),
         "kernel": {
-            "version": "6.1.157", "sha256": sha256(target / "kernel"),
+            "version": "6.1.157", "sha256": sha256(target / "kernel", target),
             "source_sha256": "697fbaa207e5bf10750e02272fd5f32e1fe98a53b17a97d68cb4ccede50acbbc",
-            "config_sha256": sha256(target / "build-kernel/.config"),
+            "config_sha256": sha256(target / "build-kernel/.config", target),
         },
         "busybox": {
-            "version": "1.25.1", "sha256": sha256(target / "rootfs/bin/busybox"),
+            "version": "1.25.1", "sha256": sha256(target / "rootfs/bin/busybox", target),
             "source_sha256": "ddd2f68c9d486bbc1b798b7587e581fb76456c9f4ca14e022bdbb0600e45fca9",
-            "config_sha256": sha256(target / "build-busybox/.config"),
+            "config_sha256": sha256(target / "build-busybox/.config", target),
         },
         "compiler": {"target": compiler, "version": command_line(compiler + "gcc", "--version"),
                      "flags": compiler_flags,
@@ -113,14 +162,12 @@ def record(source, target, architecture, compiler, compiler_flags, deb_arch):
         "qemu_version": command_line("qemu-system-arm", "--version"),
         "native_packages": native_packages,
         "native_tools": {name: {"path": "/" + path,
-                                "sha256": sha256(target / "rootfs" / path)}
+                                "sha256": sha256(target / "rootfs" / path, target / "rootfs")}
                          for name, path in native_paths.items()},
     }
     if (target / "dtb").exists():
-        environment["dtb_sha256"] = sha256(target / "dtb")
-    temporary = target / "environment.json.new"
-    temporary.write_text(json.dumps(environment, sort_keys=True, indent=2) + "\n")
-    temporary.replace(target / "environment.json")
+        environment["dtb_sha256"] = sha256(target / "dtb", target)
+    publish_environment(target, environment)
 
 
 if __name__ == "__main__":

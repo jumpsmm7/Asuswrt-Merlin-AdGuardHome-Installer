@@ -232,6 +232,23 @@ for fallback in 0 1; do
 	done
 	[ ! -e "${ROOT}/manager-service-lock/action/pid" ]
 	rm "${ROOT}/detached-service-parent" "${ROOT}/detached-service-pid" "${ROOT}/detached-service-begin" "${ROOT}/detached-service-entered" "${ROOT}/detached-service-release" "${ROOT}/detached-service-done"
+	# A killed service's private ownership markers may remain indefinitely;
+	# cache readiness must resume without running another service action.
+	mkdir -m 700 "${ROOT}/manager-service-lock/action"
+	(
+		umask 077
+		printf '%s\n' '999999999 1' >"${ROOT}/manager-service-lock/action/owner"
+		printf '%s\n' 999999999 >"${ROOT}/manager-service-lock/action/pid"
+	)
+	ln -s '999999998 1' "${ROOT}/manager-service-lock/action.claim"
+	ln -s '999999998 1 999999999 1' "${ROOT}/manager-service-lock/action.transition"
+	run_worker "${fallback}" sync
+	[ -f "${ROOT}/mounted" ]
+	[ "$(cat "${ROOT}/manager-service-lock/action/owner")" = '999999999 1' ]
+	[ -L "${ROOT}/manager-service-lock/action.claim" ] && [ -L "${ROOT}/manager-service-lock/action.transition" ]
+	run_worker "${fallback}" cleanup
+	rm "${ROOT}/manager-service-lock/action/owner" "${ROOT}/manager-service-lock/action/pid" "${ROOT}/manager-service-lock/action.claim" "${ROOT}/manager-service-lock/action.transition"
+	rmdir "${ROOT}/manager-service-lock/action"
 done
 # Descriptor lock activity must block activation before any owner pid is published.
 run_worker 0 hold-service &

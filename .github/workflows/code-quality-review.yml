@@ -146,6 +146,14 @@ jobs:
       - name: Run tzdata package conversion regression
         run: sh tests/update-tzdata-package-info.sh
 
+      - name: Install host coverage tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-coverage build-essential binutils
+
+      - name: Measure host Python and native DNS execution coverage
+        run: /usr/bin/python3 .github/scripts/collect-virtual-arm-coverage.py
+
       - name: SonarQube Cloud scan and quality gate
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:

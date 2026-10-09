@@ -3765,9 +3765,17 @@ doctor() {
 	doctor_file_state "${YAML_FILE}" "-rw-------" || true
 	doctor_file_state "${CONF_FILE}" "-rw-------" || true
 	doctor_dns53_state || true
-	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome.lock /tmp/AdGuardHome/pid; do
+	for marker in /tmp/AdGuardHome.dnsmasq.handoff /tmp/AdGuardHome.dnsmasq.lock /tmp/AdGuardHome.dns-handoff/active /tmp/AdGuardHome.dns-handoff/lock /tmp/AdGuardHome/pid; do
 		{ [ -e "${marker}" ] || [ -L "${marker}" ]; } && doctor_status WARN "dnsmasq handoff marker/lock exists: ${marker}" "Run: sh installer doctor --fix; if still present, check active installer/service processes." || doctor_status OK "dnsmasq handoff marker/lock absent: ${marker}"
 	done
+	marker="/tmp/AdGuardHome.lock"
+	if [ ! -e "${marker}" ] && [ ! -L "${marker}" ]; then
+		doctor_status OK "historical service descriptor lock absent: ${marker}"
+	elif ai_have_cmd flock && ! doctor_run_lock_is_active; then
+		doctor_status OK "historical service descriptor lock retained intentionally: ${marker}; no active service lock detected"
+	else
+		doctor_status WARN "historical service descriptor lock retained intentionally: ${marker}; service lock activity is active or unverified" "Check active installer/service processes. Do not remove this inode; --fix preserves it for holders and waiters. A router reboot clears historical /tmp lock state."
+	fi
 	count="$(agh_monitor_count)"
 	[ "${count}" -eq 1 ] && doctor_status OK "monitor process count: ${count}" || doctor_status WARN "monitor process count: ${count}" "Restart the AdGuardHome service if the monitor count is unexpected."
 	count="$(pidof AdGuardHome 2>/dev/null | wc -w)"
@@ -9608,7 +9616,7 @@ write_managed_hook() {
 		NR == 1 && $0 == header { next }
 		{
 			line = $0; sub(/^[[:space:]]*/, "", line)
-			if (kind == "manager" && (index(line, manager " ") == 1 || line == manager)) next
+			if (kind == "manager" && (index(line, "[ -x " manager " ] && " manager " ") == 1 || index(line, manager " ") == 1 || line == manager)) next
 			if ($0 != expected) print
 		}
 	' "${STAGE}" >"${CONTENT}") || ! mv -f "${CONTENT}" "${STAGE}" ||

@@ -137,7 +137,7 @@ class EvidenceRejection(unittest.TestCase):
             arguments.append(str(self.paths[architecture]))
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            result = GATE.main(arguments)
+            result = GATE.main(arguments) or 0
         return result, json.loads(output.getvalue())
 
     def assert_rejected(self, message, extra=(), architectures=None):
@@ -330,11 +330,59 @@ class EvidenceRejection(unittest.TestCase):
     def test_rejected_recheck_removes_previous_green_summary(self):
         """Remove a stale green summary when a later evidence recheck is rejected."""
         summary = self.root / "acceptance.json"
-        summary.write_text('{"status":"pass","unblocks":true}\n')
+        self.invoke(["--summary", str(summary)])
+        self.assertTrue(json.loads(summary.read_text())["unblocks"])
         self.reports["armv5"]["results"][0]["status"] = "fail"
         self.write_report("armv5")
         self.assert_rejected("failed/skipped/timed out", ["--summary", str(summary)])
         self.assertFalse(summary.exists())
+
+    def test_summary_preserves_unrelated_files_and_symlink_targets(self):
+        """Refuse unrelated or linked output leaves before changing host files."""
+        sentinel = self.root / "sentinel.json"
+        original = '{"private":"keep this file"}\n'
+        sentinel.write_text(original)
+        self.assert_rejected("not an ARM acceptance summary", ["--summary", str(sentinel)])
+        self.assertEqual(sentinel.read_text(), original)
+        link = self.root / "summary-link.json"
+        link.symlink_to(sentinel)
+        self.assert_rejected("must not be a symlink", ["--summary", str(link)])
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(sentinel.read_text(), original)
+
+    def test_summary_accepts_explicit_external_output_directory(self):
+        """Allow a selected output outside the repository without losing scope."""
+        summary = self.root / "external-output" / "nested" / "acceptance.json"
+        status, expected = self.invoke(["--summary", str(summary)])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(summary.read_text()), expected)
+        self.assertEqual(list(summary.parent.glob(".arm-acceptance-*")), [])
+
+    def test_selected_repository_helpers_are_hashed_never_executed(self):
+        """Do not execute Python helpers from a caller-selected repository."""
+        helper = self.repository / "tools/virtual-arm/environment.py"
+        helper.write_text('raise RuntimeError("untrusted repository helper executed")\n')
+        self.assertRegex(GATE.build_source_digest(self.repository), r"^[0-9a-f]{64}$")
+
+    def test_builder_artifact_symlink_escape_is_rejected(self):
+        """Reject linked builder input before hashing data outside its source root."""
+        sentinel = self.root / "outside-source"
+        sentinel.write_text("host-only sentinel\n")
+        source = self.repository / "tools/virtual-arm"
+        helper = source / "environment.py"
+        helper.unlink()
+        helper.symlink_to(sentinel)
+        with self.assertRaisesRegex(ValueError, "nonregular build artifact"):
+            GATE.build_source_digest(self.repository)
+
+    def test_evidence_symlink_is_rejected_without_reading_target(self):
+        """Reject discovered evidence symlinks rather than following host targets."""
+        report = self.paths["armv5"]
+        outside = self.root / "outside-evidence.json"
+        outside.write_text("not JSON; must never be parsed\n")
+        report.unlink()
+        report.symlink_to(outside)
+        self.assert_rejected("nonregular JSON artifact")
 
 
 if __name__ == "__main__":

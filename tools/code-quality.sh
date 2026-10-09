@@ -220,6 +220,7 @@ run_check 'code-quality.sh helper function regression' sh tests/code-quality-che
 run_check 'ARM virtual feature evidence gate regression' python3 tests/virtual-arm-evidence.py
 run_check 'ARM virtual runner failure regression' sh tests/virtual-arm-runner-failure.sh
 run_check 'ARM virtual DNS response validation regression' python3 tests/virtual-arm-dns-query.py
+run_check 'ARM virtual host tooling regression' python3 tests/virtual-arm-host-tools.py
 run_check 'Command failure propagation regression' sh tests/command-failure-propagation.sh
 run_check 'Canonical path final-symlink regression' sh tests/canonical-path-symlink.sh
 run_check 'Router runtime PATH priority regression' sh tests/router-path-priority.sh

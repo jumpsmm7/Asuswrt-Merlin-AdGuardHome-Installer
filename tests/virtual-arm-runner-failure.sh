@@ -3,7 +3,10 @@
 set -eu
 REPOSITORY="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 python3 - "${REPOSITORY}" <<'PYTHON'
+import gzip
 import importlib.util
+import io
+import os
 import json
 from pathlib import Path
 import sys
@@ -124,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix="virtual-arm-runner-") as temporary:
 
     for name, exit_status, elapsed in (
             ("empty-status", "", "1"), ("bad-status", "invalid", "1"),
+            ("unicode-status", "٠", "1"), ("unicode-elapsed", "0", "١"),
             ("negative-status", "-1", "1"), ("large-status", "256", "1"),
             ("empty-elapsed", "0", ""), ("bad-elapsed", "0", "invalid"),
             ("negative-elapsed", "0", "-1"), ("large-elapsed", "0", "32"),
@@ -152,6 +156,116 @@ with tempfile.TemporaryDirectory(prefix="virtual-arm-runner-") as temporary:
         pass
     else:
         raise AssertionError("container-removal timeout was hidden")
+
+
+def archive_entries(path):
+    """Decode real newc records to check the payload actually written to the guest."""
+    content = gzip.decompress(path.read_bytes())
+    entries = {}
+    position = 0
+    while position < len(content):
+        assert content[position:position + 6] == b"070701"
+        fields = [int(content[position + 6 + index * 8:position + 14 + index * 8], 16) for index in range(13)]
+        name_start = position + 110
+        name = content[name_start:name_start + fields[11] - 1].decode()
+        data_start = (name_start + fields[11] + 3) & ~3
+        entries[name] = content[data_start:data_start + fields[6]]
+        position = (data_start + fields[6] + 3) & ~3
+        if name == "TRAILER!!!":
+            return entries
+    raise AssertionError("initramfs has no newc trailer")
+
+
+def require_unsafe(operation, description):
+    """Require a rejected host path rather than relying on absence from the image."""
+    try:
+        operation()
+    except (ValueError, OSError):
+        return
+    raise AssertionError("unsafe host path was accepted: " + description)
+
+
+with tempfile.TemporaryDirectory(prefix="virtual-arm-payload-") as temporary:
+    root = Path(temporary)
+    candidate = root / "repository"
+    (candidate / "tests").mkdir(parents=True)
+    (candidate / "tools/helpers").mkdir(parents=True)
+    (candidate / "tools/virtual-arm").mkdir()
+    for name in runner.RUNTIME_FILES:
+        (candidate / name).write_text("#!/bin/sh\n")
+    test = candidate / "tests/example.sh"
+    test.write_text("#!/bin/sh\nsh tests/helper.sh\nsh tests/missing.sh\n")
+    (candidate / "tests/helper.sh").write_text("#!/bin/sh\nsh tools/helpers/inner.sh\n")
+    (candidate / "tools/helpers/inner.sh").write_text("#!/bin/sh\nprintf 'confined dependency'\n")
+    for name in ("guest-init.sh", "guest-runner.sh"):
+        (candidate / "tools/virtual-arm" / name).write_text("#!/bin/sh\n")
+    sentinel = root / "secret.sh"
+    sentinel.write_text("PRIVATE OUTSIDE HOST SENTINEL\n")
+    sentinel_identity = sentinel.stat()
+    outside = root / "outside"
+    outside.mkdir()
+    (outside / "secret.sh").hardlink_to(sentinel)
+    real_fdopen = runner.os.fdopen
+
+    def confined_fdopen(descriptor, *arguments, **keywords):
+        """Fail if any outside sentinel reaches a byte-reading file descriptor."""
+        identity = os.fstat(descriptor)
+        assert (identity.st_dev, identity.st_ino) != (sentinel_identity.st_dev, sentinel_identity.st_ino), "outside host bytes were opened"
+        return real_fdopen(descriptor, *arguments, **keywords)
+
+    with mock.patch.object(runner.os, "fdopen", side_effect=confined_fdopen):
+        payload = runner.source_payload(candidate, rows, "armv7")
+        assert {"tests/helper.sh", "tools/helpers/inner.sh"} <= payload
+        assert "tests/missing.sh" not in payload
+        cache = root / "cache"
+        (cache / "rootfs/bin").mkdir(parents=True)
+        (cache / "rootfs/bin/busybox").write_bytes(b"native busybox fixture")
+        (cache / "rootfs/bin/[").symlink_to("busybox")
+        initramfs = root / "guest.cpio.gz"
+        runner.build_initramfs(candidate, cache, initramfs, rows, "armv7", "ARCHITECTURE='armv7'\n", b"selection fixture")
+        entries = archive_entries(initramfs)
+        assert entries["repo/tests/helper.sh"] == (candidate / "tests/helper.sh").read_bytes()
+        assert entries["repo/tools/helpers/inner.sh"] == (candidate / "tools/helpers/inner.sh").read_bytes()
+        assert entries["bin/["] == b"busybox", "legitimate BusyBox applet name was rejected"
+        assert all(sentinel.read_bytes() not in value for value in entries.values())
+
+        for relative in ("tests/../../secret.sh", str(sentinel), "tests/./example.sh", "tests//example.sh", "tests/example.sh\n", "tests\\example.sh"):
+            require_unsafe(lambda: runner.source_payload(candidate, [["hooks", "example", relative]], "armv7"), relative)
+        for dependency in ("tests/../../secret.sh", "tools/../../secret.sh"):
+            test.write_text("#!/bin/sh\nsh " + dependency + "\n")
+            require_unsafe(lambda: runner.source_payload(candidate, rows, "armv7"), dependency)
+        (candidate / "tests/linked.sh").symlink_to(sentinel)
+        test.write_text("#!/bin/sh\nsh tests/linked.sh\n")
+        require_unsafe(lambda: runner.source_payload(candidate, rows, "armv7"), "symlink file")
+        (candidate / "tests/linked").symlink_to(outside, target_is_directory=True)
+        test.write_text("#!/bin/sh\nsh tests/linked/secret.sh\n")
+        require_unsafe(lambda: runner.source_payload(candidate, rows, "armv7"), "symlink parent")
+
+        race = candidate / "tests/race"
+        race.mkdir()
+        (race / "secret.sh").write_text("safe repository content\n")
+        real_payload_file = runner.payload_file
+
+        def swapped_parent(repository_path, relative, required=True):
+            """Replace a validated parent to prove descriptor-based reads reject swaps."""
+            result = real_payload_file(repository_path, relative, required)
+            race.rename(candidate / "tests/race-original")
+            race.symlink_to(outside, target_is_directory=True)
+            return result
+
+        with mock.patch.object(runner, "payload_file", side_effect=swapped_parent):
+            require_unsafe(lambda: runner.read_payload(candidate, "tests/race/secret.sh"), "parent swapped after validation")
+
+    for name in ("../secret.sh", "repo/../../secret.sh", "/secret.sh", "repo/a\x00b", "repo/a\nb", "repo//file"):
+        require_unsafe(lambda: runner.add_cpio(io.BytesIO(), 1, name, 0), "archive entry " + repr(name))
+
+metadata = runner.manifest_metadata(repository / "tools/virtual-arm/features.tsv")
+assert runner.requested_features("hooks", metadata) == ["hooks"]
+assert runner.requested_features("all", metadata) == list(dict.fromkeys(feature for feature, _ in metadata))
+for feature_value in ("--select", "hooks,--content-digest", "hooks,hooks", "hooks,unknown", "hooks,", "hooks\n"):
+    with mock.patch.object(runner.subprocess, "check_output") as child:
+        require_unsafe(lambda: runner.MatrixRun(repository, Path("unused"), Path("unused"), feature_value), "feature argument " + repr(feature_value))
+        child.assert_not_called()
 
 native_rows = [["native_dns", "virtual-arm-native", "tests/virtual-arm-native.sh"]]
 for architecture in runner.MACHINES:

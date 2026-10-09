@@ -193,6 +193,39 @@ LEGACY_LOCK_INODE="$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')"
 [ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'doctor replaced the stable historical descriptor inode'
 grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'doctor truncated historical descriptor contents'
 doctor_run_lock_is_active && fail 'doctor stranded idle historical metadata as an unpublished active lock'
+doctor --fix >"${TEST_ROOT}/legacy-doctor-output" 2>&1 || true
+awk -v marker="${TEST_ROOT}/legacy.lock" '
+	/^\[OK\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "no active service lock detected") { found = 1 }
+	/^\[WARN\]/ && index($0, marker) { incorrect = 1 }
+	END { exit found && !incorrect ? 0 : 1 }
+' "${TEST_ROOT}/legacy-doctor-output" || fail 'doctor warned about the intentionally retained idle historical descriptor'
+[ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'doctor diagnostic replaced the historical descriptor inode'
+grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'doctor diagnostic changed historical descriptor contents'
+if ai_have_cmd flock; then
+	(
+		exec 8<"${TEST_ROOT}/legacy.lock" || fail 'could not open held historical descriptor fixture'
+		flock -n 8 || fail 'could not hold historical descriptor fixture'
+		doctor --fix >"${TEST_ROOT}/legacy-held-doctor-output" 2>&1 || true
+		awk -v marker="${TEST_ROOT}/legacy.lock" '
+			/^\[WARN\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "--fix preserves it") && index($0, "router reboot") { found = 1 }
+			END { exit found ? 0 : 1 }
+		' "${TEST_ROOT}/legacy-held-doctor-output" || fail 'doctor omitted actionable preservation advice for a held historical descriptor'
+		flock -u 8 || fail 'could not release historical descriptor fixture'
+	) || exit 1
+fi
+(
+	# ai_have_cmd simulates firmware without the optional descriptor-lock applet.
+	ai_have_cmd() {
+		[ "$1" != flock ] && which "$1" >/dev/null 2>&1
+	}
+	doctor >"${TEST_ROOT}/legacy-unverified-doctor-output" 2>&1 || true
+	awk -v marker="${TEST_ROOT}/legacy.lock" '
+		/^\[WARN\]/ && index($0, "historical service descriptor lock retained intentionally: " marker) && index($0, "active or unverified") && index($0, "--fix preserves it") { found = 1 }
+		END { exit found ? 0 : 1 }
+	' "${TEST_ROOT}/legacy-unverified-doctor-output" || fail 'doctor claimed an unverified historical descriptor was idle'
+) || exit 1
+[ "$(ls -i "${TEST_ROOT}/legacy.lock" | awk '{ print $1 }')" = "${LEGACY_LOCK_INODE}" ] || fail 'held or unverified diagnostics replaced the historical descriptor inode'
+grep -qx 'historical stable descriptor contents' "${TEST_ROOT}/legacy.lock" || fail 'held or unverified diagnostics changed historical descriptor contents'
 for pending_marker in action.claim action.transition; do
 	case "${pending_marker}" in
 		action.claim) /bin/ln -s '1234 1234' "${SERVICE_LOCK_DIR}/${pending_marker}" ;;

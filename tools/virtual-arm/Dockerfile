@@ -1,14 +1,14 @@
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+# Debian bookworm-slim, pinned by digest for reproducible build tooling.
+FROM debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 ENV LC_ALL=C DEBIAN_FRONTEND=noninteractive
 RUN dpkg --add-architecture armel && dpkg --add-architecture armhf \
     && dpkg --add-architecture arm64 && apt-get update \
     && apt-get install --no-install-recommends -y \
-       build-essential gcc-arm-linux-gnueabi gcc-arm-linux-gnueabihf \
-       gcc-aarch64-linux-gnu libc6-dev-armel-cross libc6-dev-armhf-cross \
-       libc6-dev-arm64-cross bc bison flex libssl-dev libelf-dev \
-       cpio gzip xz-utils curl ca-certificates python3 jq patch \
-       qemu-system-arm qemu-utils file coreutils \
+       bc bison build-essential ca-certificates coreutils cpio curl file flex \
+       gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi gcc-arm-linux-gnueabihf \
+       gzip jq libc6-dev-arm64-cross libc6-dev-armel-cross libc6-dev-armhf-cross \
+       libelf-dev libssl-dev patch python3 qemu-system-arm qemu-utils xz-utils \
     && mkdir -p /native-packages/armel /native-packages/armhf /native-packages/arm64 \
     && for arch in armel armhf arm64; do \
          cd "/native-packages/$arch"; \
@@ -42,3 +42,6 @@ RUN dpkg --add-architecture armel && dpkg --add-architecture armhf \
        done \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+# The launcher explicitly maps the invoking UID for its writable cache mount;
+# direct image invocations default to an unprivileged user.
+USER 65534:65534

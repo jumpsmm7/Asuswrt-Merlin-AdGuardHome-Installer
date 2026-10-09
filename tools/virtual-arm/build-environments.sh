@@ -46,7 +46,10 @@ CACHE_DIR=$(CDPATH= cd -- "$2" && pwd) || exit 1
 TARGET="${CACHE_DIR}/${ARCH}"
 IMAGE="${AGH_VIRTUAL_ARM_IMAGE:-agh-virtual-arm-builder:v1}"
 JOBS="${AGH_VIRTUAL_ARM_BUILD_JOBS:-2}"
-case "${JOBS}" in '' | *[!0-9]* | 0) fail 'build parallelism must be a positive integer' ;; esac
+case "${JOBS}" in
+	'' | *[!0-9]* | 0) fail 'build parallelism must be a positive integer' ;;
+	*) : ;;
+esac
 
 if [ "${AGH_VIRTUAL_ARM_BUILD_INSIDE:-0}" != 1 ]; then
 	which docker >/dev/null 2>&1 || fail 'Docker is required to build native guests'
@@ -63,9 +66,10 @@ if [ "${AGH_VIRTUAL_ARM_BUILD_INSIDE:-0}" != 1 ]; then
 		case "${source_file}" in
 			linux-*) source_url='https://codeload.github.com/gregkh/linux/tar.gz/refs/tags/v6.1.157' ;;
 			busybox-*) source_url='https://codeload.github.com/mirror/busybox/tar.gz/refs/tags/1_25_1' ;;
+			*) fail "unsupported source archive: ${source_file}" ;;
 		esac
 		temporary="${CACHE_DIR}/sources/${source_file}.$$.new"
-		curl --fail --location --retry 3 --max-time 600 "${source_url}" -o "${temporary}" || {
+		curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 --max-time 600 "${source_url}" -o "${temporary}" || {
 			rm -f "${temporary}"
 			fail "could not fetch ${source_file}"
 		}
@@ -117,6 +121,7 @@ case "${ARCH}" in
 		;;
 	armv7) grep -qx 'CONFIG_ARCH_VIRT=y' "${TARGET}/build-kernel/.config" || fail 'ARMv7 virtual board selection was dropped' ;;
 	armv8) grep -qx 'CONFIG_ARM64=y' "${TARGET}/build-kernel/.config" || fail 'ARMv8 CPU selection was dropped' ;;
+	*) fail "unsupported kernel architecture: ${ARCH}" ;;
 esac
 if [ "${KERNEL_ARCH}" = arm ]; then
 	grep -qx 'CONFIG_COMPAT_32BIT_TIME=y' "${TARGET}/build-kernel/.config" ||
@@ -132,6 +137,7 @@ case "${ARCH}" in
 		;;
 	armv7) cp "${TARGET}/build-kernel/arch/arm/boot/zImage" "${TARGET}/kernel" ;;
 	armv8) cp "${TARGET}/build-kernel/arch/arm64/boot/Image" "${TARGET}/kernel" ;;
+	*) fail "unsupported kernel artifact architecture: ${ARCH}" ;;
 esac
 
 if [ ! -f "${TARGET}/build-busybox/.agh-source-id" ] ||

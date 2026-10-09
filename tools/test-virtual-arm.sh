@@ -30,6 +30,10 @@ while [ "$#" -gt 0 ]; do
 				--architectures) ARCHITECTURES="$2" ;;
 				--output) OUTPUT="$2" ;;
 				--cache) CACHE_DIR="$2" ;;
+				*)
+					usage >&2
+					exit 2
+					;;
 			esac
 			shift 2
 			;;

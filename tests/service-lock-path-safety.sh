@@ -108,11 +108,100 @@ adguardhome_run_flock_active || fail 'unsafe owner metadata was reported idle'
 rm "${RUNTIME}/action/owner"
 printf '%s\n' '999999999 1' >"${RUNTIME}/action/owner"
 ln -s "${TEST_ROOT}/victim" "${RUNTIME}/action/pid"
+adguardhome_run_legacy_mkdir_active || fail 'unsafe PID metadata was reported idle'
 adguardhome_run_mkdir stop_adguardhome && fail 'unsafe stale metadata was accepted'
 [ -L "${RUNTIME}/action/pid" ] || fail 'foreign stale metadata was removed'
 [ "$(cat "${TEST_ROOT}/victim")" = intact ] || fail 'foreign metadata target changed'
 rm "${RUNTIME}/action/owner" "${RUNTIME}/action/pid"
 rmdir "${RUNTIME}/action"
+
+# lock_snapshot records names, identities and file bytes without following links.
+lock_snapshot() {
+	find "${RUNTIME}" -print | sort | while IFS= read -r entry; do
+		ls -ldni "${entry}"
+		if [ ! -L "${entry}" ] && [ -f "${entry}" ]; then md5sum "${entry}"; fi
+	done
+}
+# assert_readonly_activity checks liveness and proves metadata is never reaped by a probe.
+assert_readonly_activity() {
+	local before expected status
+	expected="$1"
+	before="$(lock_snapshot)"
+	if adguardhome_run_legacy_mkdir_active; then status=busy; else status=idle; fi
+	[ "${status}" = "${expected}" ] || fail "activity probe reported ${status}, expected ${expected}: $2"
+	[ "$(lock_snapshot)" = "${before}" ] || fail "activity probe changed lock metadata: $2"
+}
+
+# Dead and PID-reused owners cease blocking cache readiness, even if their
+# private action/claim/transition metadata remains for the next real action.
+parent_start="$(proc_process_start_time "$$")"
+mkdir -m 700 "${RUNTIME}/action"
+for identity in '999999999 1' "$$ 1"; do
+	printf '%s\n' "${identity}" >"${RUNTIME}/action/owner"
+	printf '%s\n' "${identity%% *}" >"${RUNTIME}/action/pid"
+	assert_readonly_activity idle "dead or PID-reused action ${identity}"
+done
+printf '%s\n' '999999999 1' >"${RUNTIME}/action/owner"
+printf '%s\n' 999999999 >"${RUNTIME}/action/pid"
+ln -s '999999998 1' "${RUNTIME}/action.claim"
+ln -s '999999998 1 999999999 1' "${RUNTIME}/action.transition"
+assert_readonly_activity idle 'every recorded action and transition identity is dead'
+rm "${RUNTIME}/action.claim" "${RUNTIME}/action.transition"
+for marker in action.claim action.transition; do
+	case "${marker}" in
+		action.claim) identity="$$ ${parent_start}" ;;
+		action.transition) identity="$$ ${parent_start} 999999999 1" ;;
+	esac
+	ln -s "${identity}" "${RUNTIME}/${marker}"
+	assert_readonly_activity busy "live ${marker} mutator"
+	rm "${RUNTIME}/${marker}"
+done
+ln -s "999999998 1 $$ ${parent_start}" "${RUNTIME}/action.transition"
+assert_readonly_activity busy 'live expected transition owner'
+rm "${RUNTIME}/action.transition"
+ln -s '999999998 1 999999997 1' "${RUNTIME}/action.transition"
+assert_readonly_activity busy 'transition does not describe the action owner'
+rm "${RUNTIME}/action.transition"
+printf '%s\n' "$$ ${parent_start}" >"${RUNTIME}/action/owner"
+printf '%s\n' "$$" >"${RUNTIME}/action/pid"
+assert_readonly_activity busy 'live immutable action owner'
+# Failed start-time reads or signal permissions must not guess an existing PID dead.
+(
+	# proc_process_start_time models inaccessible process identity data.
+	proc_process_start_time() { return 1; }
+	# kill models a signal probe whose permission failure proves no liveness state.
+	kill() { return 1; }
+	assert_readonly_activity busy 'unreadable existing process identity'
+)
+for identity in malformed 999999999 '999999999 1 extra' '0 1' '999999999999 1' "0$$ ${parent_start}" "$$ 0${parent_start}"; do
+	printf '%s\n' "${identity}" >"${RUNTIME}/action/owner"
+	assert_readonly_activity busy "malformed owner ${identity}"
+done
+printf '%s\n' '999999999 1' '' >"${RUNTIME}/action/owner"
+assert_readonly_activity busy 'multiline owner record'
+rm "${RUNTIME}/action/owner" "${RUNTIME}/action/pid"
+assert_readonly_activity busy 'ownerless action without transition evidence'
+ln -s '999999999 1 999999999 1' "${RUNTIME}/action.transition"
+assert_readonly_activity idle 'dead transition owns interrupted empty publication'
+: >"${RUNTIME}/action/owner.new"
+assert_readonly_activity idle 'dead transition owns an unpublished private staged record'
+: >"${RUNTIME}/action/.unknown"
+assert_readonly_activity busy 'unknown action metadata'
+rm "${RUNTIME}/action/.unknown"
+chmod 644 "${RUNTIME}/action/owner.new"
+assert_readonly_activity busy 'unsafe staged record'
+rm "${RUNTIME}/action/owner.new" "${RUNTIME}/action.transition"
+rmdir "${RUNTIME}/action"
+for marker in action.claim action.transition; do
+	for identity in malformed 999999999 '999999999 1 extra' '0 1' '999999999999 1' "0$$ ${parent_start}" "$$ 0${parent_start}"; do
+		ln -s "${identity}" "${RUNTIME}/${marker}"
+		assert_readonly_activity busy "malformed ${marker} ${identity}"
+		rm "${RUNTIME}/${marker}"
+	done
+	printf '%s\n' '999999999 1' >"${RUNTIME}/${marker}"
+	assert_readonly_activity busy "regular-file ${marker}"
+	rm "${RUNTIME}/${marker}"
+done
 
 # UID-0 validation also proves that matching type/mode alone is insufficient.
 if [ "$(IPSet_Current_UID)" = 0 ]; then
@@ -131,6 +220,7 @@ if [ "$(IPSet_Current_UID)" = 0 ]; then
 		ln -s '999999999 1 999999999 1' "${RUNTIME}/${marker}"
 		chown -h 1 "${RUNTIME}/${marker}"
 		before="$(ls -ldni "${RUNTIME}/${marker}")"
+		adguardhome_run_legacy_mkdir_active || fail "foreign-owned ${marker} was reported idle"
 		adguardhome_run_mkdir stop_adguardhome && fail "foreign-owned ${marker} was accepted"
 		[ "$(ls -ldni "${RUNTIME}/${marker}")" = "${before}" ] || fail "foreign-owned ${marker} changed"
 		rm "${RUNTIME}/${marker}"

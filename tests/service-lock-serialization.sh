@@ -261,6 +261,8 @@ for phase in kill-publish kill-cleanup kill-reap kill-owner-writer; do
 	if wait "${CHILD}"; then fail 'killed transition owner reported success'; fi
 	CHILD=""
 	[ -L "${RUNTIME}/action.transition" ] || fail 'interrupted transition lost ownership evidence'
+	run_worker absent "" || fail "${phase} kept a dead service action busy"
+	[ -L "${RUNTIME}/action.transition" ] && [ -L "${RUNTIME}/action.claim" ] || fail 'read-only activity check reaped crashed ownership'
 	run_worker absent stop_adguardhome || fail "${phase} prevented stale transition recovery"
 	[ ! -e "${RUNTIME}/action" ] && [ ! -L "${RUNTIME}/action.claim" ] && [ ! -L "${RUNTIME}/action.transition" ] || fail 'recovered transition artifacts remained'
 done

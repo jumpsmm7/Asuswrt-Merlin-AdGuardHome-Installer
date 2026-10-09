@@ -12,6 +12,7 @@ marker() {
 	printf 'AGH_VM\t%s\t' "${RUN_TOKEN}"
 	printf '%s\t' "$@"
 	printf '\n'
+	return
 }
 
 cd /repo || exit 1
@@ -29,6 +30,7 @@ smoke_tool() {
 		exit 1
 	fi
 	printf 'NATIVE_TOOL\t%s\t%s\n' "${name}" "$(sed -n '1p' /tmp/agh-native-tool.log)"
+	return
 }
 smoke_tool busybox /bin/busybox
 # BusyBox 1.25.1 has the POSIX -P form but not the optional -h formatter.
@@ -74,6 +76,16 @@ case "${ARCHITECTURE}" in
 				exit 1
 				;;
 		esac
+		;;
+	armv8)
+		[ "$(uname -m)" = aarch64 ] || {
+			marker ERROR cpu-architecture 1
+			exit 1
+		}
+		;;
+	*)
+		marker ERROR unsupported-architecture 1
+		exit 1
 		;;
 esac
 BUSYBOX_VERSION="$(/bin/busybox 2>&1 | sed -n '1s/^BusyBox \([^ ]*\).*/\1/p')"

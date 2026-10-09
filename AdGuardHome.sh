@@ -1047,19 +1047,100 @@ adguardhome_run_flock_restore_traps() {
 	[ -n "${saved_traps}" ] && eval "${saved_traps}"
 }
 
-# adguardhome_run_legacy_mkdir_active treats current action/transition state and live historical locks as busy.
+# adguardhome_run_record_is_dead validates an immutable PID/start-time record before proving its owner gone.
+adguardhome_run_record_is_dead() {
+	local current_start owner owner_start record
+	record="$1"
+	owner="${record%% *}"
+	owner_start="${record#* }"
+	case "${owner}" in
+		"" | 0* | *[!0-9]*) return 1 ;;
+		*) : ;;
+	esac
+	case "${owner_start}" in
+		"" | 0?* | *[!0-9]*) return 1 ;;
+		*) : ;;
+	esac
+	[ "${#owner}" -le 10 ] && [ "${owner}" -le 2147483647 ] || return 1
+	[ "${record}" = "${owner} ${owner_start}" ] || return 1
+	if current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"; then
+		[ "${current_start}" != "${owner_start}" ]
+		return "$?"
+	fi
+	# A failed proc read or signal probe alone is not proof: preserve busy state
+	# for unreadable live identities and when procfs cannot establish absence.
+	kill -0 "${owner}" 2>/dev/null && return 1
+	[ -r /proc/self/stat ] && [ ! -e "/proc/${owner}" ] && [ ! -L "/proc/${owner}" ]
+	return "$?"
+}
+
+# adguardhome_run_action_is_stale accepts only private, understood metadata with proven dead ownership.
+adguardhome_run_action_is_stale() {
+	local entry expected_owner lock_dir mutator owner_record transition
+	lock_dir="$1"
+	transition="$2"
+	adguardhome_run_directory_is_private "${lock_dir}" || return 1
+	owner_record=""
+	if [ -e "${lock_dir}/owner" ] || [ -L "${lock_dir}/owner" ]; then
+		adguardhome_run_file_is_private "${lock_dir}/owner" || return 1
+		owner_record="$(awk '
+			NR != 1 || $0 !~ /^[0-9]+ [0-9]+$/ { exit 1 }
+			{ print }
+			END { if (NR == 0) exit 1 }
+		' "${lock_dir}/owner" 2>/dev/null)" || return 1
+		adguardhome_run_record_is_dead "${owner_record}" || return 1
+	fi
+	if [ -n "${transition}" ]; then
+		mutator="${transition%% *}"
+		transition="${transition#* }"
+		mutator="${mutator} ${transition%% *}"
+		expected_owner="${transition#* }"
+		[ -z "${owner_record}" ] || [ "${owner_record}" = "${expected_owner}" ] || return 1
+	else
+		[ -n "${owner_record}" ] || return 1
+	fi
+	for entry in "${lock_dir}/"* "${lock_dir}/".[!.]* "${lock_dir}/"..?*; do
+		[ -e "${entry}" ] || [ -L "${entry}" ] || continue
+		case "${entry##*/}" in
+			owner | pid) [ -n "${owner_record}" ] || return 1 ;;
+			owner.new) [ -z "${owner_record}" ] && [ "${mutator:-}" = "${expected_owner:-}" ] || return 1 ;;
+			*) return 1 ;;
+		esac
+		adguardhome_run_file_is_private "${entry}" || return 1
+	done
+	return 0
+}
+
+# adguardhome_run_legacy_mkdir_active probes validated identities without reaping crashed service metadata.
 adguardhome_run_legacy_mkdir_active() {
-	local lock_dir
+	local lock_dir mutator record transition
 	lock_dir="/tmp/AdGuardHome-service-lock"
+	transition=""
 	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
 		adguardhome_run_directory_is_private "${lock_dir}" || return 0
 		if [ -e "${lock_dir}/flock" ] || [ -L "${lock_dir}/flock" ]; then
 			adguardhome_run_file_is_private "${lock_dir}/flock" || return 0
 		fi
-		if [ -e "${lock_dir}/action" ] || [ -L "${lock_dir}/action" ]; then return 0; fi
-		if [ -e "${lock_dir}/action.claim" ] || [ -L "${lock_dir}/action.claim" ] || [ -e "${lock_dir}/action.transition" ] || [ -L "${lock_dir}/action.transition" ]; then return 0; fi
+		if [ -e "${lock_dir}/action.claim" ] || [ -L "${lock_dir}/action.claim" ]; then
+			adguardhome_run_link_is_private "${lock_dir}/action.claim" || return 0
+			record="$(readlink "${lock_dir}/action.claim" 2>/dev/null)" || return 0
+			adguardhome_run_record_is_dead "${record}" || return 0
+		fi
+		if [ -e "${lock_dir}/action.transition" ] || [ -L "${lock_dir}/action.transition" ]; then
+			adguardhome_run_link_is_private "${lock_dir}/action.transition" || return 0
+			transition="$(readlink "${lock_dir}/action.transition" 2>/dev/null)" || return 0
+			mutator="${transition%% *}"
+			record="${transition#* }"
+			mutator="${mutator} ${record%% *}"
+			record="${record#* }"
+			adguardhome_run_record_is_dead "${mutator}" && adguardhome_run_record_is_dead "${record}" || return 0
+		fi
+		if [ -e "${lock_dir}/action" ] || [ -L "${lock_dir}/action" ]; then
+			adguardhome_run_action_is_stale "${lock_dir}/action" "${transition}" || return 0
+		fi
 	fi
 	adguardhome_run_legacy_lock_active
+	return "$?"
 }
 
 # Upgrade compatibility is read-only: a live legacy holder or any unsafe entry

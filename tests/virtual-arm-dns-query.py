@@ -2,6 +2,7 @@
 """Check native DNS assertion parsing against real local UDP/TCP responses."""
 
 from pathlib import Path
+import os
 import socket
 import struct
 import subprocess
@@ -42,9 +43,14 @@ class DnsAnswerValidation(unittest.TestCase):
     def setUpClass(cls):
         """Compile the native DNS query helper once for the test class."""
         cls.temporary = tempfile.TemporaryDirectory(prefix="virtual-arm-dns-query-")
-        cls.binary = Path(cls.temporary.name) / "agh-dns-query"
+        coverage = os.environ.get("AGH_DNS_COVERAGE_DIR")
+        directory = Path(coverage).resolve() if coverage else Path(cls.temporary.name)
+        directory.mkdir(parents=True, exist_ok=True)
+        cls.binary = directory / "agh-dns-query"
+        compiler = "gcc" if coverage else "cc"
+        flags = ["--coverage", "-O0"] if coverage else ["-O2"]
         try:
-            subprocess.run(["cc", "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
+            subprocess.run([compiler, "-std=c99", *flags, "-Wall", "-Wextra", "-Werror",
                             str(SOURCE), "-o", str(cls.binary)], check=True, timeout=30)
         except BaseException:
             cls.temporary.cleanup()
@@ -84,7 +90,30 @@ class DnsAnswerValidation(unittest.TestCase):
             "complete-all-sections": (1, 1, 1, record + authority + opt, True),
             "matching-authority-only": (0, 1, 0, record, False),
             "matching-additional-only": (0, 0, 1, record, False),
+            "wrong-class": (1, 0, 0,
+                            b"\xc0\x0c" + struct.pack("!HHIH", record_type, 3, 60, len(data)) + data, False),
+            "wrong-type": (1, 0, 0,
+                           b"\xc0\x0c" + struct.pack("!HHIH", 16, 1, 60, len(data)) + data, False),
+            "wrong-owner": (1, 0, 0,
+                            wire_name("other.test") + struct.pack("!HHIH", record_type, 1, 60, len(data)) + data,
+                            False),
+            "wrong-answer": (1, 0, 0, record, False),
+            "bad-address-length": (1, 0, 0,
+                                   b"\xc0\x0c" + struct.pack("!HHIH", record_type, 1, 60, 1) + b"\0", False),
+            "invalid-address-expectation": (1, 0, 0, record, False),
+            "extra-ptr-data": (1, 0, 0,
+                               b"\xc0\x0c" + struct.pack("!HHIH", record_type, 1, 60, len(data) + 1) + data + b"\0",
+                               False),
         }
+        header_forms = ("short-message", "wrong-id", "not-response", "bad-opcode", "bad-status",
+                        "truncated-message", "wrong-question-count", "wrong-question-name", "wrong-question-type",
+                        "wrong-question-class", "short-question", "short-pointer", "bad-label-kind",
+                        "long-label", "long-decoded-name", "oversized-message", "short-tcp-prefix", "short-tcp-body")
+        forms.update({name: (1, 0, 0, record, False) for name in header_forms})
+        if form == "wrong-answer":
+            expected = "other.test" if kind == "PTR" else "192.168.77.43" if kind == "A" else "fd00:77::43"
+        elif form == "invalid-address-expectation":
+            expected = "invalid-address"
         if kind == "PTR":
             owner_offset = 12 + len(wire_name("client.test")) + 4
             data_offset = owner_offset + 12
@@ -143,8 +172,32 @@ class DnsAnswerValidation(unittest.TestCase):
                     response = request[:2] + struct.pack("!HHHHH", 0x8180, 1, answer_count,
                                                         authority_count, additional_count)
                     response += request[12:] + records
+                    replacements = {
+                        "short-message": response[:11],
+                        "wrong-id": bytes([response[0] ^ 1]) + response[1:],
+                        "not-response": response[:2] + b"\x01\x80" + response[4:],
+                        "bad-opcode": response[:2] + b"\x89\x80" + response[4:],
+                        "bad-status": response[:2] + b"\x81\x83" + response[4:],
+                        "truncated-message": response[:2] + b"\x83\x80" + response[4:],
+                        "wrong-question-count": response[:4] + b"\0\2" + response[6:],
+                        "wrong-question-name": response[:13] + b"x" + response[14:],
+                        "wrong-question-type": response[:len(request) - 4] + b"\0\x10" + response[len(request) - 2:],
+                        "wrong-question-class": response[:len(request) - 2] + b"\0\3" + response[len(request):],
+                        "short-question": response[:len(request) - 1],
+                        "short-pointer": response[:12] + b"\xc0",
+                        "bad-label-kind": response[:12] + b"\x80" + response[13:],
+                        "long-label": response[:12] + b"\x3f" + b"x" * 4,
+                        "long-decoded-name": response[:12] + (b"\x3f" + b"x" * 63) * 5 + b"\0",
+                        "oversized-message": response + b"\0" * 4096,
+                    }
+                    response = replacements.get(form, response)
                     if transport == "tcp":
-                        connection.sendall(struct.pack("!H", len(response)) + response)
+                        frame = struct.pack("!H", len(response)) + response
+                        if form == "short-tcp-prefix":
+                            frame = frame[:1]
+                        elif form == "short-tcp-body":
+                            frame = frame[:-1]
+                        connection.sendall(frame)
                     else:
                         server.sendto(response, address)
                 finally:
@@ -201,6 +254,64 @@ class DnsAnswerValidation(unittest.TestCase):
                          "forward-chain", "chain-forward", "chain-self"):
                 with self.subTest(transport=transport, form=form):
                     self.exercise(transport, "PTR", form)
+
+    def test_invalid_headers_questions_and_matching_records(self):
+        """Reject invalid protocol headers, question identity, and nonmatching answers."""
+        for transport in ("udp", "tcp"):
+            for kind in ("A", "AAAA", "PTR"):
+                for form in ("short-message", "wrong-id", "not-response", "bad-opcode", "bad-status",
+                             "truncated-message", "wrong-question-count", "wrong-question-name",
+                             "wrong-question-type", "wrong-question-class", "short-question", "short-pointer",
+                             "bad-label-kind", "long-label", "long-decoded-name", "oversized-message",
+                             "wrong-class", "wrong-type", "wrong-owner", "wrong-answer"):
+                    with self.subTest(transport=transport, kind=kind, form=form):
+                        self.exercise(transport, kind, form)
+                if kind == "PTR":
+                    self.exercise(transport, kind, "extra-ptr-data")
+                else:
+                    for form in ("bad-address-length", "invalid-address-expectation"):
+                        self.exercise(transport, kind, form)
+                if transport == "tcp":
+                    for form in ("short-tcp-prefix", "short-tcp-body"):
+                        self.exercise(transport, kind, form)
+
+    def test_invalid_command_arguments(self):
+        """Reject unsupported CLI choices and query names before attempting sockets."""
+        valid = ["127.0.0.1", "53", "udp", "A", "client.test", "192.168.77.42"]
+        cases = [[], valid[:2] + ["listen"],
+                 ["invalid-host", *valid[1:]], [valid[0], "domain", *valid[2:]],
+                 valid[:2] + ["quic", *valid[3:]], valid[:3] + ["TXT", *valid[4:]],
+                 valid[:4] + [".test", valid[5]], valid[:4] + ["a..test", valid[5]],
+                 valid[:4] + ["x" * 64, valid[5]],
+                 valid[:4] + [".".join(["x" * 63] * 4), valid[5]]]
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([str(self.binary), *arguments], capture_output=True,
+                                        text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("DNS assertion failed:", result.stderr)
+
+    def test_foreign_owner_rejects_conflicting_sockets(self):
+        """Hold mode must fail when either real UDP or TCP address is already owned."""
+        for socktype in (socket.SOCK_DGRAM, socket.SOCK_STREAM):
+            with self.subTest(socktype=socktype), socket.socket(socket.AF_INET, socktype) as owner:
+                owner.bind(("127.0.0.1", 0))
+                if socktype == socket.SOCK_STREAM:
+                    owner.listen(1)
+                result = subprocess.run([str(self.binary), "127.0.0.1", str(owner.getsockname()[1]), "hold"],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("foreign-owner socket bind failed", result.stderr)
+
+    def test_closed_tcp_port_fails_connect(self):
+        """Connection refusal must terminate the query instead of accepting a result."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+            result = subprocess.run([str(self.binary), "127.0.0.1", str(port), "tcp", "A", "client.test",
+                                     "192.168.77.42"], capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("DNS connect failed", result.stderr)
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ if [ "${TEST_CASE}" != doctor ]; then
 	for test_umask in 077 022; do
 		(
 			umask "${test_umask}"
-			for fixture in legacy absent empty broken shared duplicate quoted; do
+			for fixture in legacy absent empty broken shared duplicate quoted indented; do
 				TARGET="${TEST_ROOT}/jffs/scripts/dnsmasq.postconf"
 				rm -f "${TARGET}"
 				HEADER='#!/bin/sh'
@@ -76,6 +76,11 @@ if [ "${TEST_CASE}" != doctor ]; then
 					quoted)
 						printf '%s\n' '#!/bin/sh' "${EXPECTED_LINE}" "echo '[ -x ${ADDON_DIR}/legacy ]'" "# [ -x ${ADDON_DIR}/legacy ] && legacy" >"${TARGET}"
 						;;
+					indented)
+						printf '%s\n' '#!/bin/sh' "  ${EXPECTED_LINE}" "  ${EXPECTED_LINE} # !manager" >"${TARGET}"
+						printf '\t%s\n' "${ADDON_DIR}/AdGuardHome.sh dnsmasq pre_start" >>"${TARGET}"
+						printf '%s\n' 'echo unrelated-user-command' "echo '${EXPECTED_LINE}'" "# ${EXPECTED_LINE}" >>"${TARGET}"
+						;;
 					absent) : ;;
 				esac
 				write_manager_script "${TARGET}" 'dnsmasq pre_start' >"${TEST_ROOT}/writer-output" 2>&1 || fail "${fixture}: writer failed"
@@ -84,6 +89,11 @@ if [ "${TEST_CASE}" != doctor ]; then
 				if [ "${fixture}" = quoted ]; then
 					grep -qx -F "echo '[ -x ${ADDON_DIR}/legacy ]'" "${TARGET}" || fail 'writer removed a user command containing a quoted legacy-hook string'
 					grep -qx -F "# [ -x ${ADDON_DIR}/legacy ] && legacy" "${TARGET}" || fail 'writer removed a user comment containing a legacy-hook string'
+				fi
+				if [ "${fixture}" = indented ]; then
+					grep -qx 'echo unrelated-user-command' "${TARGET}" || fail 'writer removed unrelated content beside indented owned hooks'
+					grep -qx -F "echo '${EXPECTED_LINE}'" "${TARGET}" || fail 'writer removed a quoted indented-hook lookalike'
+					grep -qx -F "# ${EXPECTED_LINE}" "${TARGET}" || fail 'writer removed a commented indented-hook lookalike'
 				fi
 				cp "${TARGET}" "${TEST_ROOT}/first-pass"
 				write_manager_script "${TARGET}" 'dnsmasq pre_start' >/dev/null 2>&1 || fail 'repeated writer failed'

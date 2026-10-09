@@ -16,6 +16,22 @@
 #define PACKET_SIZE 4096
 #define NAME_SIZE 256
 
+struct dns_query {
+	unsigned char bytes[PACKET_SIZE];
+	size_t length;
+	uint16_t id;
+	uint16_t type;
+	char name[NAME_SIZE];
+};
+
+struct dns_record {
+	char name[NAME_SIZE];
+	uint16_t type;
+	uint16_t class;
+	uint16_t data_length;
+	size_t data_offset;
+};
+
 /** Report an assertion failure to stderr and terminate with a failing status. */
 static void fail(const char *message)
 {
@@ -36,6 +52,19 @@ static void put16(unsigned char *bytes, uint16_t value)
 	bytes[1] = (unsigned char)(value & 255U);
 }
 
+/** Decode a complete compression pointer and require every hop to be backward. */
+static size_t pointer_target(const unsigned char *packet, size_t length,
+	size_t label_start, size_t offset, unsigned int label)
+{
+	size_t target;
+	if (offset >= length)
+		fail("truncated compression pointer");
+	target = (size_t)((label & 63U) * 256U + packet[offset]);
+	if (target >= label_start)
+		fail("compression pointer does not refer backwards");
+	return target;
+}
+
 /**
  * Decode a bounded DNS name into the caller's NAME_SIZE buffer.
  * Return bytes consumed at the original offset, independently of pointer
@@ -44,12 +73,15 @@ static void put16(unsigned char *bytes, uint16_t value)
 static size_t read_name(const unsigned char *packet, size_t length, size_t offset,
 	char *name)
 {
-	size_t used = 0, written = 0, steps = 0;
+	size_t used = 0;
+	size_t written = 0;
+	size_t steps = 0;
 	int jumped = 0;
 	for (;;) {
 		size_t label_start = offset;
 		unsigned int label;
-		if (offset >= length || ++steps > length)
+		steps++;
+		if (offset >= length || steps > length)
 			fail("invalid or looping compressed name");
 		label = packet[offset++];
 		if (!jumped)
@@ -57,15 +89,9 @@ static size_t read_name(const unsigned char *packet, size_t length, size_t offse
 		if (label == 0)
 			break;
 		if ((label & 192U) == 192U) {
-			size_t target;
-			if (offset >= length)
-				fail("truncated compression pointer");
 			if (!jumped)
 				used++;
-			target = (size_t)((label & 63U) * 256U + packet[offset]);
-			if (target >= label_start)
-				fail("compression pointer does not refer backwards");
-			offset = target;
+			offset = pointer_target(packet, length, label_start, offset, label);
 			jumped = 1;
 			continue;
 		}
@@ -133,8 +159,13 @@ static void hold(const struct addrinfo *address)
 {
 	int udp = socket(address->ai_family, SOCK_DGRAM, 0);
 	int tcp = socket(address->ai_family, SOCK_STREAM, 0);
-	if (udp < 0 || tcp < 0 || bind(udp, address->ai_addr, address->ai_addrlen) != 0 ||
-		bind(tcp, address->ai_addr, address->ai_addrlen) != 0 || listen(tcp, 1) != 0)
+	if (udp < 0 || tcp < 0)
+		fail("foreign-owner socket bind failed");
+	if (bind(udp, address->ai_addr, address->ai_addrlen) != 0)
+		fail("foreign-owner socket bind failed");
+	if (bind(tcp, address->ai_addr, address->ai_addrlen) != 0)
+		fail("foreign-owner socket bind failed");
+	if (listen(tcp, 1) != 0)
 		fail("foreign-owner socket bind failed");
 	puts("READY: foreign TCP/UDP DNS owner");
 	fflush(stdout);
@@ -142,130 +173,222 @@ static void hold(const struct addrinfo *address)
 		pause();
 }
 
-/**
- * Run a numeric-address UDP/TCP DNS assertion or hold foreign-owner sockets.
- * Query mode validates the complete response and requires an exact A, AAAA or
- * PTR answer; malformed input, transport failure or a missing answer fails.
- */
-int main(int argc, char **argv)
+/** Resolve only numeric server and service arguments without libc DNS lookup. */
+static struct addrinfo *server_address(const char *server, const char *port)
 {
-	struct addrinfo hints, *address;
-	struct timeval timeout = { 3, 0 };
-	struct timespec now;
-	unsigned char query[PACKET_SIZE] = { 0 }, reply[PACKET_SIZE], prefix[2];
-	char query_name[NAME_SIZE], answer_name[NAME_SIZE], actual[INET6_ADDRSTRLEN];
-	uint16_t id, type;
-	size_t query_length, reply_length, offset, name_length;
-	unsigned int answer, answers, records;
-	int fd, tcp, matched = 0;
-	if (argc != 7 && !(argc == 4 && strcmp(argv[3], "hold") == 0))
-		fail("usage: agh-dns-query server port udp|tcp A|PTR|AAAA name expected; or server port hold");
+	struct addrinfo hints;
+	struct addrinfo *address;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM;
 	hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-	if (getaddrinfo(argv[1], argv[2], &hints, &address) != 0)
+	if (getaddrinfo(server, port, &hints, &address) != 0)
 		fail("server and port must be numeric");
-	if (argc == 4)
-		hold(address);
-	if (strcmp(argv[3], "tcp") == 0)
-		tcp = 1;
-	else if (strcmp(argv[3], "udp") == 0)
-		tcp = 0;
-	else
+	return address;
+}
+
+/** Map the explicitly supported transport to its socket mode or fail. */
+static int query_transport(const char *transport)
+{
+	if (strcmp(transport, "tcp") == 0)
+		return 1;
+	if (strcmp(transport, "udp") != 0)
 		fail("transport must be udp or tcp");
-	if (strcmp(argv[4], "A") == 0)
-		type = 1;
-	else if (strcmp(argv[4], "PTR") == 0)
-		type = 12;
-	else if (strcmp(argv[4], "AAAA") == 0)
-		type = 28;
-	else
+	return 0;
+}
+
+/** Map one supported DNS record spelling to its wire type or fail. */
+static uint16_t query_type(const char *kind)
+{
+	if (strcmp(kind, "A") == 0)
+		return 1;
+	if (strcmp(kind, "PTR") == 0)
+		return 12;
+	if (strcmp(kind, "AAAA") != 0)
 		fail("query type must be A, PTR or AAAA");
+	return 28;
+}
+
+/** Prepare one bounded IN-class query and retain its canonical decoded name. */
+static void prepare_query(struct dns_query *query, uint16_t type, const char *name)
+{
+	struct timespec now;
 	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
 		fail("monotonic clock unavailable");
-	id = (uint16_t)((unsigned long)getpid() ^ (unsigned long)now.tv_nsec);
-	put16(query, id);
-	put16(query + 2, 256);
-	put16(query + 4, 1);
-	query_length = 12 + write_name(query + 12, argv[5]);
-	put16(query + query_length, type);
-	put16(query + query_length + 2, 1);
-	query_length += 4;
-	(void)read_name(query, query_length, 12, query_name);
-	fd = socket(address->ai_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
-	if (fd < 0 || setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
-		setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
+	query->type = type;
+	query->id = (uint16_t)((unsigned long)getpid() ^ (unsigned long)now.tv_nsec);
+	put16(query->bytes, query->id);
+	put16(query->bytes + 2, 256);
+	put16(query->bytes + 4, 1);
+	query->length = 12 + write_name(query->bytes + 12, name);
+	put16(query->bytes + query->length, type);
+	put16(query->bytes + query->length + 2, 1);
+	query->length += 4;
+	(void)read_name(query->bytes, query->length, 12, query->name);
+}
+
+/** Open the requested DNS socket with bounded send and receive operations. */
+static int query_socket(const struct addrinfo *address, int tcp)
+{
+	struct timeval timeout = { 3, 0 };
+	int fd = socket(address->ai_family, tcp ? SOCK_STREAM : SOCK_DGRAM, 0);
+	if (fd < 0)
 		fail("could not configure DNS socket");
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0)
+		fail("could not configure DNS socket");
+	if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0)
+		fail("could not configure DNS socket");
+	return fd;
+}
+
+/** Exchange a complete length-prefixed TCP query and reject oversized frames. */
+static size_t tcp_response(int fd, struct dns_query *query, unsigned char *reply)
+{
+	unsigned char prefix[2];
+	size_t length;
+	put16(prefix, (uint16_t)query->length);
+	transfer(fd, prefix, 2, 1);
+	transfer(fd, query->bytes, query->length, 1);
+	transfer(fd, prefix, 2, 0);
+	length = get16(prefix);
+	if (length > PACKET_SIZE)
+		fail("oversized TCP DNS response");
+	transfer(fd, reply, length, 0);
+	return length;
+}
+
+/** Exchange one UDP datagram and reject socket errors or truncated messages. */
+static size_t udp_response(int fd, struct dns_query *query, unsigned char *reply)
+{
+	ssize_t count;
+	if (send(fd, query->bytes, query->length, 0) != (ssize_t)query->length)
+		fail("UDP DNS send failed");
+	count = recv(fd, reply, PACKET_SIZE, MSG_TRUNC);
+	if (count < 0 || count > PACKET_SIZE)
+		fail("UDP DNS receive failed or truncated datagram");
+	return (size_t)count;
+}
+
+/** Bound the complete socket exchange and release the descriptor afterward. */
+static size_t exchange(struct addrinfo *address, struct dns_query *query, int tcp,
+	unsigned char *reply)
+{
+	int fd = query_socket(address, tcp);
+	size_t length;
 	alarm(8);
 	if (connect(fd, address->ai_addr, address->ai_addrlen) != 0)
 		fail("DNS connect failed");
 	freeaddrinfo(address);
-	if (tcp) {
-		put16(prefix, (uint16_t)query_length);
-		transfer(fd, prefix, 2, 1);
-		transfer(fd, query, query_length, 1);
-		transfer(fd, prefix, 2, 0);
-		reply_length = get16(prefix);
-		if (reply_length > PACKET_SIZE)
-			fail("oversized TCP DNS response");
-		transfer(fd, reply, reply_length, 0);
-	} else {
-		ssize_t count;
-		if (send(fd, query, query_length, 0) != (ssize_t)query_length)
-			fail("UDP DNS send failed");
-		count = recv(fd, reply, sizeof(reply), MSG_TRUNC);
-		if (count < 0 || count > PACKET_SIZE)
-			fail("UDP DNS receive failed or truncated datagram");
-		reply_length = (size_t)count;
-	}
+	length = tcp ? tcp_response(fd, query, reply) : udp_response(fd, query, reply);
 	close(fd);
 	alarm(0);
-	if (reply_length < 12 || get16(reply) != id || (get16(reply + 2) & 0xf80fU) != 0x8000U ||
+	return length;
+}
+
+/** Validate response identity and its sole question before inspecting records. */
+static size_t response_question(const unsigned char *reply, size_t length,
+	const struct dns_query *query)
+{
+	char name[NAME_SIZE];
+	size_t offset;
+	if (length < 12 || get16(reply) != query->id || (get16(reply + 2) & 0xf80fU) != 0x8000U ||
 		(get16(reply + 2) & 0x0200U) != 0 || get16(reply + 4) != 1)
 		fail("invalid response identity, opcode, status, truncation or question count");
-	offset = 12 + read_name(reply, reply_length, 12, answer_name);
-	if (offset + 4 > reply_length || strcmp(answer_name, query_name) != 0 ||
-		get16(reply + offset) != type || get16(reply + offset + 2) != 1)
+	offset = 12 + read_name(reply, length, 12, name);
+	if (offset + 4 > length || strcmp(name, query->name) != 0 ||
+		get16(reply + offset) != query->type || get16(reply + offset + 2) != 1)
 		fail("response question differs from request");
-	offset += 4;
-	answers = get16(reply + 6);
+	return offset + 4;
+}
+
+/** Decode one bounded resource record and advance through its complete data. */
+static void read_record(const unsigned char *reply, size_t length, size_t *offset,
+	struct dns_record *record)
+{
+	*offset += read_name(reply, length, *offset, record->name);
+	if (*offset + 10 > length)
+		fail("truncated DNS record header");
+	record->type = get16(reply + *offset);
+	record->class = get16(reply + *offset + 2);
+	record->data_length = get16(reply + *offset + 8);
+	*offset += 10;
+	record->data_offset = *offset;
+	if (*offset + record->data_length > length)
+		fail("truncated DNS record data");
+	*offset += record->data_length;
+}
+
+/** Compare an address RDATA value to a valid numeric expectation of its type. */
+static int address_matches(const unsigned char *data, const struct dns_record *record,
+	const char *expectation)
+{
+	int family = record->type == 1 ? AF_INET : AF_INET6;
+	size_t wanted = record->type == 1 ? 4 : 16;
+	unsigned char expected[16];
+	char actual[INET6_ADDRSTRLEN];
+	if (record->data_length != wanted || inet_pton(family, expectation, expected) != 1)
+		fail("invalid address answer or expectation");
+	if (!inet_ntop(family, data, actual, sizeof(actual)))
+		fail("could not format address answer");
+	return memcmp(data, expected, wanted) == 0;
+}
+
+/** Match only IN-class records for this query, validating complete PTR RDATA. */
+static int record_matches(const unsigned char *reply, size_t length,
+	const struct dns_record *record, const struct dns_query *query, const char *expected)
+{
+	char name[NAME_SIZE];
+	if (record->type != query->type || record->class != 1 || strcmp(record->name, query->name) != 0)
+		return 0;
+	if (query->type != 12)
+		return address_matches(reply + record->data_offset, record, expected);
+	if (read_name(reply, length, record->data_offset, name) != record->data_length)
+		fail("PTR data length differs from compressed name");
+	return strcmp(name, expected) == 0;
+}
+
+/** Require one exact answer while validating every declared DNS record section. */
+static void validate_response(const unsigned char *reply, size_t length,
+	const struct dns_query *query, const char *expected)
+{
+	size_t offset = response_question(reply, length, query);
+	unsigned int answers = get16(reply + 6);
+	unsigned int records = answers + get16(reply + 8) + get16(reply + 10);
+	int matched = 0;
 	/* Every declared section must fit, even after a matching answer. */
-	records = answers + get16(reply + 8) + get16(reply + 10);
-	for (answer = 0; answer < records; answer++) {
-		uint16_t answer_type, answer_class, data_length;
-		name_length = read_name(reply, reply_length, offset, answer_name);
-		offset += name_length;
-		if (offset + 10 > reply_length)
-			fail("truncated DNS record header");
-		answer_type = get16(reply + offset);
-		answer_class = get16(reply + offset + 2);
-		data_length = get16(reply + offset + 8);
-		offset += 10;
-		if (offset + data_length > reply_length)
-			fail("truncated DNS record data");
-		if (answer < answers && answer_type == type && answer_class == 1 && strcmp(answer_name, query_name) == 0) {
-			if (type == 12) {
-				if (read_name(reply, reply_length, offset, answer_name) != data_length)
-					fail("PTR data length differs from compressed name");
-				if (strcmp(answer_name, argv[6]) == 0)
-					matched = 1;
-			} else {
-				int family = type == 1 ? AF_INET : AF_INET6;
-				unsigned char expected[16];
-				size_t wanted = type == 1 ? 4 : 16;
-				if (data_length != wanted || inet_pton(family, argv[6], expected) != 1)
-					fail("invalid address answer or expectation");
-				if (!inet_ntop(family, reply + offset, actual, sizeof(actual)))
-					fail("could not format address answer");
-				if (memcmp(reply + offset, expected, wanted) == 0)
-					matched = 1;
-			}
-		}
-		offset += data_length;
+	for (unsigned int answer = 0; answer < records; answer++) {
+		struct dns_record record;
+		read_record(reply, length, &offset, &record);
+		if (answer >= answers)
+			continue;
+		if (record_matches(reply, length, &record, query, expected))
+			matched = 1;
 	}
 	if (!matched)
 		fail("expected exact answer was absent");
+}
+
+/**
+ * Run a numeric-address UDP/TCP DNS assertion or hold foreign-owner sockets.
+ * Query mode validates every declared record and requires an exact A, AAAA or
+ * PTR answer; malformed input, transport failure or a missing answer fails.
+ */
+int main(int argc, char **argv)
+{
+	struct addrinfo *address;
+	struct dns_query query = { { 0 }, 0, 0, 0, { 0 } };
+	unsigned char reply[PACKET_SIZE];
+	size_t length;
+	int tcp;
+	if (argc != 7 && !(argc == 4 && strcmp(argv[3], "hold") == 0))
+		fail("usage: agh-dns-query server port udp|tcp A|PTR|AAAA name expected; or server port hold");
+	address = server_address(argv[1], argv[2]);
+	if (argc == 4)
+		hold(address);
+	tcp = query_transport(argv[3]);
+	prepare_query(&query, query_type(argv[4]), argv[5]);
+	length = exchange(address, &query, tcp, reply);
+	validate_response(reply, length, &query, argv[6]);
 	printf("PASS: DNS %s %s server=%s:%s name=%s answer=%s\n",
 		argv[3], argv[4], argv[1], argv[2], argv[5], argv[6]);
 	return 0;
