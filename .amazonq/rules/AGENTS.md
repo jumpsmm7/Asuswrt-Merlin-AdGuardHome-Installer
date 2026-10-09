@@ -337,13 +337,16 @@ Install and verify them on Debian/Ubuntu validation hosts with:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd build-essential
+sudo apt-get install -y python3 coreutils bzip2 xz-utils zstd build-essential docker.io
 python3 --version
 /usr/bin/timeout --version
 bzip2 --help >/dev/null
 /usr/bin/xz --version
 zstd --version
+docker --version
 ```
+
+Before ARM guest builds, ensure the Docker daemon is running and the validation account can access it; verify with `docker info`. The isolated builder supplies QEMU and cross-compilers.
 
 These commands are validation-host exceptions only. They do not allow `python3`, GNU `timeout`, `apt-get`, `bzip2`, XZ Utils, or Zstandard dependencies in router-runtime scripts, and they do not imply that these commands are available in the router stock PATH. Agents and scanners must distinguish explicitly host-only validation paths from router-runtime paths.
 

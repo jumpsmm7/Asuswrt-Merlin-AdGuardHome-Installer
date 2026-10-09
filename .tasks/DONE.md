@@ -11,6 +11,7 @@
 - Repair BusyBox option validation, DNS pointer rejection and malformed guest-result cleanup with focused regressions.
 - Isolate the reproduced cache fixture dependency while preserving real serialization, service guards and normal retry budgets.
 - Align agent guidance, document affected functions and validate configuration consistency and unchanged executable behavior.
+- Follow up on the later outside-diff host-provisioning finding: install the declared Docker prerequisite in both canonical and mirrored guidance, verify configuration consistency, publish evidence and inspect that final head.
 - Rebuild affected guests, verify complete matching native/host checks, publish normal branch updates, reply/resolve original threads and inspect published-head ARM/pre-merge results.
 
 ### Acceptance criteria
@@ -30,6 +31,8 @@ Verified implementation: `3d3169b14f2fb67605fb74f98e089644490a825c`. Final teste
 Hosted pull-request ARM run `37872521379` passes all targets and acceptance job `113637716278`; push run `37872516957` also passes, including acceptance job `113637202694`. The pull-request gate records the exact final digest, 118 scenarios per architecture and `status: pass`, `unblocks: true`. All five CodeRabbit pre-merge checks pass at this implementation, including 92.83% documentation coverage. Independent documentation audit and executable AST/preprocessed-C comparisons support the purpose-only changes.
 
 The subsequent Amazon Q mirror-link finding is corrected and validated locally; its documentation-only publication, original-thread reply/resolution and that publication's own hosted check/review inspection remain delivery follow-up, not results claimed by this implementation record. Its bytes do not change the tested-content digest. The separate GitHub AI review run `37872524141`, job `113633597418`, failed before producing a code finding because of monthly quota exhaustion. TASK-018 physical-router, firmware/client/reboot/WAN/soak acceptance remains BLOCKED independently.
+
+Delivery follow-up: mirror-link fix `6f2d60e` received an evidence reply and resolution; all eight inline threads are resolved. CodeRabbit approved that head and also identified a valid outside-diff omission in the host setup command. Both guidance copies now install `docker.io`, verify its version and require a running, accessible daemon before guest builds; QEMU/cross-compilers remain supplied by the isolated builder. Existing agent/configuration checks, mirror comparison, local Docker version/daemon probes and diff checks pass; tested-content digest remains `c07f53f4…`. Publication/evidence reply for this provisioning correction and final-head hosted inspection follow; no new native execution or review pass is claimed here.
 
 ---
 
