@@ -1,40 +1,5 @@
 # In Progress
 
-## TASK-021: Resolve ARM-suite review findings and hosted acceptance failure
-
-**Priority:** P1 | **Tags:** review, virtualization, arm, ci, tests
-**Scope:** User follow-up on October 8, 2026 America/New_York: resolve current PR #1033 CodeRabbit feedback and the failed ARMv7 execution/aggregate acceptance checks. Preserve the RT-AC68U-class older ARMv7 software-float target, feature-scoped unblocking, draft status and separate physical release gates.
-
-**Additional authorized scope:** Align all repository agent configuration/instruction files with the new virtual tests and their acceptance limits.
-
-**Pre-merge scope:** Resolve all CodeRabbit pre-merge checks. Its current docstring-coverage warning reports 69.62% against the unchanged 80% threshold; document affected helpers and verify the final-head result without disabling checks.
-
-### Plan
-
-- Verify all current unresolved review threads and exact-head hosted logs against `62c6143`; reproduce each valid claim before changing behavior.
-- Repair required BusyBox option validation, DNS compression-pointer rejection and malformed guest result handling/cleanup with focused failure regressions.
-- Diagnose the early cache-serialization failure from the hosted ARMv7 run; correct only the reproduced product or fixture cause and retain real ownership/serialization assertions and normal retry budgets.
-- Rebuild changed native tooling, run affected checks and the complete matching three-target matrix, and verify host quality/CI configuration.
-- Inventory agent configuration files, align them with canonical ARM environment/feature-acceptance guidance and focused regressions, and validate their formats and existing configuration checks.
-- Audit documentation of functions touched by the complete PR, add accurate function descriptions/docstrings, and revalidate any changed tested inputs before requiring final-head CodeRabbit pre-merge success.
-- Publish normal leased branch updates, reply on each original review thread with evidence, resolve confirmed corrections, and observe the new published head until hosted ARM execution and feature acceptance are terminal. Record any external review-capacity blocker without bypassing it.
-
-### Acceptance criteria
-
-- [x] Every current in-scope CodeRabbit finding has a verified fix or evidence-backed rejection, reply and resolution. All three current findings were corrected in `a1d3f81`, received original-thread evidence replies and were resolved.
-- [x] The hosted ARMv7 failure has a demonstrated cause and passing regression evidence; failure/skip/stale evidence still cannot unblock. Overlapping actual service probes reproduce the early exit; all three final native cache scenarios pass without changing production guards or normal retry budgets.
-- [ ] Fresh final-content native ARM matrix and host checks pass without concealing earlier failures. Repair source `a1d3f81` passed all 354 executions locally at digest `e1585f14…` and in hosted acceptance at Git-checkout digest `254fb76a…`; the documentation/checksum follow-up requires fresh evidence at `c07f53f4…`. Local executable masks now match versioned Git modes.
-- [x] All repository agent configurations agree on the new tests, architecture meanings and scoped acceptance; configuration checks pass. Nine guidance entry points share the canonical ARM validation contract; seven existing configuration/skill regressions, format parsing and exact Amazon Q mirror checks pass. Connection-only settings remain valid and unchanged.
-- [ ] New-head hosted ARMv5/ARMv7/ARMv8 feature execution and aggregate acceptance succeed; pending results are not reported complete.
-- [ ] CodeRabbit's final-head pre-merge checks pass with the existing thresholds; documentation coverage and native evidence are verified separately.
-- [x] PR remains draft; no physical release, merge, check-policy waiver or billing/settings change.
-
-### Verified repair source and pending final documentation source
-
-At `a1d3f81`, hosted pull-request ARM run `37870592896` and push run `37870588001` pass all three targets and aggregate acceptance. Code Quality, Shell validation, Semgrep, OSV and OpenSSF workflows pass; CodeRabbit approved that source. Its separate GitHub-generated AI review failed on monthly quota before creating a review request. The new documentation source remains pending its own hosted checks and CodeRabbit pre-merge coverage; prior passes are historical, not substitutes.
-
----
-
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Priority:** P1 | **Tags:** release, hardware, dns

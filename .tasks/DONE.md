@@ -1,5 +1,38 @@
 # Done
 
+## TASK-021: Resolve ARM-suite review findings and hosted acceptance failure
+
+**Priority:** P1 | **Tags:** review, virtualization, arm, ci, tests
+**Scope:** User follow-up on October 8, 2026 America/New_York: repair PR #1033 review findings and failed ARMv7/aggregate acceptance, align all agent guidance, and clear CodeRabbit pre-merge checks without weakening thresholds. Preserve the older RT-AC68U-class ARMv7 software-float target, scoped acceptance, draft status and physical release gates.
+
+### Plan
+
+- Verify current feedback and hosted failure logs; reproduce valid findings before correction.
+- Repair BusyBox option validation, DNS pointer rejection and malformed guest-result cleanup with focused regressions.
+- Isolate the reproduced cache fixture dependency while preserving real serialization, service guards and normal retry budgets.
+- Align agent guidance, document affected functions and validate configuration consistency and unchanged executable behavior.
+- Rebuild affected guests, verify complete matching native/host checks, publish normal branch updates, reply/resolve original threads and inspect published-head ARM/pre-merge results.
+
+### Acceptance criteria
+
+- [x] All three original CodeRabbit findings were corrected in `a1d3f81`, received evidence replies and were resolved.
+- [x] Actual overlapping service probes reproduce the cache pair's early exit; all final cache scenarios pass without weakening production behavior.
+- [x] Fresh final-content native execution passes 118 scenarios per target, 354 total; aggregate acceptance unblocks all 11 covered contracts. Canonical host quality passes.
+- [x] Nine agent guidance entry points share the canonical ARM contract; seven configuration/skill regressions, format parsing and exact Amazon Q mirror checks pass.
+- [x] Both hosted ARM workflows at implementation `3d3169b` pass all three targets and aggregate acceptance.
+- [x] All five CodeRabbit pre-merge checks pass at `3d3169b`; hosted documentation coverage is 92.83% against the unchanged 80% threshold.
+- [x] PR remains draft; no merge, physical release, check-policy waiver or billing/settings change.
+
+### Completion record
+
+Verified implementation: `3d3169b14f2fb67605fb74f98e089644490a825c`. Final tested-content SHA-256: `c07f53f48f37014b04d0684827059b70dbfe6261f3bfe02c5c3222c0551844fe`; builder fingerprint: `3a2d79cc550a49cadb9fff6584235681be23bd15893c7c1ccb5968fa06e2e013`. Fresh builds, all 354 native executions, aggregate acceptance and canonical host quality pass. Evidence IDs are `premerge-final-armv5/armv5`, `premerge-final-armv7/armv7`, `premerge-final-armv8/armv8`, `premerge-final-acceptance.json` and `premerge-canonical-final.log`; earlier failures remain recorded.
+
+Hosted pull-request ARM run `37872521379` passes all targets and acceptance job `113637716278`; push run `37872516957` also passes, including acceptance job `113637202694`. The pull-request gate records the exact final digest, 118 scenarios per architecture and `status: pass`, `unblocks: true`. All five CodeRabbit pre-merge checks pass at this implementation, including 92.83% documentation coverage. Independent documentation audit and executable AST/preprocessed-C comparisons support the purpose-only changes.
+
+The subsequent Amazon Q mirror-link finding is corrected and validated locally; its documentation-only publication, original-thread reply/resolution and that publication's own hosted check/review inspection remain delivery follow-up, not results claimed by this implementation record. Its bytes do not change the tested-content digest. The separate GitHub AI review run `37872524141`, job `113633597418`, failed before producing a code finding because of monthly quota exhaustion. TASK-018 physical-router, firmware/client/reboot/WAN/soak acceptance remains BLOCKED independently.
+
+---
+
 ## TASK-020: Build ARM virtual feature environments and scoped acceptance
 
 **Priority:** P1 | **Tags:** virtualization, arm, tests, ci
