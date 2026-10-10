@@ -1,0 +1,11 @@
+--- a/coreutils/date.c
++++ b/coreutils/date.c
+@@ -294,7 +294,7 @@
+ 		maybe_set_utc(opt);
+ 
+ 		/* if setting time, set it */
+-		if ((opt & OPT_SET) && stime(&ts.tv_sec) < 0) {
++		if ((opt & OPT_SET) && clock_settime(CLOCK_REALTIME, &ts) < 0) {
+ 			bb_perror_msg("can't set date");
+ 		}
+ 	}

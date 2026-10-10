@@ -4,8 +4,19 @@ Treat the repository-root `AGENTS.md` as the canonical engineering and review gu
 
 Apply the documented validation-toolchain exception consistently: host-only CI
 and validation paths may use Python 3, GNU coreutils (including explicit
-`/usr/bin/timeout`), and Ubuntu `apt-get` to provision declared checking tools.
+`/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C compiler,
+and Ubuntu `apt-get` to provision declared checking tools.
 Do not treat those tools as permitted router-runtime dependencies.
+
+Apply the shared [ARM virtual validation](../../AGENTS.md#arm-virtual-validation)
+commands and [virtual testing guide](../../docs/virtual-arm-testing.md). The armv5
+archive target is an older RT-AC68U-class ARMv7 Cortex-A9 software-float guest
+with VFP/NEON disabled. Host evidence/DNS/runner regressions do not establish
+native acceptance; the selected `--features` scope requires complete matching
+armv5/armv7/armv8 reports and the published head's aggregate acceptance result.
+Keep native CPU/process/socket assertions separate from modeled firmware inputs,
+and reject missing, stale, failed or skipped evidence without waiving unrelated
+physical release gates.
 
 Focus on changes that improve correctness, maintainability, security, and router compatibility.
 This repository is primarily POSIX/BusyBox ash shell used on Asuswrt-Merlin routers with Entware.
@@ -48,6 +59,7 @@ Review scope:
   removed unconditionally while preserving unrelated shared-script commands.
 
 Useful local checks:
+- Use the focused host and native matrix commands in `AGENTS.md` under ARM virtual validation for virtual-tooling or covered feature changes.
 - `tools/code-quality.sh`
 - `tools/check-md5.sh`
 - `tools/check-sha256.sh`

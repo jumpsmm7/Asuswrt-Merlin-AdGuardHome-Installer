@@ -19,7 +19,11 @@ The initial `wan_handoff` failure under an unprivileged shell is an environment 
 
 ## Router release checkpoint
 
-Host tests cannot prove firmware service behavior, DHCP exchanges, or network isolation. Hardware testing was explicitly skipped by the user. Automated implementation checkpoints can be completed, but DHCP exchanges and isolation remain unverified on hardware.
+The [ARM virtual feature suite](virtual-arm-testing.md) supplies a separate software acceptance gate. Passing declared contracts across the legacy `armv5` package target (older RT-AC68U-class ARMv7 software float), newer `armv7` target and `armv8` target at the exact tested candidate content unblocks those feature/change checks, including their stated Linux/process/DNS or helper-fixture assertions. The physical rows below track additional firmware/client observations; their pending status does not block a passing covered virtual contract.
+
+Host tests cannot prove firmware service behavior, DHCP exchanges, or network isolation. For the historical v2.6.5/PR #1030 validation below, hardware testing was explicitly skipped by the user; DHCP exchanges and isolation were unverified in that record. The current [v2.6.7 physical acceptance record](../RELEASE-2.6.7-CHECKLIST.md#physical-verification-record--october-10-2026-americanew_york) supersedes that pending hardware status for the new repair candidate: the operator confirmed both ARMv7 and AArch64 routers passed the full physical checklist and 48-hour testing on October 10, 2026 America/New_York. The full-checklist/48-hour configurations were RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9, respectively. Additional RT-AC68U / 386.14_2 physical testing was reported; its individual duration/checklist detail and deployed build/execution artifacts were not separately supplied.
+
+The following table preserves the historical v2.6.5/PR #1030 results; it is not the current v2.6.7 gate status.
 
 | Configuration | Checks | Status |
 | --- | --- | --- |

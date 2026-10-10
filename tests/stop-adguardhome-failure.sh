@@ -21,10 +21,10 @@ fail() {
 }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
-sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_dnsmasq_timeout() {$/,/^}$/p; /^post_stop_process_ready() {$/,/^}$/p; /^post_stop_handoff_cleared() {$/,/^}$/p; /^post_stop_dnsmasq_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
+sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_[a-z_]*() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTION_FILE}" ] || fail "stop verification functions were not found"
-for helper in monotonic_seconds post_stop_dnsmasq_timeout post_stop_process_ready post_stop_handoff_cleared post_stop_dnsmasq_ready stop_adguardhome; do
+for helper in monotonic_seconds post_stop_dnsmasq_timeout post_stop_process_ready post_stop_handoff_cleared post_stop_dnsmasq_ready post_stop_native_resolver_ready post_stop_capture_dnsmasq_requirements stop_adguardhome; do
 	grep -Fq "${helper}() {" "${FUNCTION_FILE}" || fail "stop verification helper extraction is missing ${helper}"
 done
 # shellcheck disable=SC1090
@@ -33,7 +33,13 @@ done
 # Optional resolver switching is covered by local-cache-readiness.sh.
 adguard_local_cache_sync() { :; }
 # dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
-dnsmasq_resolv_conf_cleanup() { :; }
+dnsmasq_resolv_conf_cleanup() { return "${RESOLVER_CLEANUP_STATUS}"; }
+# resolv_conf_uses_rom reports whether the resolver already uses native ROM routing.
+resolv_conf_uses_rom() { [ "${RESOLVER_ROM}" -eq 1 ]; }
+# resolv_conf_is_tmp_mount reports the fixture's optional cache mount.
+resolv_conf_is_tmp_mount() { [ "${RESOLVER_MOUNTED}" -eq 1 ]; }
+# adguard_local_cache_service_active reports the current stop's serialization lock.
+adguard_local_cache_service_active() { return 0; }
 
 PROCS="AdGuardHome"
 WORK_DIR="${TEST_ROOT}/work"
@@ -50,6 +56,9 @@ LOOKUP_MODE="ipv4"
 NETCHECK_STATUS="0"
 DNSMASQ_READY_AFTER="0"
 DNSMASQ_READY_CHECKS="0"
+RESOLVER_CLEANUP_STATUS="0"
+RESOLVER_ROM="0"
+RESOLVER_MOUNTED="0"
 
 # agh_log records the supplied message in the test call log.
 agh_log() { printf '%s\n' "$*" >>"${CALLS_FILE}"; }
@@ -79,6 +88,11 @@ adguard_dnsmasq_running() {
 }
 # adguard_dnsmasq_managed determines whether dnsmasq is managed by AdGuard Home.
 adguard_dnsmasq_managed() { [ "${DNSMASQ_MANAGED}" -eq 1 ]; }
+# dnsmasq_managed_instances supplies the identified native main process.
+dnsmasq_managed_instances() {
+	[ "${DNSMASQ_RUNNING}" -eq 1 ] && printf '%s\n' '88 10 /etc/dnsmasq.conf'
+	return 0
+}
 # service records the requested service command and returns the configured service status.
 service() {
 	printf '%s\n' "service $*" >>"${CALLS_FILE}"
@@ -146,11 +160,13 @@ reset_case() {
 	: >"${DATABASE_LINK_CALLS_FILE}"
 	rm -rf "${DNS_HANDOFF_DIR}"
 	unset ADGUARDHOME_SKIP_DNSMASQ_RESTART
+	unset STOP_DNSMASQ_REQUIRED STOP_DNSMASQ_CONFIGS CONFIG_DNSMASQ_MODE
 	ADGUARDHOME_DNSMASQ_READY_TIMEOUT="5"
 	RUNNING="0" DNSMASQ_MANAGED="1" DNSMASQ_RUNNING="1"
 	LOWER_STOP_STATUS="0" LOWER_KILL_STATUS="0" SERVICE_STATUS="0"
 	SOCKET_MODE="ipv4" LOOKUP_MODE="ipv4" NETCHECK_STATUS="0"
 	DNSMASQ_READY_AFTER="0" DNSMASQ_READY_CHECKS="0"
+	RESOLVER_CLEANUP_STATUS="0" RESOLVER_ROM="0" RESOLVER_MOUNTED="0"
 }
 
 # Stop completion does not run the potentially long public-connectivity probe.
@@ -236,6 +252,23 @@ reset_case
 DNSMASQ_MANAGED="0" DNSMASQ_RUNNING="0" SOCKET_MODE="none" LOOKUP_MODE="none" NETCHECK_STATUS="1"
 stop_adguardhome || fail "unmanaged LAN stop incorrectly required dnsmasq or Internet readiness"
 ! grep -q '^netcheck$' "${CALLS_FILE}" || fail "unmanaged LAN stop performed an Internet connectivity check"
+
+# Successful cleanup dispatch does not replace verification of native routing.
+reset_case
+RESOLVER_MOUNTED="1"
+if stop_adguardhome; then fail 'surviving Local Cache mount was hidden'; fi
+grep -q 'reason=cache_mount_remains' "${CALLS_FILE}" || fail 'surviving Local Cache mount was not logged'
+reset_case
+RESOLVER_CLEANUP_STATUS="1" RESOLVER_MOUNTED="1"
+if stop_adguardhome; then fail 'resolver unmount failure was hidden'; fi
+
+# A parent's required integration snapshot survives disappeared LAN dnsmasq.
+reset_case
+STOP_DNSMASQ_REQUIRED="1" STOP_DNSMASQ_CONFIGS="/etc/dnsmasq.conf"
+DNSMASQ_MANAGED="0" DNSMASQ_RUNNING="0"
+if stop_adguardhome; then fail 'saved managed dnsmasq requirement was dropped'; fi
+grep -q '^service restart_dnsmasq$' "${CALLS_FILE}" || fail 'saved DNS requirement did not trigger native recovery'
+grep -q 'reason=dnsmasq_not_ready' "${CALLS_FILE}" || fail 'saved DNS requirement bypassed readiness'
 
 # Every managed, unmanaged, and restart-skipped pathway requires every configured
 # installer handoff marker, including a dangling symlink, to be cleared.

@@ -15,7 +15,7 @@ fail() {
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
-sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_dnsmasq_timeout() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract adaptive dnsmasq helpers'
+sed -n '/^monotonic_seconds() {$/,/^}$/p; /^post_stop_dnsmasq_timeout() {$/,/^}$/p; /^post_stop_capture_dnsmasq_requirements() {$/,/^}$/p; /^post_stop_native_resolver_ready() {$/,/^}$/p; /^stop_adguardhome() {$/,/^}$/p' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract adaptive dnsmasq helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'adaptive dnsmasq helper extraction was empty'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -36,6 +36,10 @@ unset ADGUARDHOME_DNSMASQ_READY_TIMEOUT
 adguard_local_cache_sync() { :; }
 # dnsmasq_resolv_conf_cleanup skips resolver unmounts; Local Cache cleanup is exercised in dedicated fixtures.
 dnsmasq_resolv_conf_cleanup() { :; }
+# resolv_conf_uses_rom keeps native resolver routing independent of timing checks.
+resolv_conf_uses_rom() { return 0; }
+# dnsmasq_handoff_configs supplies the required native main configuration.
+dnsmasq_handoff_configs() { printf '%s\n' /etc/dnsmasq.conf; }
 
 PROCS='AdGuardHome'
 WORK_DIR="${TMP_ROOT}/work"

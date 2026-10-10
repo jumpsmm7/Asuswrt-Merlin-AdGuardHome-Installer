@@ -7,9 +7,27 @@ mkdir -p "${ROOT}/etc"
 : >"${ROOT}/etc/dnsmasq.conf"
 : >"${ROOT}/etc/dnsmasq-1.conf"
 : >"${ROOT}/etc/dnsmasq-2.conf"
-sed -n '/^adguard_local_cache_ready() {$/,/^}$/p; /^adguard_local_cache_sync() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup_locked() {$/,/^}$/p; /^adguard_local_cache_sync_locked() {$/,/^}$/p' AdGuardHome.sh |
+sed -n '/^resolv_conf_is_tmp_mount() {$/,/^}$/p; /^adguard_local_cache_ready() {$/,/^}$/p; /^adguard_local_cache_sync() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup() {$/,/^}$/p; /^dnsmasq_resolv_conf_cleanup_locked() {$/,/^}$/p; /^adguard_local_cache_sync_locked() {$/,/^}$/p' AdGuardHome.sh |
 	sed 's|/etc/dnsmasq|${ROOT}/etc/dnsmasq|g' >"${ROOT}/functions"
 . "${ROOT}/functions"
+# Validate the actual mount detector with a limited stock df implementation.
+df() {
+	[ "$#" -eq 1 ] && [ "$1" = -P ] || return 1
+	printf '%s\n' 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+	if [ "${DF_MOUNTED}" = 1 ]; then
+		printf '%s\n' 'tmpfs 1024 4 1020 1% /tmp/resolv.conf'
+	else
+		printf '%s\n' 'tmpfs 1024 4 1020 1% /tmp'
+	fi
+}
+DF_MOUNTED=1
+# The real helper is sourced above; the simulated helper replaces it below.
+# shellcheck disable=SC2218
+resolv_conf_is_tmp_mount
+DF_MOUNTED=0
+# shellcheck disable=SC2218
+if resolv_conf_is_tmp_mount; then exit 1; fi
+unset -f df
 CALLS="${ROOT}/calls"
 : >"${CALLS}"
 CONFIG_LOCAL=YES

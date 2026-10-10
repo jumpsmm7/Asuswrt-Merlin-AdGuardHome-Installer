@@ -88,7 +88,7 @@ workflow_concurrency_is_ref_scoped() {
 # grouped_shell_regression_step_is_aggregated verifies the exact test commands
 # belonging to one named multi-regression shell-validation step.
 grouped_shell_regression_step_is_aggregated() {
-	awk -v step_name="$2" -v expected_scripts="$3" '
+	awk -v step_name="$2" -v expected_scripts="$3" -v command_prefix="${4:-}" '
 		function normalize_quoted_fields(line, c, escaped, i, normalized, quote) {
 			normalized = ""
 			for (i = 1; i <= length(line); i++) {
@@ -148,7 +148,7 @@ grouped_shell_regression_step_is_aggregated() {
 			}
 			for (i = 1; i <= expected_count; i++) {
 				if (index($0, expected[i])) occurrences[i]++
-				required = "          /usr/bin/timeout --kill-after=10 180 busybox ash " expected[i] " || failed=1"
+				required = "          " command_prefix "/usr/bin/timeout --kill-after=10 180 busybox ash " expected[i] " || failed=1"
 				if ($0 == required) {
 					guarded[i]++
 					if (!initialized) command_before_init++
@@ -169,7 +169,10 @@ grouped_shell_regression_step_is_aggregated() {
 grouped_shell_regressions_are_aggregated() {
 	grouped_shell_regression_step_is_aggregated "$1" \
 		'Run installer LAN topology and hook regressions' \
-		'tests/installer-event-script-modes.sh tests/installer-event-script-transactions.sh tests/installer-cli-lan-mode.sh tests/wan-nat-predicate-parity.sh tests/installer-ipset-setup-save-failure.sh tests/installer-ipset-save-failure.sh tests/installer-ipset-allowed-mode-fallback.sh tests/adguardhome-runtime-mode-helpers.sh tests/dnsmasq-lan-mode.sh tests/ipset-lan-mode.sh tests/installer-single-arg-actions.sh' || return 1
+		'tests/installer-event-script-modes.sh tests/installer-event-script-transactions.sh tests/installer-managed-hook-invariants.sh tests/installer-cli-lan-mode.sh tests/wan-nat-predicate-parity.sh tests/installer-ipset-setup-save-failure.sh tests/installer-ipset-save-failure.sh tests/installer-ipset-allowed-mode-fallback.sh tests/adguardhome-runtime-mode-helpers.sh tests/dnsmasq-lan-mode.sh tests/ipset-lan-mode.sh tests/installer-single-arg-actions.sh' || return 1
+	grouped_shell_regression_step_is_aggregated "$1" \
+		'Run service-lock path and serialization regressions' \
+		'tests/service-lock-path-safety.sh tests/service-lock-serialization.sh' 'sudo -n ' || return 1
 	grouped_shell_regression_step_is_aggregated "$1" \
 		'Run lifecycle and workflow timeout contract regressions' \
 		'tests/service-lifecycle-suite-timeout.sh tests/shellcheck-workflow-dialect-consistency.sh'

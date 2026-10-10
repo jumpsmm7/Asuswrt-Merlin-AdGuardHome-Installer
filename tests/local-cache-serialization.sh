@@ -7,22 +7,36 @@ MANAGER="$(pwd)/AdGuardHome.sh"
 # Load declarations/defaults only, then extract the production helpers.
 sed '/^case "${1:-}" in$/,$d' "${MANAGER}" |
 	sed 's|/tmp/AdGuardHome|${WORK_DIR}/manager|g' >"${ROOT}/functions"
+# Scale only this fixture's lock retry budget, preserving real acquisition,
+# owner validation and cleanup while allowing integer-second contention waits.
+sed '/^proc_lock_run() {$/,/^}$/ {
+	s/"${attempts}" -ge 50/"${attempts}" -ge 5/g
+	s/"${attempts}" -lt 100/"${attempts}" -lt 5/g
+}' "${ROOT}/functions" >"${ROOT}/functions.bounded"
 cat >"${ROOT}/worker" <<'EOF_WORKER'
 #!/bin/sh
 set -u
-. "$1/functions"
+FUNCTIONS_PATH="$1/functions"
+[ ! -f "$1/fast-lock-retries" ] || FUNCTIONS_PATH="$1/functions.bounded"
+. "${FUNCTIONS_PATH}"
 WORK_DIR="$1"
 CONF_FILE="${WORK_DIR}/config"
 PROC_LOCK_FORCE_MKDIR="$2"
 CONFIG_LOCAL="${4:-NO}"
 NAME=cache-test
 PROCS=cache-test
-# Shorten only the lock retry delays for deterministic contention fixtures.
+# The initial pair isolates resolver-lock serialization from the service
+# activity probe.  That probe is intentionally nonblocking: two readiness
+# checks can observe each other's short-lived fd9 probe as an active service.
+# Later phases remove this marker and exercise the real service-activity guard.
+if [ -f "${WORK_DIR}/initial-sync" ]; then
+	# adguard_local_cache_service_active disables only the initial probe so the pair tests resolver-lock serialization.
+	adguard_local_cache_service_active() { return 1; }
+fi
+# Force the integer-second fallback for deterministic contention fixtures.
 if [ -f "${WORK_DIR}/fast-lock-retries" ]; then
-	# which advertises the fast usleep stub and delegates other command lookups to the host.
-	which() { [ "${1:-}" != usleep ] || return 0; command which "$@"; }
-	# usleep shortens lock retry delays to 10 milliseconds on the validation host.
-	usleep() { command sleep 0.01; }
+	# which hides usleep while delegating other command lookups to the host.
+	which() { [ "${1:-}" != usleep ] || return 1; command which "$@"; }
 fi
 # pidof reports the simulated daemon running unless an unready marker exists.
 pidof() { [ ! -f "${WORK_DIR}/unready" ]; }
@@ -64,7 +78,7 @@ nvram() { printf '%s\n' 1; }
 # Keep firmware readiness polling fast in the real detached run-lock fixture.
 sleep() {
 	case "${1:-}" in
-		10s) command sleep 0.1 ;;
+		10s) command sleep 1 ;;
 		*) command sleep "$@" ;;
 	esac
 }
@@ -100,7 +114,8 @@ case "$3" in
 		printf '%s\n' "$!" >"${WORK_DIR}/detached-service-pid"
 		;;
 	hold-service)
-		exec 9>"${WORK_DIR}/manager.lock"
+		adguardhome_run_flock_prepare || exit 1
+		exec 9>>"${WORK_DIR}/manager-service-lock/flock"
 		flock -n 9 || exit 1
 		: >"${WORK_DIR}/service-entered"
 		adguard_local_cache_service_active || exit 1
@@ -135,12 +150,14 @@ wait_for_file() {
 for fallback in 0 1; do
 	: >"${ROOT}/calls"
 	printf '%s\n' 'ADGUARD_LOCAL="YES"' >"${ROOT}/config"
+	: >"${ROOT}/initial-sync"
 	run_worker "${fallback}" sync &
 	first=$!
 	run_worker "${fallback}" sync &
 	second=$!
 	wait "${first}"
 	wait "${second}"
+	rm "${ROOT}/initial-sync"
 	[ "$(grep -c '^mount$' "${ROOT}/calls")" -eq 1 ]
 	# A stale monitor snapshot must not override a newly saved preference.
 	printf '%s\n' 'ADGUARD_LOCAL="NO"' >"${ROOT}/config"
@@ -200,23 +217,38 @@ for fallback in 0 1; do
 	[ ! -e "/proc/$(cat "${ROOT}/detached-service-parent")/stat" ]
 	: >"${ROOT}/detached-service-begin"
 	wait_for_file "${ROOT}/detached-service-entered"
-	owner="$(sed -n '1p' "${ROOT}/manager/pid")"
+	owner="$(sed -n '1p' "${ROOT}/manager-service-lock/action/pid")"
 	[ "${owner}" != "$(cat "${ROOT}/detached-service-parent")" ]
 	kill -0 "${owner}"
 	if run_worker "${fallback}" sync; then exit 1; fi
 	[ ! -f "${ROOT}/mounted" ]
 	: >"${ROOT}/detached-service-release"
 	wait_for_file "${ROOT}/detached-service-done"
-	# Legacy cleanup waits for the completed runtime record.
+	# Cleanup removes only the finished action; the descriptor inode persists.
 	attempts=0
-	while [ -e "${ROOT}/manager/pid" ] && [ "${attempts}" -lt 5 ]; do
+	while [ -e "${ROOT}/manager-service-lock/action/pid" ] && [ "${attempts}" -lt 5 ]; do
 		sleep 1
 		attempts="$((attempts + 1))"
 	done
-	[ ! -e "${ROOT}/manager/pid" ]
-	# Start the next backend with a clean service directory (flock retains it).
-	rmdir "${ROOT}/manager" 2>/dev/null || true
+	[ ! -e "${ROOT}/manager-service-lock/action/pid" ]
 	rm "${ROOT}/detached-service-parent" "${ROOT}/detached-service-pid" "${ROOT}/detached-service-begin" "${ROOT}/detached-service-entered" "${ROOT}/detached-service-release" "${ROOT}/detached-service-done"
+	# A killed service's private ownership markers may remain indefinitely;
+	# cache readiness must resume without running another service action.
+	mkdir -m 700 "${ROOT}/manager-service-lock/action"
+	(
+		umask 077
+		printf '%s\n' '999999999 1' >"${ROOT}/manager-service-lock/action/owner"
+		printf '%s\n' 999999999 >"${ROOT}/manager-service-lock/action/pid"
+	)
+	ln -s '999999998 1' "${ROOT}/manager-service-lock/action.claim"
+	ln -s '999999998 1 999999999 1' "${ROOT}/manager-service-lock/action.transition"
+	run_worker "${fallback}" sync
+	[ -f "${ROOT}/mounted" ]
+	[ "$(cat "${ROOT}/manager-service-lock/action/owner")" = '999999999 1' ]
+	[ -L "${ROOT}/manager-service-lock/action.claim" ] && [ -L "${ROOT}/manager-service-lock/action.transition" ]
+	run_worker "${fallback}" cleanup
+	rm "${ROOT}/manager-service-lock/action/owner" "${ROOT}/manager-service-lock/action/pid" "${ROOT}/manager-service-lock/action.claim" "${ROOT}/manager-service-lock/action.transition"
+	rmdir "${ROOT}/manager-service-lock/action"
 done
 # Descriptor lock activity must block activation before any owner pid is published.
 run_worker 0 hold-service &

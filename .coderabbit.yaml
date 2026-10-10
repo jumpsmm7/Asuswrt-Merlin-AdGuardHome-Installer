@@ -90,8 +90,20 @@ reviews:
 
         Apply its validation-toolchain exception consistently: host-only CI and
         validation paths may use Python 3, GNU coreutils (including explicit
-        `/usr/bin/timeout`), and Ubuntu `apt-get` to provision declared checking
-        tools. This exception never applies to router-runtime paths.
+        `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C
+        compiler, and Ubuntu `apt-get` to provision declared checking tools.
+        This exception never applies to router-runtime paths.
+
+        Follow AGENTS.md under ARM virtual validation and
+        docs/virtual-arm-testing.md for shared test commands and scope. The
+        armv5 archive is the RT-AC68U-class older ARMv7 Cortex-A9 software-float
+        target with VFP/NEON disabled. Native acceptance requires complete
+        matching armv5/armv7/armv8 evidence for the selected feature scope and
+        the published head's aggregate acceptance result. Host checks do not
+        substitute for native execution, modeled firmware commands do not
+        establish physical behavior, and pending/missing/stale/failed/skipped
+        evidence cannot unblock. Passing feature contracts does not waive
+        unrelated physical release gates.
 
         For every changed shell file recognized by tools/list-shell-scripts.sh,
         including extensionless `installer`, `S99AdGuardHome`, and
@@ -285,8 +297,9 @@ reviews:
         - Cleanup restores files, permissions, processes, mounts, environment
           variables, traps, and temporary state even when the test exits early.
         - Tests do not depend on execution order, host-specific state, live
-          network access, timing races, Bash-only syntax, or GNU-only behavior
-          unless the test explicitly runs under Bash.
+          network access, or timing races. Bash-only syntax requires an explicit
+          Bash test; provisioned GNU/Python/C tooling requires a declared
+          host-validation path under the AGENTS.md exception.
         - Assertions verify externally observable behavior and exit status, not
           only that an internal helper was called.
         - Failure-injection tests fail at the intended operation rather than an
@@ -308,7 +321,7 @@ reviews:
         These scripts drive local validation, shell discovery, formatting, and
         checksum generation.
 
-        Preserve POSIX sh compatibility and deterministic output. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure separate coverage contracts are maintained: shell discovery covers runtime scripts; regression registration covers tests; checksum generation and validation cover release artifacts.
+        Preserve POSIX sh compatibility for shell helpers and deterministic output. Declared host-only Python/C validation helpers follow the AGENTS.md toolchain exception. Preserve explicit failure propagation, distinguish unavailable optional tools from failed required checks, and ensure separate coverage contracts are maintained: shell discovery covers runtime scripts; regression registration covers tests; checksum generation and validation cover release artifacts.
 
         Verify:
         - Failure statuses are not swallowed by wrappers or pipelines.
@@ -321,6 +334,31 @@ reviews:
         - Local validation and CI validation exercise equivalent pathways.
         - Router-specific commands are mocked or avoided during host-side tests.
         - A missing optional tool is distinguished from a failed required check.
+
+    - path: "tools/virtual-arm/**"
+      instructions: |
+        Apply the shared ARM virtual validation contract in AGENTS.md and
+        docs/virtual-arm-testing.md; features.tsv is the scenario authority.
+        Check effective guest CONFIG_FLOCK/CONFIG_USLEEP after configuration
+        generation, provenance-bound cache rebuilds, complete DNS records and
+        strictly backward compression pointers at every hop, bounded malformed
+        result rejection, retained failure logs, subprocess reap/pipe closure
+        and container cleanup through errors. These are host/build requirements;
+        router runtime keeps optional flock capability checks and fallback.
+        --features scopes assertions and --architectures scopes execution;
+        aggregate acceptance still requires matching complete reports from all
+        three package targets. Diagnostic partial runs cannot unblock.
+
+    - path: "tests/virtual-arm*"
+      instructions: |
+        Use the focused host commands in AGENTS.md under ARM virtual validation.
+        DNS regression tests must retain valid backward-pointer controls and
+        reject self/forward/chained malformed responses over UDP and TCP.
+        Runner failure tests must preserve logs and prove subprocess, pipe and
+        container cleanup even when result parsing or log cleanup fails.
+        Evidence-policy fixtures are synthetic rejection tests, not ARM feature
+        acceptance. Native scenarios declare modeled firmware inputs separately
+        from actual CPU/kernel/process/socket assertions.
 
     - path: ".github/workflows/**"
       instructions: |
@@ -349,6 +387,11 @@ reviews:
           is still exercised by CI.
         - Whether automatic checksum commits can cause infinite workflow loops
           or validate the wrong commit.
+
+        For virtual-arm-feature-tests.yml, require the published head's three
+        architecture results and fail-closed aggregate ARM feature acceptance
+        under AGENTS.md. A successful host-quality run or historical matrix
+        does not replace matching evidence for the selected current content.
 
     - path: "**/*.md"
       instructions: |

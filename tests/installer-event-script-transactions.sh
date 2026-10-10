@@ -35,6 +35,8 @@ sed -n '/^remove_firewall_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_
 	fail 'could not complete firewall transaction helper extraction'
 sed -n '/^install_wan_event_scripts() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract WAN event-script orchestration helper'
+sed -n '/^service_event_hook_command() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
+	fail 'could not extract service event command helper'
 sed -n '/^adguard_recover_after_event_hook_abort() {$/,/^}$/p' "${SCRIPT_PATH}" >>"${TMP_DIR}/helpers.part" ||
 	fail 'could not extract event-hook abort recovery helper'
 grep -q "^trap 'on_installer_exit' EXIT$" "${TMP_DIR}/helpers.part"

@@ -651,28 +651,13 @@ wget_help() {
 # Run-lock helpers
 
 adguardhome_run() {
-	local lock_dir owner pid_file runtime
-	lock_dir="/tmp/AdGuardHome"
-	pid_file="${lock_dir}/pid"
 	case "$1" in
 		"")
-			# Newer firmware may provide descriptor-capable flock; older releases
-			# continue to use the legacy mkdir lock below.
+			if adguardhome_run_legacy_mkdir_active; then return 1; fi
 			if have_cmd flock && flock_supports_fd; then
 				if adguardhome_run_flock_active; then return 1; else return 0; fi
 			fi
-			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-			[ -z "${runtime}" ] && return 1
-			case "${owner}" in
-				"" | *[!0-9]*)
-					rm -f "${pid_file}"
-					return 1
-					;;
-			esac
-			if kill -0 "${owner}" 2>/dev/null; then return 0; fi
-			rm -f "${pid_file}"
-			return 1
+			return 0
 			;;
 		*)
 			# Prefer flock when the installed implementation supports descriptor
@@ -686,18 +671,24 @@ adguardhome_run() {
 	esac
 }
 
+# adguardhome_run_execute records action ownership and duration while preserving service_wait's status.
 adguardhome_run_execute() {
 	local action end owner pid_file runtime start status
 	action="$1"
 	pid_file="$2"
 	owner="${3:-$$}"
-	printf "%s\n" "${owner}" >"${pid_file}"
+	(
+		umask 077
+		set -C
+		printf '%s\n' "${owner}" >"${pid_file}"
+	) 2>/dev/null || return 1
 	start="$(date +%s)"
 	service_wait "${action}" 30
 	status="$?"
 	end="$(date +%s)"
 	runtime="$((end - start))"
-	printf "%s\n" "${runtime}" >>"${pid_file}"
+	adguardhome_run_file_is_private "${pid_file}" || return 1
+	printf '%s\n' "${runtime}" >>"${pid_file}" || return 1
 	if [ "${status}" -eq 0 ]; then
 		agh_log info adguardhome_run_execute "state=service action=${action} reason=service_wait result=completed runtime=${runtime}"
 	else
@@ -706,23 +697,283 @@ adguardhome_run_execute() {
 	return "${status}"
 }
 
+# Service locks use one persistent private directory and never replace its
+# descriptor inode. Match the effective owner, which is root on the router.
+adguardhome_run_directory_is_private() {
+	local metadata owner
+	owner="$(IPSet_Current_UID)" || return 1
+	metadata="$(IPSet_Directory_Metadata "$1")" || return 1
+	[ "${metadata}" = "${owner} rwx------" ]
+}
+
+# adguardhome_run_file_is_private accepts single-link files owned by this runtime, with explicit legacy-mode compatibility.
+adguardhome_run_file_is_private() {
+	local legacy owner
+	[ ! -L "$1" ] && [ -f "$1" ] || return 1
+	legacy="${2:-0}"
+	owner="$(IPSet_Current_UID)" || return 1
+	ls -ldn "$1" 2>/dev/null | awk -v owner="${owner}" -v legacy="${legacy}" '
+		NR == 1 { exit(($1 == "-rw-------" || (legacy == 1 && $1 == "-rw-r--r--")) && $2 == 1 && $3 == owner ? 0 : 1) }
+		END { if (NR == 0) exit 1 }
+	'
+}
+
+# adguardhome_run_link_is_private validates claim/transition symlink ownership without following its target.
+adguardhome_run_link_is_private() {
+	local owner
+	[ -L "$1" ] || return 1
+	owner="$(IPSet_Current_UID)" || return 1
+	ls -ldn "$1" 2>/dev/null | awk -v owner="${owner}" '
+		NR == 1 { exit(substr($1, 1, 1) == "l" && $2 == 1 && $3 == owner ? 0 : 1) }
+		END { if (NR == 0) exit 1 }
+	'
+}
+
+# adguardhome_run_runtime_prepare creates or validates the private service-lock parent and persistent descriptor file.
+adguardhome_run_runtime_prepare() {
+	local lock_dir
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	if ! mkdir -m 700 "${lock_dir}" 2>/dev/null; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+	fi
+	if [ -e "${lock_dir}/flock" ] || [ -L "${lock_dir}/flock" ]; then
+		adguardhome_run_file_is_private "${lock_dir}/flock" || return 1
+	fi
+}
+
+# Existing files may be reused only after validation; noclobber protects first
+# creation, and append opens preserve content as well as the shared lock inode.
+adguardhome_run_flock_prepare() {
+	local lock_file
+	lock_file="/tmp/AdGuardHome-service-lock/flock"
+	adguardhome_run_runtime_prepare || return 1
+	if [ ! -e "${lock_file}" ] && [ ! -L "${lock_file}" ]; then
+		(
+			umask 077
+			set -C
+			: >"${lock_file}"
+		) 2>/dev/null || true
+	fi
+	adguardhome_run_file_is_private "${lock_file}"
+}
+
+# The owner record is immutable until cleanup; PID plus start time rejects PID
+# reuse and makes repeated cleanup unable to remove a successor's lock.
+adguardhome_run_owner_matches() {
+	local record
+	adguardhome_run_directory_is_private "$1" || return 1
+	adguardhome_run_file_is_private "$1/owner" || return 1
+	IFS= read -r record <"$1/owner" || return 1
+	[ "${record}" = "$2 $3" ]
+}
+
+# A transition is published only after proving creation/cleanup ownership. It
+# distinguishes an interrupted empty action from an unverified ownerless path.
+adguardhome_run_transition_begin() {
+	local record start
+	start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	record="${PROC_LOCK_PID} ${start} $2 $3"
+	if ln -s "${record}" "$1.transition" 2>/dev/null; then return 0; fi
+	adguardhome_run_link_is_private "$1.transition" && [ "$(readlink "$1.transition" 2>/dev/null)" = "${record}" ]
+}
+
+# adguardhome_run_transition_clear removes only a well-formed transition owned by the current process identity.
+adguardhome_run_transition_clear() {
+	local expected_owner expected_start record start
+	[ -e "$1.transition" ] || [ -L "$1.transition" ] || return 0
+	start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	adguardhome_run_link_is_private "$1.transition" || return 1
+	record="$(readlink "$1.transition" 2>/dev/null)" || return 1
+	case "${record}" in "${PROC_LOCK_PID} ${start} "*) : ;; *) return 1 ;; esac
+	record="${record#"${PROC_LOCK_PID} ${start} "}"
+	expected_owner="${record%% *}"
+	expected_start="${record#* }"
+	case "${expected_owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_start}" in "" | *[!0-9]*) return 1 ;; esac
+	rm -f "$1.transition"
+}
+
+# adguardhome_run_transition_recover reclaims interrupted publication/cleanup only with validated dead-mutator evidence.
+adguardhome_run_transition_recover() {
+	local current_start expected_owner expected_start lock_dir owner owner_start record
+	lock_dir="$1"
+	[ -e "${lock_dir}.transition" ] || [ -L "${lock_dir}.transition" ] || return 0
+	adguardhome_run_link_is_private "${lock_dir}.transition" || return 1
+	record="$(readlink "${lock_dir}.transition" 2>/dev/null)" || return 1
+	owner="${record%% *}"
+	record="${record#* }"
+	owner_start="${record%% *}"
+	record="${record#* }"
+	expected_owner="${record%% *}"
+	expected_start="${record#* }"
+	case "${owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${owner_start}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_owner}" in "" | *[!0-9]*) return 1 ;; esac
+	case "${expected_start}" in "" | *[!0-9]*) return 1 ;; esac
+	current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+	if [ "${current_start}" = "${owner_start}" ] || { [ -z "${current_start}" ] && kill -0 "${owner}" 2>/dev/null; }; then return 1; fi
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+		if [ -e "${lock_dir}/owner" ] || [ -L "${lock_dir}/owner" ]; then
+			adguardhome_run_owner_matches "${lock_dir}" "${expected_owner}" "${expected_start}" || return 1
+		else
+			# A killed owner writer may leave an unpublished staged record.
+			if [ -e "${lock_dir}/owner.new" ] || [ -L "${lock_dir}/owner.new" ]; then
+				[ "${expected_owner} ${expected_start}" = "${owner} ${owner_start}" ] || return 1
+				adguardhome_run_file_is_private "${lock_dir}/owner.new" || return 1
+				rm -f "${lock_dir}/owner.new" || return 1
+			fi
+			# Only an empty directory can be an interrupted publication/cleanup.
+			rmdir "${lock_dir}" 2>/dev/null || return 1
+		fi
+	fi
+	rm -f "${lock_dir}.transition"
+}
+
+# adguardhome_run_mkdir_cleanup serializes removal of the action owner's metadata and retains evidence on failure.
+adguardhome_run_mkdir_cleanup() {
+	local attempts claim_owner claim_pid claim_start holder_pid holder_start PROC_LOCK_DIR PROC_LOCK_PID status
+	PROC_LOCK_DIR="$1"
+	IFS= read -r claim_pid </proc/self/stat || return 1
+	PROC_LOCK_PID="${claim_pid%% *}"
+	claim_start="$(proc_process_start_time "${PROC_LOCK_PID}")" || return 1
+	if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then
+		adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || { [ ! -e "${PROC_LOCK_DIR}.claim" ] && [ ! -L "${PROC_LOCK_DIR}.claim" ]; } || return 1
+	fi
+	attempts=0
+	while ! proc_lock_claim_matches "${PROC_LOCK_PID}" "${claim_start}" && ! proc_lock_claim_acquire "${claim_start}" 1; do
+		# Cleanup belongs to the action owner, which may stay alive as a monitor.
+		# Wait briefly for a contender's publication claim without weakening the
+		# immediate-busy acquisition policy or guessing unsafe ownership stale.
+		[ "${attempts}" -lt 10 ] || return 1
+		adguardhome_run_owner_matches "$1" "$2" "$3" || return 1
+		if [ -e "${PROC_LOCK_DIR}.claim" ] || [ -L "${PROC_LOCK_DIR}.claim" ]; then
+			if adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" && claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)"; then
+				holder_pid="${claim_owner%% *}"
+				holder_start="${claim_owner#* }"
+				case "${holder_pid}" in "" | *[!0-9]*) return 1 ;; esac
+				case "${holder_start}" in "" | *[!0-9]*) return 1 ;; esac
+				[ "${claim_owner}" = "${holder_pid} ${holder_start}" ] || return 1
+			else
+				[ ! -e "${PROC_LOCK_DIR}.claim" ] && [ ! -L "${PROC_LOCK_DIR}.claim" ] || return 1
+			fi
+		fi
+		attempts="$((attempts + 1))"
+		sleep 1 || return 1
+	done
+	adguardhome_run_mkdir_cleanup_claimed "$@"
+	status="$?"
+	if [ "${status}" -eq 0 ] || { [ ! -e "$1" ] && [ ! -L "$1" ]; }; then adguardhome_run_transition_clear "$1" || status=1; fi
+	proc_lock_claim_release "${claim_start}" || status=1
+	return "${status}"
+}
+
+# Publication and cleanup share the existing PID/start-time claim, so a killed
+# cleaner leaves recoverable ownership instead of an unowned permanent marker.
+adguardhome_run_mkdir_cleanup_claimed() {
+	local lock_dir owner owner_start
+	lock_dir="$1"
+	owner="$2"
+	owner_start="$3"
+	adguardhome_run_owner_matches "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then adguardhome_run_file_is_private "${lock_dir}/pid" || return 1; fi
+	adguardhome_run_transition_begin "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then
+		if ! adguardhome_run_file_is_private "${lock_dir}/pid" || ! rm -f "${lock_dir}/pid"; then
+			return 1
+		fi
+	fi
+	rm -f "${lock_dir}/owner" || return 1
+	rmdir "${lock_dir}"
+}
+
+# The caller holds the publication claim while revalidating immutable identity;
+# unknown/live state remains untouched and only one stale reaper can publish.
+adguardhome_run_mkdir_reap_stale() {
+	local current_start lock_dir owner owner_start
+	lock_dir="$1"
+	owner="$2"
+	owner_start="$3"
+	adguardhome_run_owner_matches "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"
+	if [ "${current_start}" = "${owner_start}" ] || { [ -z "${current_start}" ] && kill -0 "${owner}" 2>/dev/null; }; then
+		return 1
+	fi
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then adguardhome_run_file_is_private "${lock_dir}/pid" || return 1; fi
+	adguardhome_run_transition_begin "${lock_dir}" "${owner}" "${owner_start}" || return 1
+	if [ -e "${lock_dir}/pid" ] || [ -L "${lock_dir}/pid" ]; then
+		if ! adguardhome_run_file_is_private "${lock_dir}/pid" || ! rm -f "${lock_dir}/pid"; then
+			return 1
+		fi
+	fi
+	rm -f "${lock_dir}/owner" || return 1
+	rmdir "${lock_dir}" || return 1
+	adguardhome_run_transition_clear "${lock_dir}"
+}
+
+# adguardhome_run_mkdir_acquire holds the publication claim while acquiring or recovering immutable action ownership.
+adguardhome_run_mkdir_acquire() {
+	local PROC_LOCK_DIR PROC_LOCK_PID status
+	PROC_LOCK_DIR="$1"
+	PROC_LOCK_PID="$2"
+	proc_lock_claim_acquire "$3" 1 || return 1
+	adguardhome_run_mkdir_acquire_claimed "$@"
+	status="$?"
+	if [ "${status}" -eq 0 ] || { [ ! -e "$1" ] && [ ! -L "$1" ]; }; then adguardhome_run_transition_clear "$1" || status=1; fi
+	proc_lock_claim_release "$3" || status=1
+	return "${status}"
+}
+
+# adguardhome_run_mkdir_acquire_claimed rejects live/unknown owners and atomically publishes a new owner record.
+adguardhome_run_mkdir_acquire_claimed() {
+	local current_start lock_dir record stale_owner stale_start
+	lock_dir="$1"
+	adguardhome_run_transition_recover "${lock_dir}" || return 1
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 1
+		adguardhome_run_file_is_private "${lock_dir}/owner" || return 1
+		IFS=' ' read -r stale_owner stale_start record <"${lock_dir}/owner" || return 1
+		[ -z "${record}" ] || return 1
+		case "${stale_owner}" in "" | *[!0-9]*) return 1 ;; esac
+		case "${stale_start}" in "" | *[!0-9]*) return 1 ;; esac
+		current_start="$(proc_process_start_time "${stale_owner}" 2>/dev/null)"
+		if [ "${current_start}" = "${stale_start}" ] || { [ -z "${current_start}" ] && kill -0 "${stale_owner}" 2>/dev/null; }; then return 1; fi
+		adguardhome_run_mkdir_reap_stale "${lock_dir}" "${stale_owner}" "${stale_start}" || return 1
+	fi
+	adguardhome_run_transition_begin "${lock_dir}" "$2" "$3" || return 1
+	mkdir -m 700 "${lock_dir}" 2>/dev/null || return 1
+	if ! (
+		umask 077
+		set -C
+		printf '%s %s\n' "$2" "$3" >"${lock_dir}/owner.new"
+	) 2>/dev/null; then
+		if [ -e "${lock_dir}/owner.new" ] || [ -L "${lock_dir}/owner.new" ]; then
+			adguardhome_run_file_is_private "${lock_dir}/owner.new" && rm -f "${lock_dir}/owner.new"
+		fi
+		rmdir "${lock_dir}" 2>/dev/null
+		return 1
+	fi
+	adguardhome_run_file_is_private "${lock_dir}/owner.new" || return 1
+	mv "${lock_dir}/owner.new" "${lock_dir}/owner"
+}
+
 # adguardhome_run_flock serializes service operations with a file lock, allowing stop operations to wait and rejecting duplicate concurrent actions.
 adguardhome_run_flock() {
-	local action lock_dir lock_file owner pid_file saved_traps status
+	local action lock_dir lock_file owner owner_start pid_file saved_traps status
 	action="$1"
-	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
+	lock_dir="/tmp/AdGuardHome-service-lock/action"
+	lock_file="/tmp/AdGuardHome-service-lock/flock"
 	pid_file="${lock_dir}/pid"
-	if adguardhome_run_legacy_mkdir_active; then
+	if adguardhome_run_legacy_lock_active; then
 		owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
 		agh_log warning adguardhome_run_flock "state=locked action=${action} reason=active_lock result=duplicate_lock owner=${owner:-unknown}"
 		return 1
 	fi
-	if ! mkdir -p "${lock_dir}"; then
+	if ! adguardhome_run_flock_prepare; then
 		agh_log error adguardhome_run_flock "state=lock action=${action} reason=mkdir_failed result=create_lock_failed path=${lock_dir}"
 		return 1
 	fi
-	exec 9>"${lock_file}" || return 1
+	exec 9>>"${lock_file}" || return 1
 	if [ "${action}" = "stop_adguardhome" ]; then
 		if ! flock 9; then
 			agh_log error adguardhome_run_flock "state=lock action=${action} reason=flock_failed result=lock_failed lock=flock"
@@ -735,25 +986,38 @@ adguardhome_run_flock() {
 		exec 9>&-
 		return 1
 	fi
-	saved_traps="$(trap)"
-	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
-	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
-	rm -f "${pid_file}"
-	IFS= read -r owner </proc/self/stat || return 1
+	IFS= read -r owner </proc/self/stat || {
+		exec 9>&-
+		return 1
+	}
 	owner="${owner%% *}"
+	owner_start="$(proc_process_start_time "${owner}")" || {
+		exec 9>&-
+		return 1
+	}
+	if adguardhome_run_legacy_lock_active || ! adguardhome_run_mkdir_acquire "${lock_dir}" "${owner}" "${owner_start}"; then
+		flock -u 9 >/dev/null 2>&1
+		exec 9>&-
+		return 1
+	fi
+	saved_traps="$(trap)"
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
 	adguardhome_run_execute "${action}" "${pid_file}" "${owner}"
 	status="$?"
-	adguardhome_run_flock_cleanup "${pid_file}"
+	adguardhome_run_flock_cleanup "${pid_file}" "${owner}" "${owner_start}" || status=1
 	adguardhome_run_flock_restore_traps "${saved_traps}"
 	return "${status}"
 }
 
+# adguardhome_run_flock_active reports held or unsafe service state using the persistent descriptor inode.
 adguardhome_run_flock_active() {
 	local lock_dir lock_file status
-	lock_dir="/tmp/AdGuardHome"
-	lock_file="${lock_dir}.lock"
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	lock_file="${lock_dir}/flock"
 	if adguardhome_run_legacy_mkdir_active; then return 0; fi
-	exec 9>"${lock_file}" || return 1
+	adguardhome_run_flock_prepare || return 0
+	exec 9>>"${lock_file}" || return 0
 	flock -n 9 >/dev/null 2>&1
 	status="$?"
 	if [ "${status}" -eq 0 ]; then
@@ -765,12 +1029,15 @@ adguardhome_run_flock_active() {
 	return 0
 }
 
+# adguardhome_run_flock_cleanup releases owned action metadata before closing its descriptor lock.
 adguardhome_run_flock_cleanup() {
-	local pid_file
+	local pid_file status
 	pid_file="$1"
-	[ -n "${pid_file}" ] && rm -f "${pid_file}"
+	status=0
+	adguardhome_run_mkdir_cleanup "${pid_file%/pid}" "$2" "$3" || status=1
 	flock -u 9 >/dev/null 2>&1
 	exec 9>&-
+	return "${status}"
 }
 
 adguardhome_run_flock_restore_traps() {
@@ -780,52 +1047,175 @@ adguardhome_run_flock_restore_traps() {
 	[ -n "${saved_traps}" ] && eval "${saved_traps}"
 }
 
+# adguardhome_run_record_is_dead validates an immutable PID/start-time record before proving its owner gone.
+adguardhome_run_record_is_dead() {
+	local current_start owner owner_start record
+	record="$1"
+	owner="${record%% *}"
+	owner_start="${record#* }"
+	case "${owner}" in
+		"" | 0* | *[!0-9]*) return 1 ;;
+		*) : ;;
+	esac
+	case "${owner_start}" in
+		"" | 0?* | *[!0-9]*) return 1 ;;
+		*) : ;;
+	esac
+	[ "${#owner}" -le 10 ] && [ "${owner}" -le 2147483647 ] || return 1
+	[ "${record}" = "${owner} ${owner_start}" ] || return 1
+	if current_start="$(proc_process_start_time "${owner}" 2>/dev/null)"; then
+		[ "${current_start}" != "${owner_start}" ]
+		return "$?"
+	fi
+	# A failed proc read or signal probe alone is not proof: preserve busy state
+	# for unreadable live identities and when procfs cannot establish absence.
+	kill -0 "${owner}" 2>/dev/null && return 1
+	[ -r /proc/self/stat ] && [ ! -e "/proc/${owner}" ] && [ ! -L "/proc/${owner}" ]
+	return "$?"
+}
+
+# adguardhome_run_action_is_stale accepts only private, understood metadata with proven dead ownership.
+adguardhome_run_action_is_stale() {
+	local entry expected_owner lock_dir mutator owner_record transition
+	lock_dir="$1"
+	transition="$2"
+	adguardhome_run_directory_is_private "${lock_dir}" || return 1
+	owner_record=""
+	if [ -e "${lock_dir}/owner" ] || [ -L "${lock_dir}/owner" ]; then
+		adguardhome_run_file_is_private "${lock_dir}/owner" || return 1
+		owner_record="$(awk '
+			NR != 1 || $0 !~ /^[0-9]+ [0-9]+$/ { exit 1 }
+			{ print }
+			END { if (NR == 0) exit 1 }
+		' "${lock_dir}/owner" 2>/dev/null)" || return 1
+		adguardhome_run_record_is_dead "${owner_record}" || return 1
+	fi
+	if [ -n "${transition}" ]; then
+		mutator="${transition%% *}"
+		transition="${transition#* }"
+		mutator="${mutator} ${transition%% *}"
+		expected_owner="${transition#* }"
+		[ -z "${owner_record}" ] || [ "${owner_record}" = "${expected_owner}" ] || return 1
+	else
+		[ -n "${owner_record}" ] || return 1
+	fi
+	for entry in "${lock_dir}/"* "${lock_dir}/".[!.]* "${lock_dir}/"..?*; do
+		[ -e "${entry}" ] || [ -L "${entry}" ] || continue
+		case "${entry##*/}" in
+			owner | pid) [ -n "${owner_record}" ] || return 1 ;;
+			owner.new) [ -z "${owner_record}" ] && [ "${mutator:-}" = "${expected_owner:-}" ] || return 1 ;;
+			*) return 1 ;;
+		esac
+		adguardhome_run_file_is_private "${entry}" || return 1
+	done
+	return 0
+}
+
+# adguardhome_run_legacy_mkdir_active probes validated identities without reaping crashed service metadata.
 adguardhome_run_legacy_mkdir_active() {
+	local lock_dir mutator record transition
+	lock_dir="/tmp/AdGuardHome-service-lock"
+	transition=""
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		adguardhome_run_directory_is_private "${lock_dir}" || return 0
+		if [ -e "${lock_dir}/flock" ] || [ -L "${lock_dir}/flock" ]; then
+			adguardhome_run_file_is_private "${lock_dir}/flock" || return 0
+		fi
+		if [ -e "${lock_dir}/action.claim" ] || [ -L "${lock_dir}/action.claim" ]; then
+			adguardhome_run_link_is_private "${lock_dir}/action.claim" || return 0
+			record="$(readlink "${lock_dir}/action.claim" 2>/dev/null)" || return 0
+			adguardhome_run_record_is_dead "${record}" || return 0
+		fi
+		if [ -e "${lock_dir}/action.transition" ] || [ -L "${lock_dir}/action.transition" ]; then
+			adguardhome_run_link_is_private "${lock_dir}/action.transition" || return 0
+			transition="$(readlink "${lock_dir}/action.transition" 2>/dev/null)" || return 0
+			mutator="${transition%% *}"
+			record="${transition#* }"
+			mutator="${mutator} ${record%% *}"
+			record="${record#* }"
+			adguardhome_run_record_is_dead "${mutator}" && adguardhome_run_record_is_dead "${record}" || return 0
+		fi
+		if [ -e "${lock_dir}/action" ] || [ -L "${lock_dir}/action" ]; then
+			adguardhome_run_action_is_stale "${lock_dir}/action" "${transition}" || return 0
+		fi
+	fi
+	adguardhome_run_legacy_lock_active
+	return "$?"
+}
+
+# Upgrade compatibility is read-only: a live legacy holder or any unsafe entry
+# blocks a new action, including the window before old flock publishes its PID.
+adguardhome_run_legacy_lock_active() {
 	local lock_dir owner pid_file runtime
 	lock_dir="/tmp/AdGuardHome"
 	pid_file="${lock_dir}/pid"
-	[ -d "${lock_dir}" ] || return 1
-	runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
-	[ -z "${runtime}" ] || return 1
-	owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
-	case "${owner}" in
-		"" | *[!0-9]*)
-			return 1
-			;;
-	esac
-	kill -0 "${owner}" 2>/dev/null
-}
-
-adguardhome_run_mkdir() {
-	local action lock_dir pid pid_file status
-	action="$1"
-	lock_dir="/tmp/AdGuardHome"
-	pid_file="${lock_dir}/pid"
-	if (mkdir "${lock_dir}") 2>/dev/null || { [ -e "${pid_file}" ] && [ -n "$(sed -n '2p' "${pid_file}" 2>/dev/null)" ]; } || { [ "${action}" = "stop_adguardhome" ]; }; then
-		(
-			trap 'rm -rf "${lock_dir}"; exit $?' EXIT
-			{ service_wait adguardhome_run; }
-			rm -rf "${lock_dir}"
-		) &
-		pid="$!"
-		adguardhome_run_execute "${action}" "${pid_file}" "${pid}"
-		status="$?"
-		return "${status}"
+	if [ -e "${lock_dir}" ] || [ -L "${lock_dir}" ]; then
+		[ ! -L "${lock_dir}" ] && [ -d "${lock_dir}" ] || return 0
+		owner="$(IPSet_Current_UID)" || return 0
+		ls -ldn "${lock_dir}" 2>/dev/null | awk -v owner="${owner}" '
+			NR == 1 { exit($3 == owner && ($1 == "drwx------" || $1 == "drwxr-xr-x") ? 0 : 1) }
+			END { if (NR == 0) exit 1 }
+		' || return 0
+		if [ -e "${pid_file}" ] || [ -L "${pid_file}" ]; then
+			adguardhome_run_file_is_private "${pid_file}" 1 || return 0
+			runtime="$(sed -n '2p' "${pid_file}" 2>/dev/null)"
+			owner="$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+			case "${owner}" in "" | *[!0-9]*) return 0 ;; esac
+			if [ -z "${runtime}" ] && kill -0 "${owner}" 2>/dev/null; then return 0; fi
+		elif [ ! -e "${lock_dir}.lock" ] && [ ! -L "${lock_dir}.lock" ]; then
+			# Legacy mkdir acquires the directory before publishing its PID.
+			# Unlike a completed descriptor action, it removes the directory.
+			return 0
+		fi
 	fi
-	agh_log warning adguardhome_run_mkdir "state=locked action=${action} reason=active_lock result=duplicate_lock owner=$(sed -n '1p' "${pid_file}" 2>/dev/null)"
+	if [ -e "${lock_dir}.lock" ] || [ -L "${lock_dir}.lock" ]; then
+		adguardhome_run_file_is_private "${lock_dir}.lock" 1 || return 0
+		have_cmd flock || return 0
+		(exec 7<"${lock_dir}.lock" && flock -n 7) >/dev/null 2>&1 || return 0
+	fi
 	return 1
 }
 
+# adguardhome_run_mkdir owns one fallback service action until completion or identity-checked interruption cleanup.
+adguardhome_run_mkdir() {
+	local action lock_dir owner owner_start pid_file saved_traps status
+	action="$1"
+	lock_dir="/tmp/AdGuardHome-service-lock/action"
+	pid_file="${lock_dir}/pid"
+	adguardhome_run_runtime_prepare || return 1
+	adguardhome_run_legacy_lock_active && return 1
+	IFS= read -r owner </proc/self/stat || return 1
+	owner="${owner%% *}"
+	owner_start="$(proc_process_start_time "${owner}")" || return 1
+	if ! adguardhome_run_mkdir_acquire "${lock_dir}" "${owner}" "${owner_start}"; then
+		agh_log warning adguardhome_run_mkdir "state=locked action=${action} reason=active_lock result=duplicate_lock"
+		return 1
+	fi
+	saved_traps="$(trap)"
+	trap 'if [ "${ROLLBACK_ACTIVE:-0}" = "1" ]; then TRANSACTION_SIGNAL_PENDING="1"; else adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; IPSet_Lock_Interrupt_Propagate; exit 1; fi' HUP INT QUIT ABRT TERM TSTP
+	trap 'status="$?"; adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}"; adguardhome_run_flock_restore_traps "${saved_traps}"; exit "${status}"' EXIT
+	adguardhome_run_execute "${action}" "${pid_file}" "${owner}"
+	status="$?"
+	adguardhome_run_mkdir_cleanup "${lock_dir}" "${owner}" "${owner_start}" || status=1
+	adguardhome_run_flock_restore_traps "${saved_traps}"
+	return "${status}"
+}
+
+# flock_supports_fd probes descriptor locking with an exclusively created file inside the validated private parent.
 flock_supports_fd() {
 	local TEST_LOCK status
-	TEST_LOCK="/tmp/adguardhome-flock-test.$$"
+	TEST_LOCK="/tmp/AdGuardHome-service-lock/probe.$$"
+	adguardhome_run_runtime_prepare || return 1
 	(
+		umask 077
+		set -C
 		: >"${TEST_LOCK}" || exit 1
-		exec 8>"${TEST_LOCK}" || exit 1
+		trap 'rm -f "/tmp/AdGuardHome-service-lock/probe.$$"' EXIT
+		adguardhome_run_file_is_private "${TEST_LOCK}" || exit 1
+		exec 8>>"${TEST_LOCK}" || exit 1
 		flock -n 8 >/dev/null 2>&1
 	)
 	status="$?"
-	rm -f "${TEST_LOCK}"
 	return "${status}"
 }
 
@@ -2414,8 +2804,9 @@ private_ipv4_route_dns_options() {
 	return 1
 }
 
+# resolv_conf_is_tmp_mount reports whether the temporary resolver file is a mount point.
 resolv_conf_is_tmp_mount() {
-	df -h | grep -qoE '/tmp/resolv.conf'
+	df -P | grep -qoE '/tmp/resolv.conf'
 }
 
 resolv_conf_uses_rom() {
@@ -2652,19 +3043,36 @@ proc_lock_claim_matches() {
 
 # proc_lock_claim_acquire serializes fallback-lock publication and stale-lock reaping.
 proc_lock_claim_acquire() {
-	local attempts claim_owner claim_pid claim_start current_start reaper self_start
+	local attempts claim_owner claim_pid claim_start current_start reaper self_start try_only
 	self_start="$1"
+	try_only="${2:-0}"
 	reaper="${PROC_LOCK_DIR}.claim.reap.${PROC_LOCK_PID:-$$}"
 	rm -f "${reaper}"
 	attempts=0
 	while ! ln -s "${PROC_LOCK_PID:-$$} ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null; do
+		if [ "${try_only}" = 1 ]; then adguardhome_run_link_is_private "${PROC_LOCK_DIR}.claim" || return 1; fi
 		claim_owner="$(readlink "${PROC_LOCK_DIR}.claim" 2>/dev/null)" || claim_owner=""
 		claim_pid="${claim_owner%% *}"
 		claim_start="${claim_owner#* }"
-		case "${claim_pid}:${claim_start}" in
-			*[!0-9:]* | :* | *:) current_start="" ;;
-			*) current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)" ;;
+		current_start=""
+		case "${claim_pid}" in
+			"" | *[!0-9]*)
+				[ "${try_only}" != 1 ] || return 1
+				;;
+			*)
+				case "${claim_start}" in
+					"" | *[!0-9]*) [ "${try_only}" != 1 ] || return 1 ;;
+					*)
+						if [ "${claim_owner}" = "${claim_pid} ${claim_start}" ]; then
+							current_start="$(proc_process_start_time "${claim_pid}" 2>/dev/null)"
+						else
+							[ "${try_only}" != 1 ] || return 1
+						fi
+						;;
+				esac
+				;;
 		esac
+		if [ "${try_only}" = 1 ] && { [ "${current_start}" = "${claim_start}" ] || { [ -z "${current_start}" ] && kill -0 "${claim_pid}" 2>/dev/null; }; }; then return 1; fi
 		if [ -z "${current_start}" ] || [ "${current_start}" != "${claim_start}" ]; then
 			if mv "${PROC_LOCK_DIR}.claim" "${reaper}" 2>/dev/null; then
 				claim_owner="$(readlink "${reaper}" 2>/dev/null)" || claim_owner=""
@@ -2677,6 +3085,10 @@ proc_lock_claim_acquire() {
 					rm -f "${reaper}"
 				fi
 			fi
+		fi
+		if [ "${try_only}" = 1 ]; then
+			ln -s "${PROC_LOCK_PID:-$$} ${self_start}" "${PROC_LOCK_DIR}.claim" 2>/dev/null || return 1
+			break
 		fi
 		attempts="$((attempts + 1))"
 		[ "${attempts}" -lt 100 ] || return 1
@@ -3158,15 +3570,16 @@ restart_adguardhome() {
 # USR1 requests daemon shutdown and loop exit; USR2 requests a restart through
 # the service lock and DNS handoff. Other trapped termination signals are ignored
 # until shutdown restores their default handlers. Runs until a stop request and
-# returns 0 after leaving the loop; this is not a daemon-readiness result.
+# returns the stop operation's status after leaving the loop.
 start_monitor() {
-	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE
+	local BINARY_UNAVAILABLE_LOGGED MONITOR_BINARY_RETRY_INTERVAL MONITOR_ELAPSED MONITOR_HEALTHCHECK_INTERVAL MONITOR_HEALTHCHECK_TIMEOUT MONITOR_RECOVERY_RETRY_INTERVAL MONITOR_SLEEP_INTERVAL MONITOR_START_ACTION MONITOR_STATE MONITOR_STOP_STATUS
 	MONITOR_BINARY_RETRY_INTERVAL="10"
 	MONITOR_HEALTHCHECK_INTERVAL="300"
 	MONITOR_HEALTHCHECK_TIMEOUT="150"
 	MONITOR_RECOVERY_RETRY_INTERVAL="10"
 	MONITOR_SLEEP_INTERVAL="10"
 	MONITOR_STATE="running"
+	MONITOR_STOP_STATUS="0"
 	trap '' HUP INT QUIT ABRT TERM TSTP
 	trap 'MONITOR_STATE="stop"' USR1
 	trap 'MONITOR_STATE="restart"' USR2
@@ -3199,6 +3612,7 @@ start_monitor() {
 			agh_log info start_monitor "state=stop action=stop_monitor reason=signal_USR1 result=stopping"
 			trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 			{ adguardhome_run stop_adguardhome; }
+			MONITOR_STOP_STATUS="$?"
 			break
 		fi
 		if [ ! -x "${ADGUARDHOME_BINARY}" ]; then
@@ -3284,6 +3698,7 @@ start_monitor() {
 				fi
 				trap - HUP INT QUIT ABRT USR1 USR2 TERM TSTP
 				{ adguardhome_run stop_adguardhome; }
+				MONITOR_STOP_STATUS="$?"
 				break
 				;;
 			"restart")
@@ -3297,6 +3712,7 @@ start_monitor() {
 				;;
 		esac
 	done
+	return "${MONITOR_STOP_STATUS}"
 }
 
 # post_stop_process_ready verifies that AdGuardHome has no running process.
@@ -3311,6 +3727,53 @@ post_stop_handoff_cleared() {
 		[ ! -e "${marker}" ] && [ ! -L "${marker}" ] || return 1
 	done
 	return 0
+}
+
+# post_stop_native_resolver_ready verifies that optional cache routing is gone.
+post_stop_native_resolver_ready() {
+	resolv_conf_uses_rom || ! resolv_conf_is_tmp_mount
+}
+
+# Preserve managed main/SDN requirements before signalling a monitor.  Explicit
+# enabled integration remains required even if dnsmasq later disappears in LAN.
+post_stop_capture_dnsmasq_requirements() {
+	local ADGUARDHOME_DNS_HANDOFF_REQUIRED ADGUARDHOME_DNSMASQ_CONFIGS="${ADGUARDHOME_DNSMASQ_CONFIGS:-}" config configs index
+	case "${STOP_DNSMASQ_REQUIRED:-}" in 0 | 1) return 0 ;; esac
+	STOP_DNSMASQ_REQUIRED="0"
+	STOP_DNSMASQ_CONFIGS=""
+	case "${CONFIG_DNSMASQ_MODE:-auto}" in
+		disabled) return 0 ;;
+		enabled) STOP_DNSMASQ_REQUIRED="1" ;;
+		*) adguard_dnsmasq_managed && STOP_DNSMASQ_REQUIRED="1" ;;
+	esac
+	[ "${STOP_DNSMASQ_REQUIRED}" -eq 1 ] || return 0
+	STOP_DNSMASQ_CONFIGS="/etc/dnsmasq.conf"
+	ADGUARDHOME_DNS_HANDOFF_REQUIRED="1"
+	if type dnsmasq_handoff_configs >/dev/null 2>&1; then
+		configs="$(dnsmasq_handoff_configs)" || return 1
+		STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS} ${configs}"
+	else
+		# The manager can remain available after the Entware service file vanishes.
+		case " $(nvram get rc_support 2>/dev/null) " in
+			*" mtlancfg "*)
+				for config in /etc/dnsmasq-[0-9]*.conf; do
+					[ -f "${config}" ] || continue
+					index="${config#/etc/dnsmasq-}"
+					index="${index%.conf}"
+					case "${index}" in "" | *[!0-9]*) continue ;; esac
+					[ -n "$(sdn_bridge_for_index "${index}")" ] || continue
+					STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS} ${config}"
+				done
+				;;
+		esac
+	fi
+	return 0
+}
+
+# post_stop_complete verifies the postconditions independently of monitor exit.
+post_stop_complete() {
+	post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || return 1
+	[ "${STOP_DNSMASQ_REQUIRED:-0}" -eq 0 ] || post_stop_dnsmasq_ready
 }
 
 # monotonic_seconds returns integer seconds from the kernel monotonic uptime clock.
@@ -3348,10 +3811,88 @@ post_stop_dnsmasq_timeout() {
 	printf '%s\n' "${TIMEOUT}"
 }
 
-# post_stop_dnsmasq_ready verifies that dnsmasq owns local port 53 and resolves localhost through an available DNS server.
+# Verify every captured configuration, including main-only recovery.  The
+# manager's procfs fallback remains available when /opt's service file is gone.
+post_stop_dnsmasq_instances_ready() {
+	local ADGUARDHOME_DNSMASQ_CONFIGS args config executable inventory native_pids pid start table
+	ADGUARDHOME_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS:-}"
+	[ -n "${ADGUARDHOME_DNSMASQ_CONFIGS}" ] || return 1
+	if type dnsmasq_instances_ready >/dev/null 2>&1; then
+		dnsmasq_instances_ready 53 && return 0
+	fi
+	native_pids="$(pidof dnsmasq 2>/dev/null)"
+	if type dnsmasq_managed_instances >/dev/null 2>&1; then
+		inventory="$(dnsmasq_managed_instances | awk '{ print $1, $3 }')" || return 1
+	else
+		inventory="$(
+			for pid in ${native_pids}; do
+				case "${pid}" in "" | *[!0-9]*) continue ;; esac
+				[ "${pid}" -gt 1 ] || continue
+				start="$(proc_process_start_time "${pid}")" || continue
+				executable="$(readlink "/proc/${pid}/exe" 2>/dev/null)" || continue
+				case "${executable}" in /usr/sbin/dnsmasq | /sbin/dnsmasq) ;; *) continue ;; esac
+				[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" = dnsmasq ] || continue
+				args="$(tr '\000' '\n' <"/proc/${pid}/cmdline" 2>/dev/null)" || continue
+				config="$(printf '%s\n' "${args}" | awk '
+					NR == 1 { next }
+					need_config { config=$0; need_config=0; count++; next }
+					$0 == "-C" || $0 == "--conf-file" { need_config=1; next }
+					/^--conf-file=/ { config=substr($0, 13); count++; next }
+					/^-C./ { config=substr($0, 3); count++; next }
+					$0 == "-7" || /^-7./ || /^--conf-dir/ { invalid=1 }
+					END {
+						if (need_config || count > 1 || invalid) exit 1
+						if (count == 0) print "/etc/dnsmasq.conf"
+						else print config
+					}')" || continue
+				case " ${ADGUARDHOME_DNSMASQ_CONFIGS} " in *" ${config} "*) ;; *) continue ;; esac
+				[ -f "${config}" ] && [ ! -L "${config}" ] || continue
+				[ "$(proc_process_start_time "${pid}")" = "${start}" ] || continue
+				printf '%s %s\n' "${pid}" "${config}"
+			done
+		)" || return 1
+	fi
+	table="$(netstat -nlp 2>/dev/null)" || return 1
+	printf '%s\n' "${table}" | awk -v configs="${ADGUARDHOME_DNSMASQ_CONFIGS}" -v inventory="${inventory}" -v native_pids="${native_pids}" '
+		BEGIN {
+			count=split(configs, values, /[[:space:]]+/)
+			for (i=1; i<=count; i++) if (values[i] != "") required[values[i]]=1
+			count=split(inventory, rows, "\n")
+			for (i=1; i<=count; i++) {
+				split(rows[i], fields, " ")
+				if (fields[2] in required) candidates[fields[1]]=fields[2]
+			}
+			for (config in required) expected++
+			for (pid in candidates) { known++; only_pid=pid }
+			# Ownerless main rows are safe only with one identified dnsmasq.
+			pid_count=split(native_pids, pids, /[[:space:]]+/)
+			ownerless=(expected == 1 && ("/etc/dnsmasq.conf" in required) && known == 1 && pid_count == 1 && pids[1] == only_pid)
+		}
+		$1 ~ /^(tcp|udp)6?$/ && $4 ~ /:53$/ {
+			owner=""
+			for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+\//) { owner=$i; break }
+			if (owner == "" && ownerless) pid=only_pid
+			else {
+				split(owner, fields, "/")
+				pid=fields[1]
+				if (fields[2] != "dnsmasq" || !(pid in candidates)) next
+			}
+			if ($1 ~ /^tcp/) tcp[pid]=1
+			if ($1 ~ /^udp/) udp[pid]=1
+		}
+		END {
+			for (pid in candidates) if (tcp[pid] && udp[pid]) ready[candidates[pid]]=1
+			for (config in required) if (!(config in ready)) exit 1
+		}
+	'
+}
+
+# post_stop_dnsmasq_ready verifies that required dnsmasq instances own local port
+# 53 and resolve localhost through an available DNS server.
 post_stop_dnsmasq_ready() {
 	local dns_server dns_servers lan_addr
 	adguard_dnsmasq_running || return 1
+	post_stop_dnsmasq_instances_ready || return 1
 	dns_servers="$(netstat -nlp 2>/dev/null | awk '$0 ~ /:53[[:space:]]/ {
 		owner = ""
 		for (i = NF; i >= 1; i--) if ($i ~ /^[0-9]+\/[^[:space:]]+$/) { owner = $i; break }
@@ -3388,18 +3929,16 @@ post_stop_dnsmasq_ready() {
 
 # stop_adguardhome stops AdGuardHome, restores managed dnsmasq, verifies shutdown and local DNS recovery, and removes expected database links.
 stop_adguardhome() {
-	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_STATUS db
+	local DNSMASQ_READY_ATTEMPTS DNSMASQ_READY_TIMEOUT DNSMASQ_RESTART_ELAPSED DNSMASQ_RESTART_END DNSMASQ_RESTART_START DNSMASQ_WAS_MANAGED STOP_DNSMASQ_CONFIGS="${STOP_DNSMASQ_CONFIGS:-}" STOP_DNSMASQ_REQUIRED="${STOP_DNSMASQ_REQUIRED:-}" STOP_STATUS db
 	STOP_STATUS="0"
+	post_stop_capture_dnsmasq_requirements || STOP_STATUS="1"
 	if ! dnsmasq_resolv_conf_cleanup; then
 		if ! resolv_conf_uses_rom; then
 			if resolv_conf_is_tmp_mount || ! adguard_local_cache_service_active; then STOP_STATUS="1"; fi
 		fi
 	fi
-	DNSMASQ_WAS_MANAGED="0"
+	DNSMASQ_WAS_MANAGED="${STOP_DNSMASQ_REQUIRED}"
 	DNSMASQ_RESTART_ELAPSED="0"
-	if adguard_dnsmasq_managed; then
-		DNSMASQ_WAS_MANAGED="1"
-	fi
 	case "$(pidof "${PROCS}" 2>/dev/null | wc -w)" in
 		0)
 			:
@@ -3452,6 +3991,10 @@ stop_adguardhome() {
 		agh_log error stop_adguardhome "state=stopping action=verify_handoff reason=installer_marker_remains result=failed"
 		STOP_STATUS="1"
 	fi
+	if ! post_stop_native_resolver_ready; then
+		agh_log error stop_adguardhome "state=stopping action=verify_resolver reason=cache_mount_remains result=failed"
+		STOP_STATUS="1"
+	fi
 	for db in stats.db sessions.db; do
 		remove_database_link "/tmp/${db}" "${WORK_DIR}/data/${db}"
 	done
@@ -3480,10 +4023,13 @@ adguard_monitor_pids() {
 # Stop every matching monitor left by an earlier service entry point.  A
 # single stop request must not leave another monitor able to respawn the daemon.
 stop_all_monitors() {
-	local FOUND MONITOR_STOP_FORCED PID STOP_RECOVERY_REQUIRED STOP_STATUS
+	local FOUND MONITOR_STOP_FORCED PID STOP_DNSMASQ_CONFIGS STOP_DNSMASQ_REQUIRED STOP_RECOVERY_REQUIRED STOP_STATUS
 	FOUND=0
 	STOP_RECOVERY_REQUIRED=0
 	STOP_STATUS=0
+	STOP_DNSMASQ_CONFIGS=""
+	STOP_DNSMASQ_REQUIRED=""
+	post_stop_capture_dnsmasq_requirements || STOP_STATUS=1
 	for PID in $(adguard_monitor_pids); do
 		[ "${PID}" != "$$" ] || continue
 		monitor_process_matches "${PID}" || continue
@@ -3492,10 +4038,12 @@ stop_all_monitors() {
 		stop_monitor "$$" || STOP_STATUS=1
 		[ "${MONITOR_STOP_FORCED:-0}" -eq 0 ] || STOP_RECOVERY_REQUIRED=1
 	done
+	post_stop_complete || STOP_RECOVERY_REQUIRED=1
 	if [ "${FOUND}" -eq 0 ] || [ "${STOP_STATUS}" -ne 0 ] || [ "${STOP_RECOVERY_REQUIRED}" -ne 0 ]; then
-		# Escalation can end a monitor before it stops AGH or restores native DNS.
+		# A vanished monitor cannot communicate a failed stop to this parent.
 		adguardhome_run stop_adguardhome || STOP_STATUS=1
 	fi
+	post_stop_complete || STOP_STATUS=1
 	return "${STOP_STATUS}"
 }
 
