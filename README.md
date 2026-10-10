@@ -791,7 +791,7 @@ After building the environments as described in the guide, run the hook, lock, l
 sh tools/test-virtual-arm.sh --features hooks,locks,lifecycle,native_dns --output ../work/virtual-arm-results
 ```
 
-Real-router release candidates must complete the version-controlled [v2.6.5 acceptance checklist](RELEASE-2.6.5-CHECKLIST.md); unexecuted mandatory hardware rows block release approval.
+Real-router release candidates must complete their version-controlled acceptance checklist ([v2.6.7](RELEASE-2.6.7-CHECKLIST.md), with [v2.6.5](RELEASE-2.6.5-CHECKLIST.md) retained as historical validation); unexecuted mandatory hardware rows block release approval.
 
 Repository shell scripts are written for POSIX/BusyBox `ash` compatibility. Avoid Bash-only syntax such as arrays, process substitution, `[[ ... ]]`, and non-portable `pipefail`.
 
@@ -838,7 +838,7 @@ This permission is limited to development workstations and CI/validation runners
 
 ### Release validation
 
-v2.6.7 is a repair release in development for managed hook migration/diagnostics, service-lock path safety and serialization, and verified monitor shutdown. It preserves existing topology policy, saved settings and AdGuardHome channels. The [v2.6.7 acceptance checklist](RELEASE-2.6.7-CHECKLIST.md) tracks software evidence and required physical-router coverage, including upgrades with corrupted legacy hooks, firmware-dispatched DNS restart, DHCP/client connectivity and a proposed 48-hour overnight soak. Hardware results are pending; the reported overnight outage is not yet verified as resolved.
+v2.6.7 is a repair release in development for managed hook migration/diagnostics, service-lock path safety and serialization, and verified monitor shutdown. It preserves existing topology policy, saved settings and AdGuardHome channels. The [v2.6.7 acceptance checklist](RELEASE-2.6.7-CHECKLIST.md) records software evidence and **completed physical acceptance: both ARMv7 and AArch64 routers passed the full checklist and 48-hour testing**, confirmed by the maintainer/operator on October 10, 2026 America/New_York. This covers the checklist's hook/upgrade, firmware DNS restart, DHCP/client/isolation and recovery requirements for the tested configurations. The full-checklist/48-hour configurations were **RT-AC5300 / 386.14_2** and **GT-BE98PRO / 3006.102.9**, respectively, with additional physical testing reported on **RT-AC68U / 386.14_2**. Its individual duration/checklist detail and exact deployed build/event logs remain unreported. Hosted required-check disposition and release approval remain separate.
 
 Release validation is a focused pre-tag pass from the repository root. The required commands in this subsection use POSIX `sh`, BusyBox-compatible syntax checks, and repository test scripts; this portable subset does not itself require Python, Perl, GNU coreutils, systemd, `apt-get`, or Entware. The broader CI and code-quality jobs may use the explicitly permitted host-only validation toolchain above.
 

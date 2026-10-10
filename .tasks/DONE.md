@@ -1,5 +1,37 @@
 # Done
 
+Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
+
+## TASK-023: Record completed physical-router acceptance
+
+**Priority:** P1 | **Tags:** release, hardware, documentation
+**Scope:** User confirmation on October 10, 2026 America/New_York: both ARMv7 and AArch64 physical routers completed 48 hours and passed the full physical checklist. Record RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9 full-checklist/48-hour results plus additional RT-AC68U / 386.14_2 testing. Preserve unreported build/event details and separate software/release gates.
+
+### Plan
+
+- Update the v2.6.7 checklist's hardware coverage, scenarios, soak and sign-off to PASS based on the operator's full-checklist confirmation; clearly distinguish reported physical evidence from independently run software checks.
+- Align README, current TASK-018 status and PR #1033 with completed physical acceptance; label older hardware-skipped records historical without rewriting their results.
+- Validate documentation consistency, references and unchanged runtime/builder inputs. README participates in the ARM content digest, so publish a normal leased update and require fresh matching three-target hosted execution plus acceptance; inspect all new review/check states.
+- Move this recording task to Done after verification. Keep exact unreported build/event traceability fields visible, the separate external AI quota condition visible and the PR ready/unmerged.
+
+### Acceptance criteria
+
+- [x] RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9 have operator-confirmed full-checklist and 48-hour PASS results. Additional RT-AC68U / 386.14_2 physical testing is recorded with its individual duration/checklist detail unreported.
+- [x] Current checklist, README and TASK-018 physical criteria agree; older hardware-skipped results remain explicitly historical and virtual-test limits stay intact.
+- [x] Documentation/status/model/link checks, release/version/manifests and release-check negative regressions pass. README is the sole changed tested policy input; runtime/builder inputs are unchanged. Publication and fresh matching hosted verification proceed as delivery follow-up; pending results are not credited as passes.
+
+### Completion record
+
+Physical evidence ID `PHYS-2026-10-10-OPERATOR` records the user's October 10, 2026 America/New_York report and explicit confirmation, "Both passed the full checklist". The confirmed 48-hour/full-checklist routers are ASUS RT-AC5300 / 386.14_2 (ARMv7) and ASUS GT-BE98PRO / 3006.102.9 (AArch64). The user also reports RT-AC68U / 386.14_2 physical testing; a separate duration/checklist breakdown was not supplied. Device models and firmware are recorded; deployed commit/hashes, BusyBox/configuration details, event/start/end timestamps and detailed artifacts remain identified as unreported.
+
+Updated all 32 physical scenarios, eight coverage criteria, four soak checkpoints and seven physical sign-off rows to reflect the operator's full-checklist confirmation and additional older-model physical coverage. Current physical acceptance is PASS for the confirmed configurations. README links the current v2.6.7 checklist; the earlier DNS documents label their hardware-skipped snapshots historical and link the new record. TASK-018's physical criteria are complete; supplemental traceability and the separate required-check/release disposition remain tracked without treating unprovided metadata as a new failed physical test.
+
+Independent read-only documentation review finds no substantive issue. Counts, all three model/firmware pairs, relative links, historical separation and the byte-identical canonical Amazon Q mirror pass. `sh tools/check-release-consistency.sh`, `sh tests/release-consistency.sh` and `git diff --check` pass. README participates in acceptance identity, producing tested-content digest `25447412491651ce8abb5af65576f3921db08b61e7597b979d5132c532904ad9`; builder fingerprint remains `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. Older `7c0a8167…` native reports are historical implementation evidence and cannot unblock this new digest. Fresh published-head three-target execution and aggregate acceptance are required before claiming the new virtual gate passes.
+
+The documentation recording task is verified. Normal leased publication, PR gate-status update and new-head hosted review/check completion remain delivery follow-up at this record; no future CI result is claimed here. The baseline generated GitHub AI review is separately blocked by HTTP 402 monthly quota exhaustion. PR stays ready and unmerged; no tag, release, check waiver or billing/settings change.
+
+---
+
 ## TASK-022: Resolve ready-review SonarCloud and Qodo findings
 
 **Priority:** P1 | **Tags:** review, security, coverage, hooks, locks, tests

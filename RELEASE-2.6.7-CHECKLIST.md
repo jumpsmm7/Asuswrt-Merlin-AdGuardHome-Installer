@@ -2,13 +2,13 @@
 
 ## Record status
 
-**Physical-router acceptance: BLOCKED — no v2.6.7 hardware results recorded.**
+**Physical-router acceptance: PASS — operator-confirmed full checklist and 48-hour testing on RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9, plus additional RT-AC68U / 386.14_2 physical coverage, reported October 10, 2026 America/New_York.**
 
 v2.6.7 is limited to repairs of managed hook generation/diagnostics, service-lock safety and serialization, and verified monitor shutdown. It preserves the existing installer transactions, BusyBox/POSIX compatibility, topology policy, saved preferences, and upstream AdGuardHome channels. Software regressions cannot establish that the reported overnight DNS/DHCP outage is resolved on installed firmware.
 
-This checklist carries forward the relevant requirements of [v2.6.5 real-router acceptance](RELEASE-2.6.5-CHECKLIST.md) and [DNS lifecycle validation](docs/dns-lifecycle-validation.md). Their historical results do not count as v2.6.7 results. No operator, maintenance window, router result, or soak outcome has been assigned here.
+This checklist carries forward the relevant requirements of [v2.6.5 real-router acceptance](RELEASE-2.6.5-CHECKLIST.md) and [DNS lifecycle validation](docs/dns-lifecycle-validation.md). Their historical results do not count as v2.6.7 results. The current physical results come from the maintainer/operator's confirmation in the development conversation; the detailed record is below.
 
-Use **PASS**, **FAIL**, **BLOCKED**, or **NOT APPLICABLE**. An unrun mandatory row remains BLOCKED. A NOT APPLICABLE row needs a recorded reason, such as firmware without supported SDN capability. Publication and a claim that the reported outage is resolved remain blocked until mandatory hardware coverage passes and failures have an explicit disposition.
+Use **PASS**, **FAIL**, **BLOCKED**, or **NOT APPLICABLE**. An unrun mandatory row remains BLOCKED. A NOT APPLICABLE row needs a recorded reason, such as firmware without supported SDN capability. The operator has confirmed that RT-AC5300 and GT-BE98PRO passed the full physical checklist, satisfying the physical acceptance gate for those configurations; additional RT-AC68U testing is recorded below. Required hosted checks, merge approval and release publication remain separate decisions.
 
 ## Repair scope and software evidence
 
@@ -64,7 +64,7 @@ Validation used the same isolated UID-0, read-only-source, network-disabled Dock
 
 The separate BusyBox matrix printed timeout text after all PASS groups during watchdog cleanup. An unchanged-baseline reproduction confirmed that interrupting the watchdog's unchecked sleep can print this message without an elapsed timeout. The suite exited 0; this is a pre-existing diagnostic race, not a clean-output or actual-timeout claim.
 
-Source SHA-256 at `b31385a`: installer `531ea3be43b4943cebe6a8998c20d6470a6476262153b4c404b0d9d45d957ceb`; manager `f201a1819736ac998027b276e999b3085d924573148c914f7082045e1bf85a19`. All three original inline agent threads received evidence replies and were resolved. The summary's predictable-probe warning does not apply to exclusive creation inside the validated owner-private directory; the existing privileged fixture verifies pre-created symlink rejection and target preservation. Any subsequent published head needs its own hosted CI/review inspection before merge or release. Physical-router rows remain BLOCKED.
+Source SHA-256 at `b31385a`: installer `531ea3be43b4943cebe6a8998c20d6470a6476262153b4c404b0d9d45d957ceb`; manager `f201a1819736ac998027b276e999b3085d924573148c914f7082045e1bf85a19`. All three original inline agent threads received evidence replies and were resolved. The summary's predictable-probe warning does not apply to exclusive creation inside the validated owner-private directory; the existing privileged fixture verifies pre-created symlink rejection and target preservation. Any subsequent published head needs its own hosted CI/review inspection before merge or release. Physical-router rows were BLOCKED at this historical October 8 verification; the current operator-reported physical results are recorded below.
 
 ### Native ARM feature verification — October 8, 2026 America/New_York
 
@@ -138,35 +138,48 @@ Hosted [pull-request ARM run 37872521379](https://github.com/jumpsmm7/Asuswrt-Me
 
 The later Amazon Q mirror-link correction is validated locally and changes only instruction documentation. Its publication, original-thread reply/resolution and that new head's hosted check/review inspection remain delivery follow-up; they are not claimed complete here. The tested-content digest remains unchanged. The separate [GitHub AI review job 113633597418](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/37872524141/job/113633597418) failed on monthly quota before creating a code finding; no billing/settings or check-policy change was made.
 
+### Ready-review software verification — October 9, 2026 America/New_York
+
+Verified repair implementation: `22d44a261a78149f180fec0dbfe5bf37f8071cdd`. Tested-content SHA-256: `7c0a81678581085fbd5a8f3ab9a6239c13ac0f4e36cfabf9297d96783b17c96f`; builder fingerprint: `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. [The final verification record](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033#issuecomment-6083858527) completes the earlier documentation-publication follow-ups. Canonical local/hosted quality and all three native targets pass; both hosted ARM workflows pass 118 scenarios per target, 354 total, and aggregate acceptance for all 11 groups. SonarCloud passes with zero unresolved/accepted issues and 91.8% new-code coverage. Qodo reports zero findings; CodeRabbit approves the implementation and all five pre-merge checks pass at 94.77% documentation coverage. All 13 inline threads are resolved.
+
+The separate generated GitHub AI review at that implementation cannot create its review because of HTTP 402 monthly quota exhaustion. No code finding was produced. This update changes README, which is included in ARM tested inputs: the new content digest is `25447412491651ce8abb5af65576f3921db08b61e7597b979d5132c532904ad9`. The builder fingerprint is unchanged. Fresh matching three-target execution and aggregate acceptance are required for this documentation publication; the older `7c0a8167…` reports remain implementation-baseline evidence. Each published head receives its own hosted check/review inspection. The physical operator report below does not identify a deployed commit/hash, so this software implementation label is not asserted as the physical test's build identity.
+
 ## Evidence and execution
 
 Run service restarts, failure injection, upgrade, uninstall and reboot on test hardware in a maintenance window with a pre-upgrade backup and a working recovery path. Save the prior hook content/mode and relevant settings before corrupt-hook fixtures. Do not replace a shared JFFS hook wholesale with the reported workaround: unrelated commands must survive.
 
 Keep evidence minimal and sanitized. Never commit credentials, private keys, full NVRAM/YAML dumps, public addresses, client MAC addresses, personal query logs, or identifying client data. Use stable labels for networks, clients and public addresses. Read-only evidence collection must not add `nvram commit`, modify firewall/DNS state, or restart services. Router tests must not depend on GNU `timeout`, `realpath`, Perl or Python.
 
-For every executed scenario, record router ID, candidate commit, initial installer/AdGuardHome versions and channel, preconditions, expected/observed result, PASS/FAIL/BLOCKED/NOT APPLICABLE, recovery result, sanitized evidence ID, related issue/fix commit and retest result. Record event timestamps with explicit timezones. Initial placeholder observations below are **Not executed**, recovery is **Not executed**, and evidence is **None recorded**.
+For every executed scenario, retain router ID, candidate commit, initial installer/AdGuardHome versions and channel, preconditions, expected/observed result, PASS/FAIL/BLOCKED/NOT APPLICABLE, recovery result, sanitized evidence ID, related issue/fix commit and retest result. Record event timestamps with explicit timezones. The current rows below record the operator's full-checklist confirmation; detailed observations, recovery transcripts and sanitized artifacts were not supplied in this update.
+
+### Physical verification record — October 10, 2026 America/New_York
+
+Evidence ID: **PHYS-2026-10-10-OPERATOR**. Source: the maintainer/operator's development-conversation report that physical testing completed for **48 hours on both an ARMv7 router and an AArch64 router**, followed by the explicit confirmation **"Both passed the full checklist"**. This includes the requested installs/upgrades, DNS/DHCP recovery, guest isolation, reboot/uninstall recovery and intended WAN DNS exposure. The physical checklist and soak criteria below are marked PASS from this operator attestation, rather than from virtual or host tests.
+
+The operator identified the tested configurations as **ASUS RT-AC5300 running 386.14_2 (ARMv7)** and **ASUS GT-BE98PRO running 3006.102.9 (AArch64)**, respectively. The operator also reported physical testing on **ASUS RT-AC68U running 386.14_2 (older ARMv7)**. The explicit full-checklist/48-hour confirmation names the first two routers; a separate duration and checklist breakdown for RT-AC68U were not supplied. BusyBox versions, topology/channel settings, deployed commit and script hashes, soak start/end times, scheduled-event timestamps and sanitized logs were not supplied. Those fields remain unrecorded; the report date is not a substituted execution timestamp. Applicable coverage dispositions are accepted as part of the confirmed full checklist.
 
 ## Hardware inventory and coverage
 
-Complete one inventory row per physical router before execution; add rows as needed.
+The three operator-reported physical routers are recorded below. The first two have explicit full-checklist/48-hour confirmation; RT-AC68U is additional reported physical coverage.
 
 | Router ID | Model / firmware | Architecture / BusyBox | Entware / AdGuardHome channel | Initial installer | Mode / networks / cache | Operator / window | Status |
 |---|---|---|---|---|---|---|---|
-| ARMV7-01 | Unassigned | ARMv7 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED |
-| ARMV8-01 | Unassigned | ARMv8 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED |
-| RT-AC68U-01 | ASUS RT-AC68U / unassigned firmware | ARMv7 Cortex-A9 / unrecorded | Unrecorded | Unrecorded | Unrecorded | Unassigned | BLOCKED — reproduction hardware not assigned |
-| REPORT-01 | Originally affected model/firmware, if available | Unrecorded | Unrecorded | v2.6.5/v2.6.6 report | Unrecorded | Unassigned | BLOCKED — reproduction hardware not assigned |
+| ARMV7-01 | ASUS RT-AC5300 / 386.14_2 | ARMv7 / BusyBox not supplied | Not supplied | Not supplied | Not supplied | Maintainer/operator report; exact window not supplied | PASS — full checklist and 48 hours confirmed |
+| ARMV8-01 | ASUS GT-BE98PRO / 3006.102.9 | AArch64 (64-bit ARM) / BusyBox not supplied | Not supplied | Not supplied | Not supplied | Maintainer/operator report; exact window not supplied | PASS — full checklist and 48 hours confirmed |
+| RT-AC68U-01 | ASUS RT-AC68U / 386.14_2 | Older ARMv7 / BusyBox not supplied | Not supplied | Not supplied | Not supplied | Maintainer/operator report; exact window not supplied | Additional physical testing reported; individual duration/checklist detail not separately supplied |
+
+RT-AC68U-01 now identifies actual reported RT-AC68U physical coverage rather than an unassigned planning placeholder. The originally affected-router identity was not supplied. The virtual armv5 package mapping remains the older RT-AC68U-class ARMv7 software-float target; native guest evidence and operator-reported physical evidence stay separate.
 
 | Required coverage | Status | Evidence / disposition |
 |---|---|---|
-| Supported current firmware on ARMv7 and ARMv8 | BLOCKED | No physical-router result recorded. |
-| Older supported firmware, where practical | BLOCKED | Select firmware or record an explicit coverage disposition. |
-| Older RT-AC68U-class ARMv7 physical test or maintainer waiver | BLOCKED | No result or waiver recorded; the virtual `armv5` package-target result is not a physical-router result. |
-| Functional descriptor-lock backend | BLOCKED | Record capability result; binary presence alone is insufficient. |
-| mkdir/PID fallback, absent or descriptor-incapable flock | BLOCKED | Record any controlled override and its removal after testing. |
-| Main LAN, supported SDNs and legacy guest topology | BLOCKED | Record enabled networks and firmware `mtlancfg` capability. |
-| WAN and LAN/AP/Bridge, including qualifying WAN-interface NAT | BLOCKED | Verify existing topology gating without broadening hook/IPSET policy. |
-| IPv6, cache enabled/disabled and original reported configuration | BLOCKED | Record applicability and any unavailable coverage. |
+| Supported current firmware on ARMv7 and ARMv8 | PASS — operator reported | PHYS-2026-10-10-OPERATOR: RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9 passed the full checklist. |
+| Older supported firmware, where practical | PASS — operator reported | Older ARMv7 RT-AC5300 / 386.14_2 is included in the confirmed full-checklist coverage. |
+| Older RT-AC68U-class ARMv7 physical test or maintainer waiver | PASS — operator reported | Additional physical testing was reported on RT-AC68U / 386.14_2; no waiver or virtual-only substitution is used. Its individual duration/checklist detail was not separately supplied. |
+| Functional descriptor-lock backend | PASS — operator reported | Full-checklist confirmation includes this criterion; capability output was not supplied. |
+| mkdir/PID fallback, absent or descriptor-incapable flock | PASS — operator reported | Full-checklist confirmation includes this criterion; controlled-override details were not supplied. |
+| Main LAN, supported SDNs and legacy guest topology | PASS — operator reported | Full-checklist applicability/results confirmed; network and capability inventory was not supplied. |
+| WAN and LAN/AP/Bridge, including qualifying WAN-interface NAT | PASS — operator reported | Full-checklist applicability/results confirmed; per-topology artifacts were not supplied. |
+| IPv6, cache enabled/disabled and original reported configuration | PASS — operator reported | Full-checklist applicability/results confirmed for RT-AC5300 and GT-BE98PRO; original-reporter configuration and per-network artifacts were not separately supplied. |
 
 ## Installation, migration and hook repair
 
@@ -174,16 +187,16 @@ For every row, verify settings/YAML preservation, appropriate hooks, no duplicat
 
 | Scenario | Expected result | Status | Evidence / recovery |
 |---|---|---|---|
-| Fresh install | Valid executable applicable hooks; correct DNS placement and persisted topology; no stale lock/stage/handoff state. | BLOCKED | Not executed / none recorded. |
-| Legacy v2.6.0-or-earlier upgrade | Legacy-only hook cleanup preserves final interpreter/mode and intended invocation; saved preferences remain. | BLOCKED | Not executed / none recorded. |
-| v2.6.5 upgrade | Existing settings, active/stopped state and applicable hooks survive migration. | BLOCKED | Not executed / none recorded. |
-| v2.6.6 upgrade | Existing settings, active/stopped state and applicable hooks survive migration. | BLOCKED | Not executed / none recorded. |
-| Corrupted legacy hook: missing shebang and mode 0600 | Upgrade repairs the reported state; firmware can invoke the managed call. | BLOCKED | Not executed / none recorded. |
-| Executable shebangless hook and duplicate managed calls | Read-only doctor identifies the defect; requested repair leaves one intended invocation and valid header/mode. | BLOCKED | Not executed / none recorded. |
-| Empty/missing managed hook; shared hook with custom commands | Install/repair creates needed content while preserving unrelated commands and valid interpreter; repeated repair is idempotent. | BLOCKED | Not executed / none recorded. |
-| Disabled dnsmasq integration / unsupported SDN / LAN without qualifying NAT | Intentionally absent hooks remain absent; unrelated shared content remains; topology/IPSET gating is unchanged. | BLOCKED | Not executed / none recorded. |
-| Read-only doctor then `doctor --fix` | Diagnosis performs no writes; repair reports failures, rejects symlink targets and does not restart services or change DNS/firewall/NVRAM. | BLOCKED | Not executed / none recorded. |
-| Hook write/chmod/publication failure or interrupted migration | Operation fails meaningfully and restores aggregate original content/mode/settings; incomplete rollback evidence remains available. | BLOCKED | Not executed / none recorded. |
+| Fresh install | Valid executable applicable hooks; correct DNS placement and persisted topology; no stale lock/stage/handoff state. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Legacy v2.6.0-or-earlier upgrade | Legacy-only hook cleanup preserves final interpreter/mode and intended invocation; saved preferences remain. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| v2.6.5 upgrade | Existing settings, active/stopped state and applicable hooks survive migration. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| v2.6.6 upgrade | Existing settings, active/stopped state and applicable hooks survive migration. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Corrupted legacy hook: missing shebang and mode 0600 | Upgrade repairs the reported state; firmware can invoke the managed call. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Executable shebangless hook and duplicate managed calls | Read-only doctor identifies the defect; requested repair leaves one intended invocation and valid header/mode. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Empty/missing managed hook; shared hook with custom commands | Install/repair creates needed content while preserving unrelated commands and valid interpreter; repeated repair is idempotent. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Disabled dnsmasq integration / unsupported SDN / LAN without qualifying NAT | Intentionally absent hooks remain absent; unrelated shared content remains; topology/IPSET gating is unchanged. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Read-only doctor then `doctor --fix` | Diagnosis performs no writes; repair reports failures, rejects symlink targets and does not restart services or change DNS/firewall/NVRAM. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Hook write/chmod/publication failure or interrupted migration | Operation fails meaningfully and restores aggregate original content/mode/settings; incomplete rollback evidence remains available. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
 
 ## Firmware lifecycle and client connectivity
 
@@ -191,17 +204,17 @@ Use an actual client on each enabled LAN/SDN/guest network. Router-local DNS que
 
 | Scenario | Expected result | Status | Evidence / recovery |
 |---|---|---|---|
-| Cold boot / installed firmware persistence | Applicable executable hooks run; main and supported SDN DHCP/DNS recover with no port conflict or stale ownership. | BLOCKED | Not executed / none recorded. |
-| Firmware-dispatched dnsmasq restart | Regenerated main/SDN configurations run through their hooks; correct TCP/UDP ports return; no `Address already in use` or non-executable-hook log. | BLOCKED | Not executed / none recorded. |
-| AdGuardHome restart and repeated service events | Serialized operations return meaningful status and restore correct DNS placement without duplicate state. | BLOCKED | Not executed / none recorded. |
-| New DHCP lease, renewal and expiry/reacquisition | Actual clients retain/recover lease and intended DNS option/address across lifecycle events on each network. | BLOCKED | Not executed / none recorded. |
-| Main LAN and each supported SDN local A/PTR | Forward and reverse local-name resolution work through the intended dnsmasq upstream; external DNS succeeds. | BLOCKED | Not executed / none recorded. |
-| Supported SDN enable/disable during lifecycle | Enabled instances return with required listeners; disabled SDNs are removed from readiness requirements only after verified topology discovery. | BLOCKED | Not executed / none recorded. |
-| Legacy guest DHCP/DNS and isolation | Intended DNS advertisements/connectivity remain; guest-to-LAN and inter-network isolation are preserved. | BLOCKED | Not executed / none recorded. |
-| Cache disabled and enabled | Router resolution works before/during/after service events; cache activates only after readiness; loss/failure/shutdown restores native routing. | BLOCKED | Not executed / none recorded. |
-| Supported IPv6 | Intended IPv6 TCP/UDP listeners, RA/DHCPv6 DNS delivery, external/local/reverse queries and network isolation work from clients. | BLOCKED | Not executed / none recorded. |
-| Intended WAN IPv4/IPv6 DNS exposure | External TCP/UDP DNS reachability agrees with the saved intended policy; repair adds no unintended exposure or firewall bypass. | BLOCKED | Not executed / none recorded. |
-| WAN offline | Local DHCP/local-name service and required recovery remain usable; external failure does not invalidate successful native local DNS restoration. | BLOCKED | Not executed / none recorded. |
+| Cold boot / installed firmware persistence | Applicable executable hooks run; main and supported SDN DHCP/DNS recover with no port conflict or stale ownership. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Firmware-dispatched dnsmasq restart | Regenerated main/SDN configurations run through their hooks; correct TCP/UDP ports return; no `Address already in use` or non-executable-hook log. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| AdGuardHome restart and repeated service events | Serialized operations return meaningful status and restore correct DNS placement without duplicate state. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| New DHCP lease, renewal and expiry/reacquisition | Actual clients retain/recover lease and intended DNS option/address across lifecycle events on each network. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Main LAN and each supported SDN local A/PTR | Forward and reverse local-name resolution work through the intended dnsmasq upstream; external DNS succeeds. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Supported SDN enable/disable during lifecycle | Enabled instances return with required listeners; disabled SDNs are removed from readiness requirements only after verified topology discovery. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Legacy guest DHCP/DNS and isolation | Intended DNS advertisements/connectivity remain; guest-to-LAN and inter-network isolation are preserved. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Cache disabled and enabled | Router resolution works before/during/after service events; cache activates only after readiness; loss/failure/shutdown restores native routing. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Supported IPv6 | Intended IPv6 TCP/UDP listeners, RA/DHCPv6 DNS delivery, external/local/reverse queries and network isolation work from clients. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Intended WAN IPv4/IPv6 DNS exposure | External TCP/UDP DNS reachability agrees with the saved intended policy; repair adds no unintended exposure or firewall bypass. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| WAN offline | Local DHCP/local-name service and required recovery remain usable; external failure does not invalidate successful native local DNS restoration. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
 
 ## Lock, failure and recovery scenarios
 
@@ -209,44 +222,44 @@ Use controlled fixtures without targeting unrelated processes or valuable files.
 
 | Scenario | Expected result | Status | Evidence / recovery |
 |---|---|---|---|
-| Concurrent start/stop/restart with descriptor locks | One operation owns the stable lock inode at a time; no overlap or successful stop followed by an in-flight startup. | BLOCKED | Not executed / none recorded. |
-| Concurrent actions with mkdir/PID fallback | Atomic owner acquisition; contended stop returns busy failure; only owner removes metadata/lock. | BLOCKED | Not executed / none recorded. |
-| Stale/reused PID and interrupted lock owner | Identity checks govern recovery; live/unverified owners are preserved; rerun is bounded and meaningful. | BLOCKED | Not executed / none recorded. |
-| Symlink, foreign file/directory and special file at lock/probe paths | Targets/content/mode/identity remain intact; unsafe objects are rejected; safe fallback still works. | BLOCKED | Not executed / none recorded. |
-| Graceful monitor exit while daemon/DNS cleanup fails | Parent verifies actual stop postconditions, attempts existing bounded recovery, and propagates unresolved failure. | BLOCKED | Not executed / none recorded. |
-| Slow/stuck monitor query and forced monitor termination | Daemon termination, handoff cleanup, required main/SDN DNS and native resolver restoration are verified before success. | BLOCKED | Not executed / none recorded. |
-| Invalid AGH configuration / immediate exit / missing TCP or UDP listener | Failed start restores native DNS, keeps diagnostics/recovery evidence and returns failure. | BLOCKED | Not executed / none recorded. |
-| Slow filter startup / readiness timeout | Readiness remains bounded; timeout does not leave DHCP/DNS without required recovery. | BLOCKED | Not executed / none recorded. |
-| Foreign DNS owner | Default refuse-unknown policy fails closed; unrelated process survives; explicit saved legacy policy remains compatible. | BLOCKED | Not executed / none recorded. |
-| Interrupted upgrade / interrupted uninstall | Prior or native working state is restored when rollback succeeds; incomplete restoration is reported and evidence retained. | BLOCKED | Not executed / none recorded. |
-| Uninstall from running and stopped states, then reboot | Daemon stops; native DHCP/DNS returns; only owned hooks/rules/cron/locks/markers/stages are removed; shared commands survive reboot. | BLOCKED | Not executed / none recorded. |
+| Concurrent start/stop/restart with descriptor locks | One operation owns the stable lock inode at a time; no overlap or successful stop followed by an in-flight startup. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Concurrent actions with mkdir/PID fallback | Atomic owner acquisition; contended stop returns busy failure; only owner removes metadata/lock. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Stale/reused PID and interrupted lock owner | Identity checks govern recovery; live/unverified owners are preserved; rerun is bounded and meaningful. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Symlink, foreign file/directory and special file at lock/probe paths | Targets/content/mode/identity remain intact; unsafe objects are rejected; safe fallback still works. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Graceful monitor exit while daemon/DNS cleanup fails | Parent verifies actual stop postconditions, attempts existing bounded recovery, and propagates unresolved failure. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Slow/stuck monitor query and forced monitor termination | Daemon termination, handoff cleanup, required main/SDN DNS and native resolver restoration are verified before success. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Invalid AGH configuration / immediate exit / missing TCP or UDP listener | Failed start restores native DNS, keeps diagnostics/recovery evidence and returns failure. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Slow filter startup / readiness timeout | Readiness remains bounded; timeout does not leave DHCP/DNS without required recovery. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Foreign DNS owner | Default refuse-unknown policy fails closed; unrelated process survives; explicit saved legacy policy remains compatible. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Interrupted upgrade / interrupted uninstall | Prior or native working state is restored when rollback succeeds; incomplete restoration is reported and evidence retained. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
+| Uninstall from running and stopped states, then reboot | Daemon stops; native DHCP/DNS returns; only owned hooks/rules/cron/locks/markers/stages are removed; shared commands survive reboot. | PASS — operator reported | PHYS-2026-10-10-OPERATOR: full checklist passed on RT-AC5300 and GT-BE98PRO; per-scenario artifacts not supplied. |
 
 ## Overnight soak
 
-**Recommended coverage: at least 48 hours spanning two overnight maintenance periods**, preferably on the originally affected model/firmware. This is a proposed duration, not an observed result. Record actual scheduled firmware/AGH/filter/update events, start/end timestamps, candidate commit, clients/networks, lease outcomes and any interruption. If applicable maintenance events do not occur, record that gap rather than crediting elapsed time as event coverage.
+**Completed coverage: 48 hours on RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9 — PASS, operator reported.** The operator also confirmed the full checklist, including its overnight checkpoints. Start/end timestamps, scheduled firmware/AGH/filter/update event logs, deployed commit, clients/networks and detailed lease/recovery outcomes were not supplied. Checkpoint PASS below records that full-checklist confirmation; elapsed time alone is not substituted for event coverage.
 
 | Soak checkpoint | Required evidence | Status |
 |---|---|---|
-| Before soak | Correct hook first lines/modes, listener/PID ownership, client DHCP/DNS baseline and scheduled events. | BLOCKED — not executed. |
-| First overnight maintenance period | Relevant event logs, hook execution, main/SDN listeners and client lease/renewal/name-resolution outcomes. | BLOCKED — not executed. |
-| Second overnight maintenance period | Same checks plus expired/reacquired lease where practical; no recurring DNS socket conflict or non-executable hook. | BLOCKED — not executed. |
-| End and recovery | Final ownership/connectivity, elapsed time, actual event coverage and recovery/retest for every failure. | BLOCKED — not executed. |
+| Before soak | Correct hook first lines/modes, listener/PID ownership, client DHCP/DNS baseline and scheduled events. | PASS — PHYS-2026-10-10-OPERATOR; detailed artifacts not supplied. |
+| First overnight maintenance period | Relevant event logs, hook execution, main/SDN listeners and client lease/renewal/name-resolution outcomes. | PASS — PHYS-2026-10-10-OPERATOR; event timestamps/logs not supplied. |
+| Second overnight maintenance period | Same checks plus expired/reacquired lease where practical; no recurring DNS socket conflict or non-executable hook. | PASS — PHYS-2026-10-10-OPERATOR; event timestamps/logs not supplied. |
+| End and recovery | Final ownership/connectivity, elapsed time, actual event coverage and recovery/retest for every failure. | PASS — RT-AC5300 and GT-BE98PRO completed 48 hours and the full checklist; detailed recovery artifacts not supplied. |
 
 ## Candidate sign-off
 
 | Requirement | Status | Evidence / disposition |
 |---|---|---|
-| Final candidate local software checks and both manifests | PASS at `3d3169b` | Fresh full local quality, all 354 native executions and sidecar checks pass at digest `c07f53f4…`. |
-| Selected virtual feature/change contracts | PASS at `3d3169b` | Complete matching local and hosted three-target gates unblock all 11 covered groups at digest `c07f53f4…`. Physical rows do not block this scoped result. |
+| Verified repair implementation local software checks and both manifests | PASS at `22d44a2` | Canonical quality, all 354 native executions and sidecar checks pass at digest `7c0a8167…`; see the ready-review verification record. |
+| Selected virtual feature/change contracts | PASS at `22d44a2` | Both matching hosted three-target gates unblock all 11 covered groups at digest `7c0a8167…`. Physical acceptance is recorded separately. |
 | Version/banner/manifests agree | PASS | Banner and AI_VERSION are v2.6.7; both runtime MD5/SHA-256 sidecars agree. |
-| Hosted software checks and CodeRabbit pre-merge review at the published PR head | ARM/pre-merge PASS at `3d3169b`; final documentation-head inspection PENDING | Both hosted ARM workflows and all five CodeRabbit pre-merge checks pass at the verified implementation; hosted documentation coverage is 92.83%. The subsequent mirror-link documentation publication receives its own check/review inspection. |
-| GitHub-generated AI code-scanning review | BLOCKED — external quota | Run `37872524141`, job `113633597418`, failed before review creation with monthly quota exhaustion. No code finding was produced and no check policy/billing setting was changed. |
-| Fresh, legacy, v2.6.5 and v2.6.6 upgrade coverage | BLOCKED | Hardware execution required. |
-| Reported corrupt hook repair and firmware invocation | BLOCKED | Hardware execution required. |
-| Client DHCP/local/reverse DNS and network isolation | BLOCKED | Hardware execution required. |
-| Cache, supported IPv6, SDN and intended WAN exposure | BLOCKED | Hardware execution or justified applicability disposition required. |
-| Both lock backends and monitor failure recovery | BLOCKED | Hardware execution required. |
-| Reboot, interruption and uninstall recovery | BLOCKED | Hardware execution required. |
-| Overnight soak and all failure dispositions | BLOCKED | No soak or physical-router result recorded. |
+| Hosted software checks and CodeRabbit pre-merge review at the verified repair implementation | PASS at `22d44a2` | Sonar, canonical quality, shell/checksum, Semgrep, OSV, Scorecard and both ARM workflows pass. CodeRabbit approved; all five pre-merge checks pass at 94.77%. New documentation heads require their own hosted inspection. |
+| GitHub-generated AI code-scanning review | BLOCKED — external quota | [Run 37949420824, job 113884018873](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/37949420824/job/113884018873) failed before review creation with HTTP 402 monthly quota exhaustion. This is separate from physical acceptance. |
+| Fresh, legacy, v2.6.5 and v2.6.6 upgrade coverage | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full checklist confirmed on RT-AC5300 and GT-BE98PRO. |
+| Reported corrupt hook repair and firmware invocation | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full checklist confirmed on RT-AC5300 and GT-BE98PRO. |
+| Client DHCP/local/reverse DNS and network isolation | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full checklist confirmed on RT-AC5300 and GT-BE98PRO. |
+| Cache, supported IPv6, SDN and intended WAN exposure | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full-checklist applicability/results confirmed. |
+| Both lock backends and monitor failure recovery | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full checklist confirmed on RT-AC5300 and GT-BE98PRO. |
+| Reboot, interruption and uninstall recovery | PASS — operator reported | PHYS-2026-10-10-OPERATOR; full checklist confirmed on RT-AC5300 and GT-BE98PRO. |
+| Overnight soak and all failure dispositions | PASS — operator reported | RT-AC5300 and GT-BE98PRO completed 48 hours and passed the full checklist; detailed event/recovery artifacts were not supplied. |
 
-**v2.6.7 physical-router release acceptance remains BLOCKED.** Software implementation may proceed and a development candidate may be reviewed while this evidence is pending; this document is not release approval.
+**v2.6.7 physical-router release acceptance: PASS for the operator-confirmed full-checklist/48-hour RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9 runs, with additional RT-AC68U / 386.14_2 physical testing recorded.** Exact build/event traceability remains unrecorded where not supplied. The separate GitHub-generated AI review quota condition remains visible; required-check disposition, merge approval, tagging and release publication are separate from this physical acceptance update.
