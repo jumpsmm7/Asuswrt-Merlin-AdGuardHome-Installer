@@ -435,7 +435,8 @@ class IntegrationPolicy(unittest.TestCase):
         skill = self.data["skills"][0]
         for value in ("[]", "{}", "true", "FALSE", "yes", "Off", "# comment", "[unterminated",
                       "{unterminated", "&alias", "*alias", "!tag", "%invalid", "@invalid", "`invalid",
-                      "12", "-1.5", "+2", "0xFA", "0o77", ".NaN", ".inf", "2026-10-11", "A: B", "mapping:",
+                      "12", "-1.5", "+2", "0xFA", "0o77", ".NaN", ".inf", ".5e2", "-.5e-2", "+.5E+2",
+                      "2026-10-11", "A: B", "mapping:",
                       "- item", "? key", "true # note", "12 # note", "null # note", "2026-10-11T12:00:00Z",
                       "2026-10-11 12:00:00", "?", "-",
                       "'unescaped'quote'", '"\\n"', '"invalid\\q"'):
@@ -447,7 +448,8 @@ class IntegrationPolicy(unittest.TestCase):
     def test_frontmatter_decodes_supported_quoted_strings(self):
         """YAML single-quote escapes and JSON-compatible double quotes retain text."""
         skill = self.data["skills"][0]
-        for value in ("'Router''s safe instructions.'", '"Read \\"AGENTS.md\\" first."', "Safe instructions. # note"):
+        for value in ("'Router''s safe instructions.'", '"Read \\"AGENTS.md\\" first."', "Safe instructions. # note",
+                      "'.5e2'", '"-.5e-2"', '"+.5E+2"'):
             with self.subTest(value=value):
                 text = f"---\nname: {skill['name']}\ndescription: {value}\n---\nAGENTS.md\n"
                 (self.root / skill["path"]).write_text(text, encoding="utf-8")

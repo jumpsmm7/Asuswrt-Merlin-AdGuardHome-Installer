@@ -189,7 +189,7 @@ def frontmatter_value(value):
             "nonstring frontmatter scalar")
     require(not value.startswith(tuple("[]{}#&*!|>%@`:")), "unsupported plain frontmatter scalar")
     require(re.match(r"[-?](?:\s|$)", value) is None, "unsupported plain frontmatter scalar")
-    require(re.fullmatch(r"[+-]?(?:\d[\d_.a-fxo:+-]*|\.\d+|\.inf|\.nan)", value, re.ASCII | re.IGNORECASE) is None,
+    require(re.fullmatch(r"[+-]?(?:\d[\d_.a-fxo:+-]*|\.\d+(?:e[+-]?\d+)?|\.inf|\.nan)", value, re.ASCII | re.IGNORECASE) is None,
             "nonstring numeric frontmatter scalar")
     require(re.match(r"\d{4}-\d{2}-\d{2}(?:$|[Tt ])", value, re.ASCII) is None,
             "nonstring timestamp frontmatter scalar")

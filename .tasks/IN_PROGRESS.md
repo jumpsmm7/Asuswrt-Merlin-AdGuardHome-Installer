@@ -9,6 +9,7 @@
 
 - Independently verify all 11 Sonar findings, including repeated policy literals, frontmatter parsing complexity, numeric character classes, redundant exception handling and caller-supplied root selection.
 - Address two subsequently reported Codex consistency gaps: requested-provider deletion and malformed optional skill metadata must fail validation. Preserve valid existing Qodo trigger headers and document the supported metadata grammar; add isolated negative tests.
+- Reject unquoted leading-decimal exponents consistently across agents' YAML versions while preserving quoted text; add signed/unsigned and quoted controls for the subsequently reported CodeRabbit case.
 - Simplify parsing and make CLI repository selection derive from the checked-in checker location. Keep isolated real-process tests by placing the checker in each disposable fixture repository; preserve no-follow descriptor access, nonregular-file rejection, read-only checks, stderr and timeout assertions.
 - Re-run focused host safety tests and genuine credential-free coverage, independently review the final diff, and obtain fresh frozen all-three-target native evidence for the changed tested content. Keep physical acceptance separate and do not weaken thresholds or suppress findings.
 - Publish normal leased PR updates, inspect current-head Sonar and other agent/check results through one observer, and record evidence-based thread dispositions using the existing Qodo resolver.
