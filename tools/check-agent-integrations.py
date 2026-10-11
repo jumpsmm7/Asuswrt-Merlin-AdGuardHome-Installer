@@ -13,8 +13,9 @@ from pathlib import Path
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ".agents/integrations.json"
 GUIDE = "docs/agent-integrations.md"
+POLICY = "AGENTS.md"
 REQUIRED_AGENTS = {
-    "codex": ("AGENTS.md", "canonical"),
+    "codex": (POLICY, "canonical"),
     "amazonq": (".amazonq/rules/AGENTS.md", "mirror"),
     "coderabbit": (".coderabbit.yaml", "policy"),
     "qodo": ("REVIEW.md", "pointer"),
@@ -142,18 +143,26 @@ def validate_agents(root, agents):
         path_parts(agent["path"])
         claim(agent["path"], paths, "agent path")
         text = read_text(root, agent["path"])
-        require("AGENTS.md" in text and GUIDE in text, f"agent {name} must link the shared policy and guide")
+        require(POLICY in text and GUIDE in text, f"agent {name} must link the shared policy and guide")
         registered[name] = (agent["path"], kind)
         if kind == "canonical":
             canonical.append(name)
     require(canonical == ["codex"], "exactly one canonical agent, codex, is required")
     for name, expected in REQUIRED_AGENTS.items():
         require(registered.get(name) == expected, f"missing or altered required agent: {name}")
-    canonical_policy = read_file(root, "AGENTS.md")
+    canonical_policy = read_file(root, POLICY)
     for path, kind in registered.values():
         if kind == "mirror":
             require(canonical_policy == read_file(root, path), "mirrored policy must be byte-identical to AGENTS.md")
     return len(registered)
+
+
+def strip_plain_comment(value):
+    """Remove unquoted inline comments in one bounded pass over the scalar."""
+    for index, character in enumerate(value):
+        if character == "#" and index > 0 and value[index - 1].isspace():
+            return value[:index].rstrip()
+    return value.rstrip()
 
 
 def frontmatter_value(lines, index, value):
@@ -172,14 +181,14 @@ def frontmatter_value(lines, index, value):
         inner = value[1:-1]
         require("'" not in inner.replace("''", ""), "invalid single-quoted frontmatter scalar")
         return inner.replace("''", "'")
-    value = re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
+    value = strip_plain_comment(value)
     require(value.lower() not in ("null", "~", "true", "false", "yes", "no", "on", "off"),
             "nonstring frontmatter scalar")
     require(not value.startswith(tuple("[]{}#&*!|>%@`:")), "unsupported plain frontmatter scalar")
     require(re.match(r"[-?](?:\s|$)", value) is None, "unsupported plain frontmatter scalar")
-    require(re.fullmatch(r"[+-]?(?:[0-9][0-9_.eExXoOa-fA-F:+-]*|\.[0-9]+|\.inf|\.nan)", value, re.IGNORECASE) is None,
+    require(re.fullmatch(r"[+-]?(?:\d[\d_.a-fxo:+-]*|\.\d+|\.inf|\.nan)", value, re.ASCII | re.IGNORECASE) is None,
             "nonstring numeric frontmatter scalar")
-    require(re.match(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:$|[Tt ])", value) is None,
+    require(re.match(r"\d{4}-\d{2}-\d{2}(?:$|[Tt ])", value, re.ASCII) is None,
             "nonstring timestamp frontmatter scalar")
     require(re.search(r":(?:\s|$)", value) is None, "unsupported plain frontmatter mapping")
     return value.strip()
@@ -196,9 +205,9 @@ def skill_frontmatter(text):
     metadata = {}
     header = lines[1:end]
     for index, line in enumerate(header):
-        match = re.fullmatch(r"(name|description):\s*(.*)", line)
-        if match:
-            key, value = match.groups()
+        key, separator, value = line.partition(":")
+        if separator and key in ("name", "description"):
+            value = value.lstrip()
             require(key not in metadata, f"duplicate skill frontmatter key: {key}")
             require(key != "name" or value not in ("|", ">", "|-", ">-", "|+", ">+"),
                     "skill name must be a single-line scalar")
@@ -242,7 +251,7 @@ def validate_skills(root, skills):
         require(skill["path"] == f".agents/skills/{name}/SKILL.md", f"unexpected skill path: {skill['path']}")
         text = read_text(root, skill["path"])
         require(skill_frontmatter(text)["name"] == name, f"skill frontmatter name mismatch: {name}")
-        require("AGENTS.md" in text, f"skill {name} must link AGENTS.md")
+        require(POLICY in text, f"skill {name} must link AGENTS.md")
     require(REQUIRED_SKILLS <= names, "existing Qodo skills must remain registered")
     require(discover_skills(root) == paths, "discovered skills and registry do not match")
     return names
@@ -279,7 +288,7 @@ def validate_repository(root):
     manifest = json.loads(read_text(root, MANIFEST), object_pairs_hook=unique_object, parse_constant=reject_constant)
     fields(manifest, ("version", "canonical_policy", "guide", "agents", "skills", "integrations"), "manifest")
     require(type(manifest["version"]) is int and manifest["version"] == 1, "unsupported registry version")
-    require(manifest["canonical_policy"] == "AGENTS.md", "canonical policy must be AGENTS.md")
+    require(manifest["canonical_policy"] == POLICY, "canonical policy must be AGENTS.md")
     require(manifest["guide"] == GUIDE, f"integration guide must be {GUIDE}")
     nonempty_string(read_text(root, GUIDE), "integration guide")
     agent_count = validate_agents(root, manifest["agents"])
@@ -291,11 +300,10 @@ def validate_repository(root):
 def main(argv=None):
     """Expose a read-only CI check with concise success and failure messages."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="repository root (defaults to this checkout)")
-    arguments = parser.parse_args(argv)
+    parser.parse_args(argv)
     try:
-        agents, skills, integrations = validate_repository(arguments.root)
-    except (ValueError, OSError, UnicodeError) as error:
+        agents, skills, integrations = validate_repository(DEFAULT_ROOT)
+    except (ValueError, OSError) as error:
         print(f"FAIL agent integrations: {error}", file=sys.stderr)
         return 1
     print(f"PASS agent integrations: {agents} agent configurations, {skills} skills, {integrations} integration records")

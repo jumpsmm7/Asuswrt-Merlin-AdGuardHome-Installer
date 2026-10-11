@@ -41,6 +41,9 @@ class IntegrationPolicy(unittest.TestCase):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(REPOSITORY / relative, destination)
+        self.checker = self.root / "tools/check-agent-integrations.py"
+        self.checker.parent.mkdir()
+        shutil.copyfile(CHECKER, self.checker)
         self.write_manifest()
         self.outside = Path(self.temporary.name) / "outside"
         self.outside.mkdir()
@@ -74,7 +77,7 @@ class IntegrationPolicy(unittest.TestCase):
     def assert_rejected(self, message):
         """Require observable rejection and unchanged fixture contents."""
         before = self.snapshot()
-        with self.assertRaisesRegex((ValueError, OSError, UnicodeError), message):
+        with self.assertRaisesRegex((ValueError, OSError), message):
             GATE.validate_repository(self.root)
         self.assertEqual(self.snapshot(), before)
 
@@ -85,32 +88,58 @@ class IntegrationPolicy(unittest.TestCase):
         self.assertEqual(result, (len(self.data["agents"]), len(self.data["skills"]), len(self.data["integrations"])))
         self.assertEqual(self.snapshot(), before)
 
+    def run_cli(self, arguments=()):
+        """Execute the real checker in the fixture's own trusted checkout."""
+        before = self.snapshot()
+        result = subprocess.run([sys.executable, str(self.checker), *arguments],
+                                capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(self.snapshot(), before)
+        return result
+
     def assert_cli_rejected(self):
         """Check the actual CLI's exit status, error stream, and read-only state."""
-        before = self.snapshot()
-        result = subprocess.run([sys.executable, str(CHECKER), "--root", str(self.root)],
-                                capture_output=True, text=True, timeout=10, check=False)
+        result = self.run_cli()
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr.startswith("FAIL agent integrations:"), result.stderr)
-        self.assertEqual(self.snapshot(), before)
 
     def test_current_registered_assets_pass(self):
         """All real checked-in adapters and local skills satisfy the contract."""
         self.assert_passes()
 
     def test_cli_success_and_default_root(self):
-        """Default and explicit roots produce only the concise PASS summary."""
+        """Imported and copied-script entrypoints validate their own checkout."""
         stdout, stderr = io.StringIO(), io.StringIO()
         before = self.snapshot()
         with mock.patch.object(GATE, "DEFAULT_ROOT", self.root):
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 self.assertEqual(GATE.main([]), 0)
-                self.assertEqual(GATE.main(["--root", str(self.root)]), 0)
         self.assertEqual(stderr.getvalue(), "")
-        self.assertEqual(len(stdout.getvalue().splitlines()), 2)
+        self.assertEqual(len(stdout.getvalue().splitlines()), 1)
         self.assertTrue(all(line.startswith("PASS agent integrations:") for line in stdout.getvalue().splitlines()))
         self.assertEqual(self.snapshot(), before)
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(result.stdout.startswith("PASS agent integrations:"), result.stdout)
+
+    def test_cli_cannot_select_external_root(self):
+        """An agent-provided root argument cannot expand the CLI read boundary."""
+        result = self.run_cli(["--root", str(self.outside)])
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("unrecognized arguments: --root", result.stderr)
+
+    def test_long_scalar_uses_bounded_cli_validation(self):
+        """Long whitespace runs cannot amplify metadata parsing through regex search."""
+        skill = self.data["skills"][0]
+        description = "Read" + " " * 100000 + "shared policy. # explanatory comment"
+        text = f"---\nname: {skill['name']}\ndescription: {description}\n---\nAGENTS.md\n"
+        (self.root / skill["path"]).write_text(text, encoding="utf-8")
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertTrue(result.stdout.startswith("PASS agent integrations:"), result.stdout)
 
     def test_cli_reports_validation_failure(self):
         """Importable CLI returns one rather than exposing a traceback."""
@@ -118,8 +147,9 @@ class IntegrationPolicy(unittest.TestCase):
         self.write_manifest()
         stdout, stderr = io.StringIO(), io.StringIO()
         before = self.snapshot()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            self.assertEqual(GATE.main(["--root", str(self.root)]), 1)
+        with mock.patch.object(GATE, "DEFAULT_ROOT", self.root):
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                self.assertEqual(GATE.main([]), 1)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("FAIL agent integrations: unsupported registry version", stderr.getvalue())
         self.assertEqual(self.snapshot(), before)
