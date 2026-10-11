@@ -25,6 +25,16 @@ REQUIRED_AGENTS = {
     "codex-review": (".github/prompts/codex-code-improvement.md", "pointer"),
 }
 REQUIRED_SKILLS = {"qodo-get-rules", "qodo-pr-resolver"}
+REQUIRED_INTEGRATIONS = {
+    "taskplanner", "lovable", "vibe-coding", "zuora-coding-agent", "opstruth", "unix-copilot",
+    "engineering-suite", "zzzops", "codeassistant", "qodo", "groundwork", "andrej-karpathy-skills",
+    "skillquiver", "get-fable", "skarn", "god-prompt", "chatgpt-osint", "gh-review-loop", "code-review",
+    "coderabbit", "app-6a392799cb58819185f82dc01ac13dad", "awesome-maintainer-defense", "develoop",
+    "pr-completion", "github", "project-memory-core", "ai-psychiatry",
+}
+DESCRIPTION = "description"
+FRONTMATTER_FIELDS = {"name", DESCRIPTION, "allowed-tools", "triggers"}
+BLOCK_SCALARS = {"|", ">", "|-", ">-", "|+", ">+"}
 AGENT_KINDS = {"canonical", "mirror", "policy", "pointer"}
 MODES = {"existing", "repository-skill", "external-optional", "unverified", "excluded"}
 INACTIVE_MODES = {"external-optional", "unverified", "excluded"}
@@ -165,15 +175,8 @@ def strip_plain_comment(value):
     return value.rstrip()
 
 
-def frontmatter_value(lines, index, value):
-    """Read the scalar or indented block used by skill name and description."""
-    if value in ("|", ">", "|-", ">-", "|+", ">+"):
-        block = []
-        for line in lines[index + 1:]:
-            if line and not line[0].isspace():
-                break
-            block.append(line.strip())
-        return " ".join(block).strip()
+def frontmatter_value(value):
+    """Read a supported single-line string without a general YAML dependency."""
     if value.startswith(("'", '"')):
         require(len(value) >= 2 and value[-1] == value[0], "unclosed frontmatter scalar")
         if value[0] == '"':
@@ -194,8 +197,60 @@ def frontmatter_value(lines, index, value):
     return value.strip()
 
 
+def block_description(lines, index):
+    """Consume a description block with consistent space indentation."""
+    body = []
+    minimum = None
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip():
+            index += 1
+            continue
+        if not line[0].isspace():
+            break
+        indentation = len(line) - len(line.lstrip(" "))
+        require(indentation >= 2 and "\t" not in line[:indentation + 1], "invalid frontmatter block indentation")
+        if minimum is None:
+            minimum = indentation
+        require(indentation >= minimum, "inconsistent frontmatter block indentation")
+        body.append(line.strip())
+        index += 1
+    return " ".join(body), index
+
+
+def trigger_list(lines, index):
+    """Consume only the two-space string-list syntax used by existing Qodo skills."""
+    triggers = []
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        if not line[0].isspace():
+            break
+        require(line.startswith("  - "), "invalid frontmatter trigger list indentation")
+        value = frontmatter_value(line[4:].lstrip())
+        triggers.append(nonempty_string(value, "skill trigger"))
+        index += 1
+    require(bool(triggers), "skill triggers must be a nonempty string list")
+    return triggers, index
+
+
+def header_value(key, value, lines, index):
+    """Validate one supported field and return the next unconsumed header line."""
+    if key == "triggers":
+        require(not value, "skill triggers require an indented string list")
+        return trigger_list(lines, index + 1)
+    if value in BLOCK_SCALARS:
+        require(key == DESCRIPTION, f"skill {key} must be a single-line scalar")
+        parsed, next_index = block_description(lines, index + 1)
+    else:
+        parsed, next_index = frontmatter_value(value), index + 1
+    return nonempty_string(parsed, f"skill {key}"), next_index
+
+
 def skill_frontmatter(text):
-    """Read required skill metadata without a general YAML dependency."""
+    """Validate the complete supported header, including optional Qodo fields."""
     lines = text.splitlines()
     require(bool(lines) and lines[0] == "---", "skill must start with YAML frontmatter")
     try:
@@ -204,16 +259,19 @@ def skill_frontmatter(text):
         raise ValueError("skill frontmatter is not closed") from error
     metadata = {}
     header = lines[1:end]
-    for index, line in enumerate(header):
+    index = 0
+    while index < len(header):
+        line = header[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        require(not line[0].isspace(), "unexpected frontmatter field indentation")
         key, separator, value = line.partition(":")
-        if separator and key in ("name", "description"):
-            value = value.lstrip()
-            require(key not in metadata, f"duplicate skill frontmatter key: {key}")
-            require(key != "name" or value not in ("|", ">", "|-", ">-", "|+", ">+"),
-                    "skill name must be a single-line scalar")
-            metadata[key] = frontmatter_value(header, index, value)
-    require(set(metadata) == {"name", "description"}, "skill name and description are required")
-    nonempty_string(metadata["description"], "skill description")
+        require(separator and key in FRONTMATTER_FIELDS, f"unsupported skill frontmatter field: {key}")
+        require(not value or value[0].isspace(), "frontmatter field requires whitespace after colon")
+        require(key not in metadata, f"duplicate skill frontmatter key: {key}")
+        metadata[key], index = header_value(key, value.lstrip(), header, index)
+    require({"name", DESCRIPTION} <= set(metadata), "skill name and description are required")
     return metadata
 
 
@@ -280,6 +338,8 @@ def validate_integrations(integrations, skill_names):
             require(reference in skill_names, f"unknown skill reference: {reference}")
         require(mode != "repository-skill" or bool(references), "repository-skill integration needs a skill")
         require(mode not in INACTIVE_MODES or not references, "inactive integration cannot claim active skills")
+    missing = REQUIRED_INTEGRATIONS - identifiers
+    require(not missing, f"missing requested integrations: {', '.join(sorted(missing))}")
     return len(identifiers)
 
 

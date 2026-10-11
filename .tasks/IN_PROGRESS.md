@@ -8,6 +8,7 @@
 ### Plan
 
 - Independently verify all 11 Sonar findings, including repeated policy literals, frontmatter parsing complexity, numeric character classes, redundant exception handling and caller-supplied root selection.
+- Address two subsequently reported Codex consistency gaps: requested-provider deletion and malformed optional skill metadata must fail validation. Preserve valid existing Qodo trigger headers and document the supported metadata grammar; add isolated negative tests.
 - Simplify parsing and make CLI repository selection derive from the checked-in checker location. Keep isolated real-process tests by placing the checker in each disposable fixture repository; preserve no-follow descriptor access, nonregular-file rejection, read-only checks, stderr and timeout assertions.
 - Re-run focused host safety tests and genuine credential-free coverage, independently review the final diff, and obtain fresh frozen all-three-target native evidence for the changed tested content. Keep physical acceptance separate and do not weaken thresholds or suppress findings.
 - Publish normal leased PR updates, inspect current-head Sonar and other agent/check results through one observer, and record evidence-based thread dispositions using the existing Qodo resolver.
@@ -15,14 +16,16 @@
 ### Acceptance criteria
 
 - [ ] All current Sonar issues are corrected and current-head strict zero-unresolved enforcement passes.
+- [ ] Both valid Codex drift findings have rejected-fixture coverage; its obsolete task-status comment has an evidence-based disposition.
 - [ ] Focused rejection/safety tests, host quality and measured coverage pass without exclusions or changed thresholds.
 - [ ] Fresh native evidence matches final tested content and aggregate acceptance passes on all three targets.
 - [ ] Published-head review and check states are inspected; external blockers are reported separately. No merge, release, credentials, billing or branch-rule changes.
 
 ### Verification snapshot
 
-- Script-derived CLI selection, linear frontmatter parsing, the canonical-policy constant, ASCII numeric matching and exception simplification are implemented. The original 35 tests plus external-root rejection and bounded 100,000-whitespace parsing pass: 37 focused tests total.
-- Independent review is clean. Genuine credential-free coverage passes 81 tests and measures checker coverage at 98.91%, combined Python/C at 92.51%; no exclusions, warnings or threshold changes. Full host quality, new native acceptance, publication and hosted Sonar enforcement remain pending.
+- Script-derived CLI selection, linear frontmatter parsing, policy/metadata constants, ASCII numeric matching and exception simplification are implemented. Published correction `0211ddd` passes Sonar scan and strict zero-unresolved enforcement: all ratings A, 98.9% new-code coverage and zero unresolved issues. Its native runners are superseded by the subsequent Codex fixes and cannot unblock final source.
+- The final checker protects all 27 requested providers and validates complete supported optional metadata, including colon separation. All 42 focused tests pass, with every provider-removal case, malformed optional fields, external-root rejection and bounded 100,000-whitespace parsing. Existing Qodo skills remain unchanged.
+- Genuine credential-free final coverage passes 86 tests, measuring checker coverage at 99.10% and combined Python/C at 92.72%, with no exclusions or warnings. Full isolated host quality exits 0 (its integration step ran the earlier 37-case source before the subsequent focused Codex corrections); all final 42 cases also pass separately. Final frozen native acceptance and new-head hosted checks remain pending.
 
 ---
 

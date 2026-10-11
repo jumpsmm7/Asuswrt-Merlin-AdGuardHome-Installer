@@ -465,6 +465,59 @@ class IntegrationPolicy(unittest.TestCase):
                     (self.root / skill["path"]).write_text(text, encoding="utf-8")
                     self.assert_passes()
 
+    def test_optional_frontmatter_rejects_malformed_or_unsupported_fields(self):
+        """Optional metadata cannot hide malformed YAML from skill discovery."""
+        skill = self.data["skills"][0]
+        invalid = (
+            "allowed-tools:Bash\n",
+            "allowed-tools: [unterminated\n", "allowed-tools: []\n", "allowed-tools: {}\n",
+            "allowed-tools: true\n", "allowed-tools: null\n", "allowed-tools: ''\n",
+            'allowed-tools: "unterminated\n', "allowed-tools: |\n  Bash\n",
+            "allowed-tools:\n  - Bash\n", "allowed-tools: Bash\nallowed-tools: Read\n",
+            "triggers: [unterminated\n", "triggers: []\n", 'triggers: "router"\n', "triggers:\n",
+            "triggers:\n  - []\n", "triggers:\n  - {}\n", "triggers:\n  - true\n", "triggers:\n  - null\n",
+            'triggers:\n  - "unterminated\n', "triggers:\n  - \n", "triggers:\n  - |\n    router\n",
+            "triggers:\n - router\n", "triggers:\n    - router\n", "triggers:\n\t- router\n",
+            "triggers:\n- router\n", "triggers:\n  - router\n    - nested\n",
+            "triggers:\n  - router\n  extra\n", "triggers:\n  - router\ntriggers:\n  - again\n",
+            "allowed_tool: Bash\n", "unknown: [unterminated\n", "broken optional field\n",
+            "  allowed-tools: Bash\n", "  orphan continuation\n",
+        )
+        for optional in invalid:
+            with self.subTest(optional=optional):
+                text = (f"---\nname: {skill['name']}\ndescription: Valid description.\n"
+                        f"{optional}---\nAGENTS.md\n")
+                (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                self.assert_rejected("frontmatter|skill allowed-tools|skill triggers|skill trigger")
+
+    def test_optional_frontmatter_preserves_supported_qodo_profile(self):
+        """Optional string fields, trigger lists, and comments remain supported."""
+        skill = self.data["skills"][0]
+        valid = (
+            'allowed-tools: "Bash"\n', "allowed-tools: 'Bash Read'\n",
+            "triggers:\n  - router.?change\n", 'triggers:\n  - "router.?change"\n',
+            '# Header comment.\n\nallowed-tools: "Bash"\ntriggers:\n  # List comment.\n\n  - router#fragment\n  - "router # quoted"\n',
+        )
+        for optional in valid:
+            with self.subTest(optional=optional):
+                text = (f"---\nname: {skill['name']}\ndescription: Valid description.\n"
+                        f"{optional}---\nAGENTS.md\n")
+                (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                self.assert_passes()
+
+    def test_block_description_indentation_is_validated(self):
+        """Block descriptions cannot conceal malformed indentation or header lines."""
+        skill = self.data["skills"][0]
+        for body in (" Valid.\n", "\tValid.\n", "  \tValid.\n", "    First.\n  Bad dedent.\n"):
+            with self.subTest(body=body):
+                text = f"---\nname: {skill['name']}\ndescription: >\n{body}---\nAGENTS.md\n"
+                (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                self.assert_rejected("frontmatter block indentation")
+        text = (f"---\nname: {skill['name']}\ndescription: >\n\n  First.\n    Nested text.\n"
+                "  Last.\n\nallowed-tools: Bash\n---\nAGENTS.md\n")
+        (self.root / skill["path"]).write_text(text, encoding="utf-8")
+        self.assert_passes()
+
     def test_unregistered_skill_is_rejected(self):
         """A new skill cannot bypass registry review by remaining undeclared."""
         path = self.root / ".agents/skills/unregistered/SKILL.md"
@@ -548,6 +601,25 @@ class IntegrationPolicy(unittest.TestCase):
         """Existing hosted reviewers can be registered without a local skill."""
         self.data["integrations"][0]["mode"] = "existing"
         self.data["integrations"][0]["skills"] = []
+        self.write_manifest()
+        self.assert_passes()
+
+    def test_requested_provider_inventory_cannot_silently_shrink(self):
+        """Removing any of the original 27 requested provider records fails closed."""
+        self.assertEqual(len(GATE.REQUIRED_INTEGRATIONS), 27)
+        for provider in GATE.REQUIRED_INTEGRATIONS:
+            with self.subTest(provider=provider):
+                self.data = copy.deepcopy(BASELINE)
+                self.data["integrations"] = [record for record in self.data["integrations"] if record["id"] != provider]
+                self.write_manifest()
+                self.assert_rejected(f"missing requested integrations: {provider}")
+
+    def test_provider_inventory_can_add_a_future_explicitly_scoped_record(self):
+        """The protected original inventory permits reviewed future additions."""
+        self.data["integrations"].append({
+            "id": "future-provider", "name": "Future provider", "mode": "unverified", "skills": [],
+            "notes": "No activation or supported capability is claimed.", "source": "operator-defined",
+        })
         self.write_manifest()
         self.assert_passes()
 
