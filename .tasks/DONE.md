@@ -2,6 +2,45 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-025: Resolve integration-checker hosted findings
+
+**Priority:** P1 | **Tags:** agents, review, security, validation
+**Scope:** PR #1034 onto master; verified source head `4bec2dbcf913f2e9381e2bfaaaff59a8fe7e8fa4`. Correct newly reported host-only checker findings while preserving registry rejection and filesystem safety. Existing TASK-024 completion is the earlier implementation/publication snapshot.
+
+### Plan
+
+- Independently verify all 11 Sonar findings, including repeated policy literals, frontmatter parsing complexity, numeric character classes, redundant exception handling and caller-supplied root selection.
+- Address two subsequently reported Codex consistency gaps: requested-provider deletion and malformed optional skill metadata must fail validation. Preserve valid existing Qodo trigger headers and document the supported metadata grammar; add isolated negative tests.
+- Reject unquoted leading-decimal exponents consistently across agents' YAML versions while preserving quoted text; add signed/unsigned and quoted controls for the subsequently reported CodeRabbit case.
+- Correct the focused Codex review's three portable-header gaps: decoded lone Unicode surrogates, comma-leading plain scalars, and tab indentation hidden by comment skipping. Cover adjacent reproduced non-ASCII separator/indentation cases while preserving valid Unicode text and space-indented comments. Add explicit binary-number controls for CodeRabbit's already-rejected case without changing working numeric detection.
+- Simplify parsing and make CLI repository selection derive from the checked-in checker location. Keep isolated real-process tests by placing the checker in each disposable fixture repository; preserve no-follow descriptor access, nonregular-file rejection, read-only checks, stderr and timeout assertions.
+- Re-run focused host safety tests and genuine credential-free coverage, independently review the final diff, and obtain fresh frozen all-three-target native evidence for the changed tested content. Keep physical acceptance separate and do not weaken thresholds or suppress findings.
+- Publish normal leased PR updates, inspect current-head Sonar and other agent/check results through one observer, and record evidence-based thread dispositions using the existing Qodo resolver.
+
+### Acceptance criteria
+
+- [x] All current Sonar issues are corrected and current-head strict zero-unresolved enforcement passes.
+- [x] Both valid Codex drift findings have rejected-fixture coverage; its obsolete task-status comment has an evidence-based disposition.
+- [x] The focused Codex portable-header findings have rejection and valid-string controls; CodeRabbit's binary-number claim has an evidence-based disposition.
+- [x] Focused rejection/safety tests, host quality and measured coverage pass without exclusions or changed thresholds.
+- [x] Fresh native evidence matches final tested content and aggregate acceptance passes on all three targets.
+- [x] Published-head review and check states are inspected; external blockers are reported separately. No merge, release, credentials, billing or branch-rule changes.
+
+### Verification
+
+- All 44 focused integration tests pass, preserving the eight required agents, nine skills and 27 requested providers. Fixtures cover no-follow/read-only filesystem access, nonregular files, external-root rejection, linear long-input parsing, complete optional metadata, exact names, ASCII layout and valid Unicode. Binary-number rejection was already implemented; its exact reported signed/unsigned examples and quoted controls now document the evidence-based disposition.
+- Genuine credential-free collection runs 88 tests. Checker coverage is 281/283 lines and 57/58 branches (99.12%); combined Python/native-C is 1882/2029 lines and branches (92.76%). Six intended Python modules are measured, with zero excluded lines, no coverage warnings and unchanged thresholds. Sonar credential variables are absent during regressions.
+- Full isolated UID-0 canonical host quality exits 0 on frozen local source `a02e470080f41fec8ed32e10885bc25f5fbe0d96`, including lifecycle matrices, checksums, ShellCheck and shfmt. The unchanged DNS-environment fixture passes standalone and within the matrix. The preceding hosted push's unexplained timeout remains failure history; no timeout, assertion or gate was weakened.
+- Frozen armv5, armv7 and armv8 executions each pass 118 scenarios, 354 total. Matching aggregate acceptance passes and unblocks only all 11 selected manifest contracts at tested-content digest `28098abaac867cb1b95541bd4387c726ef5d797a865d60b84e58689b10c99877`; builder fingerprint remains `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. The armv5 package target remains older RT-AC68U-class ARMv7/software-float with VFP/NEON disabled. Physical acceptance is unchanged; superseded or interrupted runs cannot unblock this source.
+- Published source `4bec2db` has exact local/remote tree parity. Sonar scan and strict enforcement pass with zero unresolved issues and 88 hosted tests. Qodo reports zero findings on that head. CodeRabbit approves the source. All nine review threads have evidence replies/dispositions and are resolved, with complete pagination; no Codex request remains active. The independent final Unicode/layout review is clean, so no additional reassurance-only review was requested.
+- At the source completion cutoff (18:35:11 UTC), all 36 hosted checks are terminal: 35 succeed and the existing Scorecard check is neutral, with no failures or pending jobs. Both native acceptance aggregates, all six architecture jobs and all three full quality jobs pass. CodeRabbit's four passed pre-merge checks and one inconclusive linked-issue assessment are recorded separately from its approval. The PR body now states the maintainer request and canonical TASK-024/TASK-025 tracking; repository policy has no mandatory GitHub-issue link, and no governing issue applies. The assessment remains enabled, with its refresh and final-head checks tracked as delivery follow-up.
+
+### Completion record
+
+Source corrections, matching local acceptance, authorized publication and review-thread resolution are complete on October 11, 2026 (America/New_York). This completion-record update changes only task documentation and preserves the tested-content digest. Final published-head hosted observation continues; no pending result is relabeled as a pass. PR #1034 stays ready for review onto master, with no merge, release, credentials, billing or branch-rule changes.
+
+---
+
 ## TASK-024: Integrate shared development and review workflows
 
 **Priority:** P1 | **Tags:** agents, integrations, validation
