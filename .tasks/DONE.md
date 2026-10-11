@@ -2,6 +2,36 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-026: Add optional Lovable repository handoff support
+
+**Priority:** P2 | **Tags:** agents, integration, documentation
+**Scope:** PR #1034 onto master. The user selected repository integration support first; no Lovable project, database, connector, workspace skill or deployment is provisioned by this task.
+
+### Plan
+
+- Add a portable, repository-scoped Lovable skill and a versioned handoff contract for canonical policy, exact source provenance, existing task ownership and actual validation evidence.
+- Document optional references to user-owned Lovable Cloud/Supabase data with explicit ownership, authorization and read-only scope. Keep `.tasks/`, GitHub review state and existing ARM/physical gate authority; private model training data is not exposed by these APIs.
+- Register the adapter and align shared agent routing without replacing existing provider configurations. Explain GitHub API access separately from Lovable Git sync and preserve unrelated project/workspace instructions.
+- Run existing integration checks, validate the handoff schema and its intended constraints, review the diff and publish a normal leased update to the existing PR. Observe the published head through one designated reviewer; report missing, pending or rate-limited results accurately.
+
+### Acceptance criteria
+
+- [x] The skill remains usable when imported alone into Lovable and loads canonical repository instructions from the supplied exact-head packet or verified immutable references.
+- [x] Handoffs distinguish advisory analysis, host checks, native ARM execution, modeled firmware and physical operator reports; optional database references cannot become a second task ledger or a test waiver.
+- [x] All existing agent entry points, Qodo skills and original provider IDs are preserved; Amazon Q remains byte-identical to canonical policy.
+- [x] Existing integration checks and schema verification pass. Any unchanged native evidence is identified by its tested-content digest, not relabeled as a new run.
+- [x] The updated PR is published and current-head check/review state is recorded, including external service limitations.
+
+### Verification
+
+The read-only registry check passes with eight agent entry points, ten skills and 27 providers. All 44 existing integration regressions pass. The Draft 2020-12 schema and documented baseline packet validate, and its actual historical policy hash matches. Independent boundary review passes eight positive controls, 26 negative schema-shape controls and three bounded timestamp rejection controls. The timestamp controls register an explicit temporary checker; this adds no repository dependency and does not claim comprehensive RFC3339 parser validation. Amazon Q remains byte-identical to canonical policy, and `git diff --check` passes.
+
+The current tested-content digest remains `28098abaac867cb1b95541bd4387c726ef5d797a865d60b84e58689b10c99877`. Existing frozen armv5/armv7/armv8 reports each contain 118 passing scenarios (354 total), and aggregate validation against the current checkout passes all 11 selected contracts. These are revalidated earlier executions, not new runs. No runtime, archive, test, validation-tool or workflow input changes are made here; physical acceptance is unchanged. Implementation published normally to PR #1034 at `9dca9fbe54013d90bc59fbd3c0cdd75122b370eb`, exact tree `abf1c27bf99b6d0ce2313044cfd5a7949cf027b6`. The single observer's October 11, 19:18:58 UTC snapshot verifies matching PR/ref, unchanged master base and exactly the 11 intended paths. All nine review threads and 20 inline comments remain resolved; Qodo's new-head footer reports zero findings. At that cutoff, 31 current-head checks are starting with no failures, and CodeRabbit is reviewing; these are pending hosted results, not claimed passes. The PR description tracks later hosted outcomes; this task-record follow-up does not change tested inputs.
+
+Read-only account inventory on October 11, 2026 found a Pro workspace with zero projects, workspace skills and added connectors. The user chose repository support before external setup. No account identifiers, credentials or private database content are checked in.
+
+---
+
 ## TASK-025: Resolve integration-checker hosted findings
 
 **Priority:** P1 | **Tags:** agents, review, security, validation
