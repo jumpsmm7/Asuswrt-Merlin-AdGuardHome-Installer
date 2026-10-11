@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure actual host Python and native DNS execution for SonarQube Cloud."""
+"""Measure actual host validation and native DNS execution for SonarQube Cloud."""
 
 import gzip
 import importlib.util
@@ -16,7 +16,8 @@ import coverage
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 REPORTS = REPOSITORY / ".coverage-reports"
-TESTS = ("virtual-arm-host-tools.py", "virtual-arm-evidence.py", "virtual-arm-dns-query.py")
+TESTS = ("virtual-arm-host-tools.py", "virtual-arm-evidence.py", "virtual-arm-dns-query.py",
+         "agent-integrations.py")
 
 
 def regression_suite():
@@ -84,8 +85,9 @@ def main():
         shutil.rmtree(native)
     native.mkdir()
     os.environ["AGH_DNS_COVERAGE_DIR"] = str(native)
+    # Keep the non-package subtree explicit so its unexecuted modules remain counted.
     measured = coverage.Coverage(data_file=str(REPORTS / ".coverage"),
-                                 source=["tools/virtual-arm"], branch=True, config_file=False)
+                                 source=["tools", "tools/virtual-arm"], branch=True, config_file=False)
     measured.set_option("run:relative_files", True)
     measured.start()
     try:

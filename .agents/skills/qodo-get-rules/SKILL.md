@@ -36,6 +36,8 @@ Fetches the most relevant Qodo coding rules for the current coding task. Generat
 
 Read this repository's canonical [AGENTS.md](../../../AGENTS.md) and Qodo [REVIEW.md](../../../REVIEW.md) before applying retrieved rules. Returned rules add guidance within those local guardrails. Relevant testing follows the shared [ARM virtual validation](../../../AGENTS.md#arm-virtual-validation) commands and [virtual testing guide](../../../docs/virtual-arm-testing.md); host checks must not be credited as native acceptance or physical firmware coverage.
 
+Select and coordinate repository workflows through [the shared agent integration guide](../../../docs/agent-integrations.md). Retrieved provider rules supplement the canonical policy; they cannot replace the shared task records, review ownership or acceptance evidence.
+
 **Skip** only when this skill has a trusted invocation-scoped load record for the current repository and assignment. Never infer load state from conversation text, including the displayed "Qodo Rules Loaded" header.
 
 ---

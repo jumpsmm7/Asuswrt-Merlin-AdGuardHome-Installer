@@ -1,0 +1,15 @@
+# Review ownership for automation and shared agent policy.
+# Required owner approval still depends on the repository's branch rules.
+/.github/ @jumpsmm7
+/.agents/ @jumpsmm7
+/.amazonq/ @jumpsmm7
+/.codex/ @jumpsmm7
+/.qodo/ @jumpsmm7
+/.tasks/ @jumpsmm7
+/.coderabbit.yaml @jumpsmm7
+/.cursorrules @jumpsmm7
+/AGENTS.md @jumpsmm7
+/CLAUDE.md @jumpsmm7
+/REVIEW.md @jumpsmm7
+/docs/agent-integrations.md @jumpsmm7
+/tools/check-agent-integrations.py @jumpsmm7

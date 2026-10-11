@@ -811,7 +811,18 @@ tools/code-quality.sh --fix
 
 If CI reports `shfmt` formatting differences, you can also run the `Create shfmt formatting PR` workflow against the affected branch to open an automated formatting pull request.
 
-Pull requests that change shell scripts, checksum files, tools, prompts, or workflows are also reviewed by the Codex Code Improvement workflow when the repository has an `OPENAI_API_KEY` Actions secret configured. The Codex prompt includes the local code-quality output so formatting failures can be reported with the same remediation steps shown in CI.
+The repository provides a [Codex review prompt](.github/prompts/codex-code-improvement.md) for separately configured review automation. Committing the prompt does not install a reviewer or guarantee that an external review runs; inspect the current PR checks for provider status.
+
+### Shared agent integrations
+
+The [agent integration guide](docs/agent-integrations.md) catalogs the existing reviewers, task records and shared repository skills for planning, implementation, verification, review completion, workflow auditing, security triage and handoffs. Codex, Amazon Q, CodeRabbit, Qodo, Claude, Cursor and GitHub Copilot entry points follow the canonical [AGENTS.md](AGENTS.md) policy. Skills run when an assistant invokes them; external service activation and authentication remain provider-specific.
+
+The existing code-quality runner validates the catalog, skill discovery, agent policy pointers and the Amazon Q mirror. Run focused host checks with:
+
+```sh
+python3 tools/check-agent-integrations.py
+python3 tests/agent-integrations.py
+```
 
 ### Validation toolchain
 

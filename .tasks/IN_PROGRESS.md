@@ -1,6 +1,37 @@
 # In Progress
 
+## TASK-024: Integrate shared development and review workflows
+
+**Priority:** P1 | **Tags:** agents, integrations, validation
+**Baseline:** master `047ce167685f6de8db86519557b865e9f23e98f3` after PR #1033 merged; branch `chore/shared-agent-integrations`.
+
+### Plan
+
+- Inventory the requested plugins and distinguish existing services, repository-consumable skills, optional external capabilities, and unavailable integrations.
+- Add focused planning, implementation, verification, review completion, workflow auditing, security triage and session handoff skills under the canonical AGENTS.md rules. Keep the existing TaskPlanner records and Qodo resolver authoritative for their respective state.
+- Connect existing Codex, Amazon Q, CodeRabbit, Qodo, Claude and Cursor guidance to the shared catalog, and add the GitHub Copilot instructions entry point. Add no credentials, redundant review service, automatic merge, or router-runtime dependency.
+- Add a read-only host validator for integration paths, skill discovery, shared policy pointers and the Amazon Q mirror; exercise rejection behavior with isolated fixtures and register it in the existing quality runner.
+- Verify the final diff and affected host checks, then publish a new PR targeting master. Preserve feature-scoped native ARM acceptance and separate physical release gates; record actual hosted status without borrowing earlier PR results.
+
+### Acceptance criteria
+
+- [x] Every useful supported capability has a documented entry point, with truthful activation and provenance information.
+- [x] All existing agent adapters share AGENTS.md and the same testing/evidence rules.
+- [x] Integration drift fails validation, and valid configurations pass focused regressions.
+- [ ] A new reviewable PR targets master; merging and release publication remain separate actions.
+
+### Verification
+
+- Read-only registry check: eight agent entry points, nine skills and all 27 requested plugin dispositions pass; Amazon Q remains byte-identical to AGENTS.md.
+- All 35 integration regressions pass. Genuine credential-free coverage runs 79 tests and measures 98.87% for the new checker, with no coverage exclusions or changed thresholds.
+- Full isolated UID-0 `sh tools/code-quality.sh` completes with exit 0, including host regressions, checksums, warning-level ShellCheck and shfmt. Independent review is clean.
+- The first ARM run's 118 older-ARMv7 scenarios passed, but its matrix evidence was correctly rejected because host validation sources changed during execution. Logs are retained; frozen-snapshot native acceptance and PR publication remain pending.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
+
+**Subsequent repository state:** PR [#1033](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033) was merged into master as `047ce167685f6de8db86519557b865e9f23e98f3` on October 10, 2026 (America/New_York). Pre-merge authorization and check statements below are historical records, not a claim that the PR remains open. Release publication and supplemental traceability remain separate; the quota-blocked reviewer is not relabeled as passing.
 
 **Physical acceptance: PASS — operator-confirmed full checklist and 48 hours on RT-AC5300 / 386.14_2 and GT-BE98PRO / 3006.102.9, plus reported RT-AC68U / 386.14_2 physical testing (October 10, 2026 America/New_York). Remaining work is exact build/event traceability and the separate hosted required-check/release disposition.**
 

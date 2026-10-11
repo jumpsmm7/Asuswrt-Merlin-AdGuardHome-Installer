@@ -88,6 +88,11 @@ reviews:
       instructions: |
         Treat the repository's AGENTS.md as the primary engineering standard.
 
+        Use docs/agent-integrations.md for the shared skill catalog and review
+        completion rules. Keep the existing Qodo resolver authoritative for
+        Qodo-specific threads and coordinate one observer and publishing writer
+        per PR. Provider configuration is not evidence of current-head success.
+
         Apply its validation-toolchain exception consistently: host-only CI and
         validation paths may use Python 3, GNU coreutils (including explicit
         `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C
