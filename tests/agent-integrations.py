@@ -418,6 +418,9 @@ class IntegrationPolicy(unittest.TestCase):
             (f"---\nname: wrong-skill\ndescription: valid\n---\n", "frontmatter name mismatch"),
             (f'---\nname: " {name} "\ndescription: valid\n---\n', "frontmatter name mismatch"),
             (f"---\nname: '{name} '\ndescription: valid\n---\n", "frontmatter name mismatch"),
+            (f"---\nname: {name}\u00a0# suffix\ndescription: valid\n---\n", "frontmatter name mismatch"),
+            (f"---\nname: {name}\u00a0\ndescription: valid\n---\n", "frontmatter name mismatch"),
+            (f"---\nname: \u00a0{name}\ndescription: valid\n---\n", "frontmatter name mismatch"),
             (f"---\nname: >-\n  {name}\ndescription: valid\n---\n", "name must be a single-line scalar"),
             (f"---\nname: {name}\nname: {name}\ndescription: valid\n---\n", "duplicate skill frontmatter key"),
             (f"---\nname: {name}\ndescription: valid\ndescription: again\n---\n", "duplicate skill frontmatter key"),
@@ -435,7 +438,8 @@ class IntegrationPolicy(unittest.TestCase):
         skill = self.data["skills"][0]
         for value in ("[]", "{}", "true", "FALSE", "yes", "Off", "# comment", "[unterminated",
                       "{unterminated", "&alias", "*alias", "!tag", "%invalid", "@invalid", "`invalid",
-                      "12", "-1.5", "+2", "0xFA", "0o77", ".NaN", ".inf", ".5e2", "-.5e-2", "+.5E+2",
+                      "12", "-1.5", "+2", "0xFA", "0o77", "0b1010", "-0b1010", "+0b1010", "0B1010",
+                      ",", ",Bash", ", Bash", ".NaN", ".inf", ".5e2", "-.5e-2", "+.5E+2",
                       "2026-10-11", "A: B", "mapping:",
                       "- item", "? key", "true # note", "12 # note", "null # note", "2026-10-11T12:00:00Z",
                       "2026-10-11 12:00:00", "?", "-",
@@ -449,7 +453,8 @@ class IntegrationPolicy(unittest.TestCase):
         """YAML single-quote escapes and JSON-compatible double quotes retain text."""
         skill = self.data["skills"][0]
         for value in ("'Router''s safe instructions.'", '"Read \\"AGENTS.md\\" first."', "Safe instructions. # note",
-                      "'.5e2'", '"-.5e-2"', '"+.5E+2"'):
+                      "'.5e2'", '"-.5e-2"', '"+.5E+2"', "'0b1010'", '"-0b1010"', '"+0b1010"', "'0B1010'",
+                      "',Bash'", '\", Bash\"'):
             with self.subTest(value=value):
                 text = f"---\nname: {skill['name']}\ndescription: {value}\n---\nAGENTS.md\n"
                 (self.root / skill["path"]).write_text(text, encoding="utf-8")
@@ -471,19 +476,26 @@ class IntegrationPolicy(unittest.TestCase):
         """Optional metadata cannot hide malformed YAML from skill discovery."""
         skill = self.data["skills"][0]
         invalid = (
-            "allowed-tools:Bash\n",
+            "allowed-tools:Bash\n", 'allowed-tools:"Bash"\n', "allowed-tools:\u00a0Bash\n",
+            "allowed-tools:\u2003Bash\n", "allowed-tools: ,Bash\n",
             "allowed-tools: [unterminated\n", "allowed-tools: []\n", "allowed-tools: {}\n",
             "allowed-tools: true\n", "allowed-tools: null\n", "allowed-tools: ''\n",
             'allowed-tools: "unterminated\n', "allowed-tools: |\n  Bash\n",
             "allowed-tools:\n  - Bash\n", "allowed-tools: Bash\nallowed-tools: Read\n",
             "triggers: [unterminated\n", "triggers: []\n", 'triggers: "router"\n', "triggers:\n",
             "triggers:\n  - []\n", "triggers:\n  - {}\n", "triggers:\n  - true\n", "triggers:\n  - null\n",
+            "triggers:\n  - ,router\n",
             'triggers:\n  - "unterminated\n', "triggers:\n  - \n", "triggers:\n  - |\n    router\n",
             "triggers:\n - router\n", "triggers:\n    - router\n", "triggers:\n\t- router\n",
             "triggers:\n- router\n", "triggers:\n  - router\n    - nested\n",
             "triggers:\n  - router\n  extra\n", "triggers:\n  - router\ntriggers:\n  - again\n",
             "allowed_tool: Bash\n", "unknown: [unterminated\n", "broken optional field\n",
             "  allowed-tools: Bash\n", "  orphan continuation\n",
+            "\t# Header comment.\n", "  \t# Header comment.\n", "\u00a0# Header comment.\n",
+            "  \u00a0# Header comment.\n", "\t\n", "  \t\n", "\u00a0\n",
+            "triggers:\n\t# List comment.\n  - router\n", "triggers:\n  \t# List comment.\n  - router\n",
+            "triggers:\n\u00a0# List comment.\n  - router\n", "triggers:\n  \u00a0# List comment.\n  - router\n",
+            "triggers:\n\t\n  - router\n", "triggers:\n\u00a0\n  - router\n",
         )
         for optional in invalid:
             with self.subTest(optional=optional):
@@ -497,8 +509,11 @@ class IntegrationPolicy(unittest.TestCase):
         skill = self.data["skills"][0]
         valid = (
             'allowed-tools: "Bash"\n', "allowed-tools: 'Bash Read'\n",
+            "allowed-tools:\tBash\n", "allowed-tools: \t\u00a0Bash\n", 'allowed-tools: ",Bash"\n',
             "triggers:\n  - router.?change\n", 'triggers:\n  - "router.?change"\n',
+            'triggers:\n  - ",router"\n', "triggers:\n  - \u00a0router\n",
             '# Header comment.\n\nallowed-tools: "Bash"\ntriggers:\n  # List comment.\n\n  - router#fragment\n  - "router # quoted"\n',
+            '  # Space comment.\n  \nallowed-tools: "Bash"\ntriggers:\n    # Space list comment.\n  \n  - router\n',
         )
         for optional in valid:
             with self.subTest(optional=optional):
@@ -506,6 +521,44 @@ class IntegrationPolicy(unittest.TestCase):
                         f"{optional}---\nAGENTS.md\n")
                 (self.root / skill["path"]).write_text(text, encoding="utf-8")
                 self.assert_passes()
+
+    def test_quoted_unicode_rejects_lone_surrogates_and_preserves_valid_pairs(self):
+        """Portable quoted values reject lone surrogates without rejecting Unicode text."""
+        skill = self.data["skills"][0]
+        for field in ("description", "allowed-tools", "triggers"):
+            for value in ("\ud800", "\udc00", "Bash\ud800Read", "\udc00\ud800", "\ud800\ud800"):
+                with self.subTest(field=field, value=repr(value)):
+                    base = "" if field == "description" else "description: Valid description.\n"
+                    encoded = json.dumps(value)
+                    entry = f"triggers:\n  - {encoded}\n" if field == "triggers" else f"{field}: {encoded}\n"
+                    text = f"---\nname: {skill['name']}\n{base}{entry}---\nAGENTS.md\n"
+                    (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                    self.assert_rejected("surrogates not allowed")
+            for value in ("Café", "\U0001f600", "Router \U0001f680", ",Unicode text"):
+                with self.subTest(field=field, value=value):
+                    base = "" if field == "description" else "description: Valid description.\n"
+                    encoded = json.dumps(value)
+                    entry = f"triggers:\n  - {encoded}\n" if field == "triggers" else f"{field}: {encoded}\n"
+                    text = f"---\nname: {skill['name']}\n{base}{entry}---\nAGENTS.md\n"
+                    (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                    self.assert_passes()
+                    parsed = GATE.skill_frontmatter(text)[field]
+                    self.assertEqual(parsed, [value] if field == "triggers" else value)
+
+    def test_ascii_layout_preserves_unicode_scalar_content(self):
+        """Unicode inside valid scalar text cannot be mistaken for YAML layout."""
+        skill = self.data["skills"][0]
+        for value in ("\u00a0Router", "Router\u00a0", "Router\u00a0#fragment", "Router:\u00a0config",
+                      "-\u00a0text", "?\u00a0text", "١٢", "Café"):
+            with self.subTest(value=value):
+                text = f"---\nname: {skill['name']}\ndescription: {value}\n---\nAGENTS.md\n"
+                (self.root / skill["path"]).write_text(text, encoding="utf-8")
+                self.assert_passes()
+                self.assertEqual(GATE.skill_frontmatter(text)["description"], value)
+        text = f"---\nname: {skill['name']}\ndescription: >\n  \u00a0Unicode block.\n---\nAGENTS.md\n"
+        (self.root / skill["path"]).write_text(text, encoding="utf-8")
+        self.assert_passes()
+        self.assertEqual(GATE.skill_frontmatter(text)["description"], "\u00a0Unicode block.")
 
     def test_block_description_indentation_is_validated(self):
         """Block descriptions cannot conceal malformed indentation or header lines."""

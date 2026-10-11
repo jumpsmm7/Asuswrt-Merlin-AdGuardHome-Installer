@@ -170,9 +170,22 @@ def validate_agents(root, agents):
 def strip_plain_comment(value):
     """Remove unquoted inline comments in one bounded pass over the scalar."""
     for index, character in enumerate(value):
-        if character == "#" and index > 0 and value[index - 1].isspace():
-            return value[:index].rstrip()
-    return value.rstrip()
+        if character == "#" and index > 0 and value[index - 1] in " \t":
+            return value[:index].rstrip(" \t")
+    return value.rstrip(" \t")
+
+
+def decoded_string(value):
+    """Require quoted decoded strings to contain portable Unicode scalar values."""
+    value.encode("utf-8")
+    return value
+
+
+def space_indented_content(line, label):
+    """Check ASCII-space layout before deciding whether a line is ignorable."""
+    content = line.lstrip(" ")
+    require(not content or not content[0].isspace(), f"invalid {label} indentation")
+    return content
 
 
 def frontmatter_value(value):
@@ -180,21 +193,21 @@ def frontmatter_value(value):
     if value.startswith(("'", '"')):
         require(len(value) >= 2 and value[-1] == value[0], "unclosed frontmatter scalar")
         if value[0] == '"':
-            return json.loads(value)
+            return decoded_string(json.loads(value))
         inner = value[1:-1]
         require("'" not in inner.replace("''", ""), "invalid single-quoted frontmatter scalar")
-        return inner.replace("''", "'")
+        return decoded_string(inner.replace("''", "'"))
     value = strip_plain_comment(value)
     require(value.lower() not in ("null", "~", "true", "false", "yes", "no", "on", "off"),
             "nonstring frontmatter scalar")
-    require(not value.startswith(tuple("[]{}#&*!|>%@`:")), "unsupported plain frontmatter scalar")
-    require(re.match(r"[-?](?:\s|$)", value) is None, "unsupported plain frontmatter scalar")
+    require(not value.startswith(tuple(",[]{}#&*!|>%@`:")), "unsupported plain frontmatter scalar")
+    require(re.match(r"[-?](?:[ \t]|$)", value) is None, "unsupported plain frontmatter scalar")
     require(re.fullmatch(r"[+-]?(?:\d[\d_.a-fxo:+-]*|\.\d+(?:e[+-]?\d+)?|\.inf|\.nan)", value, re.ASCII | re.IGNORECASE) is None,
             "nonstring numeric frontmatter scalar")
     require(re.match(r"\d{4}-\d{2}-\d{2}(?:$|[Tt ])", value, re.ASCII) is None,
             "nonstring timestamp frontmatter scalar")
-    require(re.search(r":(?:\s|$)", value) is None, "unsupported plain frontmatter mapping")
-    return value.strip()
+    require(re.search(r":(?:[ \t]|$)", value) is None, "unsupported plain frontmatter mapping")
+    return value.strip(" \t")
 
 
 def block_description(lines, index):
@@ -203,7 +216,7 @@ def block_description(lines, index):
     minimum = None
     while index < len(lines):
         line = lines[index]
-        if not line.strip():
+        if not line.strip(" "):
             index += 1
             continue
         if not line[0].isspace():
@@ -213,7 +226,7 @@ def block_description(lines, index):
         if minimum is None:
             minimum = indentation
         require(indentation >= minimum, "inconsistent frontmatter block indentation")
-        body.append(line.strip())
+        body.append(line.strip(" \t"))
         index += 1
     return " ".join(body), index
 
@@ -223,13 +236,14 @@ def trigger_list(lines, index):
     triggers = []
     while index < len(lines):
         line = lines[index]
-        if not line.strip() or line.lstrip().startswith("#"):
+        content = space_indented_content(line, "frontmatter trigger list")
+        if not content or content.startswith("#"):
             index += 1
             continue
-        if not line[0].isspace():
+        if line == content:
             break
         require(line.startswith("  - "), "invalid frontmatter trigger list indentation")
-        value = frontmatter_value(line[4:].lstrip())
+        value = frontmatter_value(line[4:].lstrip(" \t"))
         triggers.append(nonempty_string(value, "skill trigger"))
         index += 1
     require(bool(triggers), "skill triggers must be a nonempty string list")
@@ -262,15 +276,16 @@ def skill_frontmatter(text):
     index = 0
     while index < len(header):
         line = header[index]
-        if not line.strip() or line.lstrip().startswith("#"):
+        content = space_indented_content(line, "frontmatter field")
+        if not content or content.startswith("#"):
             index += 1
             continue
-        require(not line[0].isspace(), "unexpected frontmatter field indentation")
+        require(line == content, "unexpected frontmatter field indentation")
         key, separator, value = line.partition(":")
         require(separator and key in FRONTMATTER_FIELDS, f"unsupported skill frontmatter field: {key}")
-        require(not value or value[0].isspace(), "frontmatter field requires whitespace after colon")
+        require(not value or value[0] in " \t", "frontmatter field requires ASCII whitespace after colon")
         require(key not in metadata, f"duplicate skill frontmatter key: {key}")
-        metadata[key], index = header_value(key, value.lstrip(), header, index)
+        metadata[key], index = header_value(key, value.lstrip(" \t"), header, index)
     require({"name", DESCRIPTION} <= set(metadata), "skill name and description are required")
     return metadata
 

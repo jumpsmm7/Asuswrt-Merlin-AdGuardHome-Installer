@@ -3,13 +3,14 @@
 ## TASK-025: Resolve integration-checker hosted findings
 
 **Priority:** P1 | **Tags:** agents, review, security, validation
-**Scope:** PR #1034 onto master, current published head `87a5642dc65a1acc11045abde0638475f53162c6`. Correct newly reported Sonar findings in the host-only checker while preserving registry rejection and filesystem safety. Existing TASK-024 completion is the earlier implementation/publication snapshot.
+**Scope:** PR #1034 onto master, current published correction head `33b9cf80de4d0171a61c5b3631507d25a6b5b072`. Correct newly reported host-only checker findings while preserving registry rejection and filesystem safety. Existing TASK-024 completion is the earlier implementation/publication snapshot.
 
 ### Plan
 
 - Independently verify all 11 Sonar findings, including repeated policy literals, frontmatter parsing complexity, numeric character classes, redundant exception handling and caller-supplied root selection.
 - Address two subsequently reported Codex consistency gaps: requested-provider deletion and malformed optional skill metadata must fail validation. Preserve valid existing Qodo trigger headers and document the supported metadata grammar; add isolated negative tests.
 - Reject unquoted leading-decimal exponents consistently across agents' YAML versions while preserving quoted text; add signed/unsigned and quoted controls for the subsequently reported CodeRabbit case.
+- Correct the focused Codex review's three portable-header gaps: decoded lone Unicode surrogates, comma-leading plain scalars, and tab indentation hidden by comment skipping. Cover adjacent reproduced non-ASCII separator/indentation cases while preserving valid Unicode text and space-indented comments. Add explicit binary-number controls for CodeRabbit's already-rejected case without changing working numeric detection.
 - Simplify parsing and make CLI repository selection derive from the checked-in checker location. Keep isolated real-process tests by placing the checker in each disposable fixture repository; preserve no-follow descriptor access, nonregular-file rejection, read-only checks, stderr and timeout assertions.
 - Re-run focused host safety tests and genuine credential-free coverage, independently review the final diff, and obtain fresh frozen all-three-target native evidence for the changed tested content. Keep physical acceptance separate and do not weaken thresholds or suppress findings.
 - Publish normal leased PR updates, inspect current-head Sonar and other agent/check results through one observer, and record evidence-based thread dispositions using the existing Qodo resolver.
@@ -18,6 +19,7 @@
 
 - [ ] All current Sonar issues are corrected and current-head strict zero-unresolved enforcement passes.
 - [ ] Both valid Codex drift findings have rejected-fixture coverage; its obsolete task-status comment has an evidence-based disposition.
+- [ ] The focused Codex portable-header findings have rejection and valid-string controls; CodeRabbit's binary-number claim has an evidence-based disposition.
 - [ ] Focused rejection/safety tests, host quality and measured coverage pass without exclusions or changed thresholds.
 - [ ] Fresh native evidence matches final tested content and aggregate acceptance passes on all three targets.
 - [ ] Published-head review and check states are inspected; external blockers are reported separately. No merge, release, credentials, billing or branch-rule changes.
@@ -27,6 +29,8 @@
 - Script-derived CLI selection, linear frontmatter parsing, policy/metadata constants, ASCII numeric matching and exception simplification are implemented. Published correction `0211ddd` passes Sonar scan and strict zero-unresolved enforcement: all ratings A, 98.9% new-code coverage and zero unresolved issues. Its native runners are superseded by the subsequent Codex fixes and cannot unblock final source.
 - The final checker protects all 27 requested providers and validates complete supported optional metadata, including colon separation. All 42 focused tests pass, with every provider-removal case, malformed optional fields, external-root rejection and bounded 100,000-whitespace parsing. Existing Qodo skills remain unchanged.
 - Genuine credential-free final coverage passes 86 tests, measuring checker coverage at 99.10% and combined Python/C at 92.72%, with no exclusions or warnings. Full isolated host quality exits 0 (its integration step ran the earlier 37-case source before the subsequent focused Codex corrections); all final 42 cases also pass separately. Final frozen native acceptance and new-head hosted checks remain pending.
+- At `33b9cf8`, hosted Sonar scan and strict enforcement pass with zero unresolved issues, all ratings A and 99.1% new-code coverage; Qodo reports zero findings. All three frozen local native runners complete 118 scenarios each, but the subsequent focused Codex corrections supersede that tested digest. These results are retained as source-specific evidence and do not unblock the next source.
+- The portable-header corrections pass all 44 focused tests, including lone-surrogate rejection, valid Unicode/surrogate pairs, comma handling, ASCII layout, preserved non-ASCII scalar content and exact-name mismatches. Signed/unsigned binary-number controls verify existing rejection without a regex change. Independent review, refreshed coverage, native acceptance and published-head checks are still pending at this snapshot. The preceding hosted push's existing `dns_environment` case timed out; its unchanged local reproduction and two PR quality jobs pass, with no proven cause or timeout/gate change.
 
 ---
 

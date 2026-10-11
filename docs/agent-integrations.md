@@ -92,7 +92,7 @@ python3 tools/check-agent-integrations.py
 python3 tests/agent-integrations.py
 ```
 
-The checker validates inventory and shared policy wiring; it does not verify external app installation, execute agent skills, or establish native feature acceptance. It preserves the original 27 requested provider IDs while allowing additions. Skill headers use a deliberately small supported profile: exact single-line names, nonempty plain/quoted/block descriptions, optional single-line `allowed-tools` strings, and optional nonempty `triggers` lists with two-space `- ` items. Blank lines and comments are allowed; unknown keys, malformed indentation, YAML tags, flow collections and implicit nonstring values are rejected. The regression exercises rejected configuration and policy drift. The canonical host suite remains:
+The checker validates inventory and shared policy wiring; it does not verify external app installation, execute agent skills, or establish native feature acceptance. It preserves the original 27 requested provider IDs while allowing additions. Skill headers use a deliberately small supported profile: exact single-line names, nonempty plain/quoted/block descriptions, optional single-line `allowed-tools` strings, and optional nonempty `triggers` lists with two-space `- ` items. Blank lines and comments use ASCII spaces for indentation; key/value separation uses ASCII spaces or tabs. String values must encode as valid UTF-8. Unknown keys, malformed indentation, YAML tags, flow collections and implicit nonstring values are rejected. The regression exercises rejected configuration and policy drift. The canonical host suite remains:
 
 ```sh
 sh tools/code-quality.sh
