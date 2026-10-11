@@ -2,6 +2,42 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-024: Integrate shared development and review workflows
+
+**Priority:** P1 | **Tags:** agents, integrations, validation
+**Baseline:** master `047ce167685f6de8db86519557b865e9f23e98f3` after PR #1033 merged; branch `chore/shared-agent-integrations`.
+
+### Plan
+
+- Inventory the requested plugins and distinguish existing services, repository-consumable skills, optional external capabilities, and unavailable integrations.
+- Add focused planning, implementation, verification, review completion, workflow auditing, security triage and session handoff skills under the canonical AGENTS.md rules. Keep the existing TaskPlanner records and Qodo resolver authoritative for their respective state.
+- Connect existing Codex, Amazon Q, CodeRabbit, Qodo, Claude and Cursor guidance to the shared catalog, and add the GitHub Copilot instructions entry point. Add no credentials, redundant review service, automatic merge, or router-runtime dependency.
+- Add a read-only host validator for integration paths, skill discovery, shared policy pointers and the Amazon Q mirror; exercise rejection behavior with isolated fixtures and register it in the existing quality runner.
+- Verify the final diff and affected host checks, then publish a new PR targeting master. Preserve feature-scoped native ARM acceptance and separate physical release gates; record actual hosted status without borrowing earlier PR results.
+
+### Acceptance criteria
+
+- [x] Every useful supported capability has a documented entry point, with truthful activation and provenance information.
+- [x] All existing agent adapters share AGENTS.md and the same testing/evidence rules.
+- [x] Integration drift fails validation, and valid configurations pass focused regressions.
+- [x] A new reviewable PR targets master; merging and release publication remain separate actions.
+
+### Verification
+
+- Read-only registry check: eight agent entry points, nine skills and all 27 requested plugin dispositions pass; Amazon Q remains byte-identical to AGENTS.md.
+- All 35 integration regressions pass. Genuine credential-free coverage runs 79 tests and measures 98.87% for the new checker, with no coverage exclusions or changed thresholds.
+- Full isolated UID-0 `sh tools/code-quality.sh` completes with exit 0, including host regressions, checksums, warning-level ShellCheck and shfmt. Independent review is clean.
+- The first ARM run's 118 older-ARMv7 scenarios passed, but its evidence was correctly rejected because host validation sources changed during execution. Its logs are retained and are not credited as acceptance.
+- Replacement frozen-snapshot full-system executions each pass 118 scenarios, 354 total. Three-target aggregate evidence passes and unblocks all 11 selected feature groups at content digest `124058f538a25928104be7381a1e51a45e0c4925a7179c1bea2ab786733385cf`; builder fingerprint remains `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. The armv5 package target remains older ARMv7/software-float with VFP and NEON disabled.
+- Published [PR #1034](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1034), ready for review onto master, from head `e583f4603adcc3e510d242a92f1c8e1cc42ac6e3`. Its tree matches the independently tested local commit. Hosted PR checks and external reviews are pending at this completion snapshot and remain delivery follow-up; they are not claimed as passes. Router runtime, package archives and physical release evidence are unchanged. No merge or release is performed.
+
+
+### Completion record
+
+Repository integration implementation, local verification and authorized PR creation are complete on October 11, 2026 (America/New_York). The final metadata-subset clarification and this task record are documentation-only follow-up; tested host sources and native content identity remain unchanged. Current-head hosted findings, if any, must be independently verified and handled before claiming hosted acceptance. The catalog does not install or authenticate external providers.
+
+---
+
 ## TASK-023: Record completed physical-router acceptance
 
 **Priority:** P1 | **Tags:** release, hardware, documentation

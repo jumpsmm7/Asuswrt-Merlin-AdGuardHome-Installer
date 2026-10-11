@@ -92,7 +92,7 @@ python3 tools/check-agent-integrations.py
 python3 tests/agent-integrations.py
 ```
 
-The checker validates inventory and shared policy wiring; it does not verify external app installation, execute agent skills, or establish native feature acceptance. The regression exercises rejected configuration and policy drift. The canonical host suite remains:
+The checker validates inventory and shared policy wiring; it does not verify external app installation, execute agent skills, or establish native feature acceptance. Skill metadata uses a deliberately small YAML string subset: exact single-line names and nonempty plain, quoted or block descriptions. More elaborate YAML tags, collections and implicit nonstring values are rejected. The regression exercises rejected configuration and policy drift. The canonical host suite remains:
 
 ```sh
 sh tools/code-quality.sh
