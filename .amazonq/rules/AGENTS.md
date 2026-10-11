@@ -413,6 +413,8 @@ Read the current checkout's `docs/agent-integrations.md` and `.agents/integratio
 
 Use `.tasks/` as the single task-state record and the existing Qodo resolver for Qodo-specific thread handling. Coordinate one active review observer and one publishing writer per pull request; other agents may inspect or edit disjoint files and share their evidence with that owner. Recheck the published head, complete review-thread pagination and actual check results before claiming completion. A configured integration is not proof that its provider is authenticated, installed, running or passing.
 
+For optional Lovable assistance, use `router-lovable-handoff` and `docs/lovable-agent-integration.md`. Imported skills must consume the exact candidate's canonical policy and verified evidence; owned external databases are advisory mirrors, with task state remaining in `.tasks/`. Repository support does not configure an external account, service or database.
+
 Run these host-only integration checks after changing the catalog, skills or agent entry points:
 
 ```sh

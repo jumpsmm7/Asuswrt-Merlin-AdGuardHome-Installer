@@ -1,5 +1,35 @@
 # In Progress
 
+## TASK-026: Add optional Lovable repository handoff support
+
+**Priority:** P2 | **Tags:** agents, integration, documentation
+**Scope:** PR #1034 onto master. The user selected repository integration support first; no Lovable project, database, connector, workspace skill or deployment is provisioned by this task.
+
+### Plan
+
+- Add a portable, repository-scoped Lovable skill and a versioned handoff contract for canonical policy, exact source provenance, existing task ownership and actual validation evidence.
+- Document optional references to user-owned Lovable Cloud/Supabase data with explicit ownership, authorization and read-only scope. Keep `.tasks/`, GitHub review state and existing ARM/physical gate authority; private model training data is not exposed by these APIs.
+- Register the adapter and align shared agent routing without replacing existing provider configurations. Explain GitHub API access separately from Lovable Git sync and preserve unrelated project/workspace instructions.
+- Run existing integration checks, validate the handoff schema and its intended constraints, review the diff and publish a normal leased update to the existing PR. Observe the published head through one designated reviewer; report missing, pending or rate-limited results accurately.
+
+### Acceptance criteria
+
+- [x] The skill remains usable when imported alone into Lovable and loads canonical repository instructions from the supplied exact-head packet or verified immutable references.
+- [x] Handoffs distinguish advisory analysis, host checks, native ARM execution, modeled firmware and physical operator reports; optional database references cannot become a second task ledger or a test waiver.
+- [x] All existing agent entry points, Qodo skills and original provider IDs are preserved; Amazon Q remains byte-identical to canonical policy.
+- [x] Existing integration checks and schema verification pass. Any unchanged native evidence is identified by its tested-content digest, not relabeled as a new run.
+- [ ] The updated PR is published and current-head check/review state is recorded, including external service limitations.
+
+### Verification
+
+The read-only registry check passes with eight agent entry points, ten skills and 27 providers. All 44 existing integration regressions pass. The Draft 2020-12 schema and documented baseline packet validate, and its actual historical policy hash matches. Independent boundary review passes eight positive controls, 26 negative schema-shape controls and three bounded timestamp rejection controls. The timestamp controls register an explicit temporary checker; this adds no repository dependency and does not claim comprehensive RFC3339 parser validation. Amazon Q remains byte-identical to canonical policy, and `git diff --check` passes.
+
+The current tested-content digest remains `28098abaac867cb1b95541bd4387c726ef5d797a865d60b84e58689b10c99877`. Existing frozen armv5/armv7/armv8 reports each contain 118 passing scenarios (354 total), and aggregate validation against the current checkout passes all 11 selected contracts. These are revalidated earlier executions, not new runs. No runtime, archive, test, validation-tool or workflow input changes are made here; physical acceptance is unchanged. Publication and hosted observation are pending.
+
+Read-only account inventory on October 11, 2026 found a Pro workspace with zero projects, workspace skills and added connectors. The user chose repository support before external setup. No account identifiers, credentials or private database content are checked in.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Subsequent repository state:** PR [#1033](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033) was merged into master as `047ce167685f6de8db86519557b865e9f23e98f3` on October 10, 2026 (America/New_York). Pre-merge authorization and check statements below are historical records, not a claim that the PR remains open. Release publication and supplemental traceability remain separate; the quota-blocked reviewer is not relabeled as passing.

@@ -20,6 +20,7 @@
     {"name": "router-workflow-audit", "path": ".agents/skills/router-workflow-audit/SKILL.md"},
     {"name": "router-security-triage", "path": ".agents/skills/router-security-triage/SKILL.md"},
     {"name": "router-session-handoff", "path": ".agents/skills/router-session-handoff/SKILL.md"},
+    {"name": "router-lovable-handoff", "path": ".agents/skills/router-lovable-handoff/SKILL.md"},
     {"name": "qodo-get-rules", "path": ".agents/skills/qodo-get-rules/SKILL.md"},
     {"name": "qodo-pr-resolver", "path": ".agents/skills/qodo-pr-resolver/SKILL.md"}
   ],
@@ -35,9 +36,9 @@
     {
       "id": "lovable",
       "name": "Lovable",
-      "mode": "external-optional",
-      "skills": [],
-      "notes": "Consider only for an explicitly requested separate UI or dashboard with its own authorized host setup; no installer runtime dependency or service is configured here.",
+      "mode": "repository-skill",
+      "skills": ["router-lovable-handoff"],
+      "notes": "Portable repository-scoped handoff skill and versioned evidence/owned-database reference contract. Optional Lovable host setup is separate; no workspace, connector, project, database, deployment or router runtime dependency is configured here.",
       "source": "plugin://lovable@openai-curated-remote"
     },
     {
