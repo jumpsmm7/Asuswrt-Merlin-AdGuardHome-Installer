@@ -2,6 +2,44 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-027: Synchronize repository MCP clients
+
+**Priority:** P2 | **Tags:** agents, mcp, configuration, validation
+**Scope:** New PR onto master `f576f1fb6ad99120c5b7cad80926d9797e8d3a0a`, following the maintainer's request to combine and synchronize repository-scoped MCP server support across capable agents. The existing union is Context7, Firecrawl and Lovable, with the exact supplied endpoints preserved.
+
+### Plan
+
+- Use portable root `.mcp.json` as the canonical shared HTTP server catalog for compatible Claude/Copilot clients. Mirror the combined inventory into supported Codex, Amazon Q, Cursor and Kiro repository formats, and verify any necessary older VS Code compatibility format without duplicate assumptions.
+- Preserve client-specific transport/authentication syntax, including Lovable's published public Cursor OAuth client identifier, while keeping credentials, account login and tool approval state outside committed configuration.
+- Add read-only consistency validation to the existing host integration checker and focused drift/rejection coverage. Preserve unrelated existing agent policy, Qodo handling, provider IDs, task records and reviewer coordination.
+- Align shared usage guidance and entry-point routing, distinguishing native file support from hosted provider dashboard/manual setup. Do not invent Qodo or CodeRabbit client configuration or modify external accounts.
+- Verify the changed host checks and coverage, publish a new ready-for-review PR onto master, and inspect exact-head hosted checks, fresh native ARM acceptance and actual review feedback through one observer.
+
+### Acceptance criteria
+
+- [x] Each configured capable client declares the combined server names and exact canonical URLs in its supported native shape; drift, missing servers and incompatible client fields are rejected.
+- [x] Clients preserve their documented authentication/trust behavior; no tokens, automatic approval, external setup, router dependency, merge or release is introduced.
+- [x] Existing agent policy and Qodo/task authority remain intact; new optional Kiro routing follows the same canonical rules.
+- [x] Meaningful host regressions and genuine coverage pass without exclusions or reduced thresholds. Native evidence for changed tested inputs is refreshed rather than reusing historical acceptance.
+- [x] A new PR is published onto master and its current-head validation/review state is recorded accurately.
+
+### Verification
+
+Implemented and published as ready-for-review PR [#1035](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1035) onto master. Source head `a0d3bc82aa2ba903b46c78ddf5afe2e363c1505f`, exact tree `b96cdf2a2ec78248c07bc3a7cc729fc0f1e8bf9a`, matches frozen local commit `5ca3a31413f8d6b1a2e0a21f14912c9138090a27`.
+
+- All 58 integration tests pass, including combined-inventory drift, native formats, public Cursor OAuth metadata, strict JSON/TOML, no-follow reads, coordinated future additions and optional `.vscode/mcp.json`/`.github/mcp.json` override rejection. Registry remains eight agent entry points, ten skills and 27 providers; Amazon Q policy remains byte-identical.
+- Genuine credential-free collection passes 102 tests with all six Python modules retained, zero exclusions and no warnings. Checker coverage is 350/353 lines plus 79/80 branches (99.08%); combined Python/native-C is 1973/2121 (93.02%). Live authentication or client tool execution is not inferred from these offline checks.
+- Full isolated UID-0 canonical host quality passes on preceding frozen `cb61b3c` source. Its later host-only override delta passes the fresh focused/coverage runs; exact final-source hosted validation is recorded separately below.
+- The single observer's October 12, 05:35:49 UTC source snapshot verifies matching PR/ref/base and open, non-draft, mergeable, unmerged state. All 37 checks complete: 36 successful, existing Scorecard neutral, no failures or pending jobs. All three full quality suites and six fresh ARM executions pass; both acceptance aggregates pass all 11 selected groups, 118 scenarios per architecture /354 per matrix. These are fresh source executions, not historical ARM reuse. Physical acceptance remains unchanged.
+- Sonar verifies exact source SCM, 102 tests, strict zero unresolved issues and 97.9% new-code coverage. Qodo and Codex report no findings. CodeRabbit formally approves exact source (`5486805918`), reports no actionable comments and passes all five pre-merge checks. Complete GraphQL/REST pagination confirms zero inline comments/threads and no active Codex review.
+- Fresh hosted ARM evidence and the actual immutable `5ca3a31` archive share digest `ba74a23402547cc0d48b218f2e1d7bf4af91e4452514a4b069662f811c1dc27c`. The editable local worktree digest is `34bd09b7694135ec553e5764c43f43f7d932181e71c47edd85fe127e626a9e46`: 43 included executable files have restricted local 0700 modes. Recomputing over identical tracked bytes with normal Git execute bits exactly reproduces the hosted/archive identity. These are distinct filesystem provenance records, not interchangeable execution claims.
+
+This completion-record follow-up changes task files only. Later published-head results are tracked in the PR description rather than pre-claimed here. No external account, credential, trust, billing, merge or release changes occur.
+
+Current master includes the merged shared-agent/Lovable support PR #1034 plus the maintainer's Codex Lovable server addition. Existing Amazon Q declares Context7 and Firecrawl; no other repository MCP client declarations were found. Primary vendor documentation is being used to verify native client formats and provider authentication details.
+
+---
+
 ## TASK-026: Add optional Lovable repository handoff support
 
 **Priority:** P2 | **Tags:** agents, integration, documentation

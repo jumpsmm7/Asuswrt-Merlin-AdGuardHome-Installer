@@ -1,32 +1,5 @@
 # In Progress
 
-## TASK-027: Synchronize repository MCP clients
-
-**Priority:** P2 | **Tags:** agents, mcp, configuration, validation
-**Scope:** New PR onto master `f576f1fb6ad99120c5b7cad80926d9797e8d3a0a`, following the maintainer's request to combine and synchronize repository-scoped MCP server support across capable agents. The existing union is Context7, Firecrawl and Lovable, with the exact supplied endpoints preserved.
-
-### Plan
-
-- Use portable root `.mcp.json` as the canonical shared HTTP server catalog for compatible Claude/Copilot clients. Mirror the combined inventory into supported Codex, Amazon Q, Cursor and Kiro repository formats, and verify any necessary older VS Code compatibility format without duplicate assumptions.
-- Preserve client-specific transport/authentication syntax, including Lovable's published public Cursor OAuth client identifier, while keeping credentials, account login and tool approval state outside committed configuration.
-- Add read-only consistency validation to the existing host integration checker and focused drift/rejection coverage. Preserve unrelated existing agent policy, Qodo handling, provider IDs, task records and reviewer coordination.
-- Align shared usage guidance and entry-point routing, distinguishing native file support from hosted provider dashboard/manual setup. Do not invent Qodo or CodeRabbit client configuration or modify external accounts.
-- Verify the changed host checks and coverage, publish a new ready-for-review PR onto master, and inspect exact-head hosted checks, fresh native ARM acceptance and actual review feedback through one observer.
-
-### Acceptance criteria
-
-- [ ] Each configured capable client declares the combined server names and exact canonical URLs in its supported native shape; drift, missing servers and incompatible client fields are rejected.
-- [ ] Clients preserve their documented authentication/trust behavior; no tokens, automatic approval, external setup, router dependency, merge or release is introduced.
-- [ ] Existing agent policy and Qodo/task authority remain intact; new optional Kiro routing follows the same canonical rules.
-- [ ] Meaningful host regressions and genuine coverage pass without exclusions or reduced thresholds. Native evidence for changed tested inputs is refreshed rather than reusing historical acceptance.
-- [ ] A new PR is published onto master and its current-head validation/review state is recorded accurately.
-
-### Verification
-
-Pending implementation. Current master includes the merged shared-agent/Lovable support PR #1034 plus the maintainer's Codex Lovable server addition. Existing Amazon Q declares Context7 and Firecrawl; no other repository MCP client declarations were found. Primary vendor documentation is being used to verify native client formats and provider authentication details.
-
----
-
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Subsequent repository state:** PR [#1033](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033) was merged into master as `047ce167685f6de8db86519557b865e9f23e98f3` on October 10, 2026 (America/New_York). Pre-merge authorization and check statements below are historical records, not a claim that the PR remains open. Release publication and supplemental traceability remain separate; the quota-blocked reviewer is not relabeled as passing.
