@@ -7,3 +7,7 @@ enabled = true
 [mcp_servers.firecrawl]
 url = "https://mcp.firecrawl.dev/v2/mcp"
 enabled = true
+
+[mcp_servers.lovable]
+url = "https://mcp.lovable.dev/?src=settings"
+enabled = true
