@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Router repository advisory handoff",
+  "description": "Versioned, metadata-only input to a Lovable advisory handoff; validation does not authenticate evidence or authorize actions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "source", "goal", "task_ref", "owner", "evidence", "unknowns"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"const": "https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_sha", "branch", "policy"],
+      "properties": {
+        "commit_sha": {"$ref": "#/$defs/commit"},
+        "branch": {"type": "string", "minLength": 1, "maxLength": 256},
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "sha256"],
+          "properties": {
+            "url": {"type": "string", "pattern": "^https://github\\.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/[a-f0-9]{40}/AGENTS\\.md$(?![\\s\\S])"},
+            "sha256": {"$ref": "#/$defs/digest"},
+            "text": {"type": "string", "minLength": 1, "maxLength": 100000}
+          }
+        },
+        "guide_url": {"type": "string", "pattern": "^https://github\\.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/blob/[a-f0-9]{40}/docs/agent-integrations\\.md$(?![\\s\\S])"}
+      }
+    },
+    "goal": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "task_ref": {"type": ["string", "null"], "pattern": "^TASK-[0-9]{3,}$(?![\\s\\S])", "maxLength": 32},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writer", "observer"],
+      "properties": {
+        "writer": {"type": "string", "minLength": 1, "maxLength": 128},
+        "observer": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "status", "provenance", "scope", "source_commit", "reference"],
+        "properties": {
+          "kind": {"enum": ["advisory-analysis", "host-check", "native-arm", "modeled-firmware", "physical-operator", "review-state"]},
+          "status": {"enum": ["unknown", "pass", "fail", "pending", "skipped"]},
+          "provenance": {"type": "string", "minLength": 1, "maxLength": 2000},
+          "scope": {"type": "string", "minLength": 1, "maxLength": 2000},
+          "source_commit": {"anyOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
+          "reference": {"type": ["string", "null"], "minLength": 1, "maxLength": 2000},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "tested_content_sha256": {"$ref": "#/$defs/digest"},
+          "builder_sha256": {"$ref": "#/$defs/digest"},
+          "architectures": {"type": "array", "items": {"enum": ["armv5", "armv7", "armv8"]}, "minItems": 1, "maxItems": 3, "uniqueItems": true}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "pass"}}},
+            "then": {
+              "required": ["observed_at"],
+              "properties": {"reference": {"type": "string"}},
+              "if": {"properties": {"kind": {"enum": ["host-check", "native-arm", "modeled-firmware", "review-state"]}}},
+              "then": {"properties": {"source_commit": {"$ref": "#/$defs/commit"}}}
+            }
+          },
+          {
+            "if": {"properties": {"kind": {"const": "native-arm"}, "status": {"const": "pass"}}},
+            "then": {"required": ["tested_content_sha256", "builder_sha256", "architectures"]}
+          },
+          {
+            "if": {"properties": {"kind": {"const": "advisory-analysis"}}},
+            "then": {"properties": {"status": {"enum": ["unknown", "pending", "skipped"]}}}
+          }
+        ]
+      }
+    },
+    "unknowns": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2000}, "maxItems": 100},
+    "database_references": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["project_alias", "provider", "ownership", "authorized_scope", "availability"],
+        "properties": {
+          "project_alias": {"type": "string", "minLength": 1, "maxLength": 128},
+          "provider": {"enum": ["lovable-cloud", "supabase"]},
+          "ownership": {"const": "user-owned"},
+          "authorized_scope": {"const": "metadata-only"},
+          "availability": {"enum": ["unknown", "enabled", "disabled", "inaccessible"]},
+          "schema_references": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 128}, "maxItems": 50},
+          "notes": {"type": "string", "maxLength": 2000}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "commit": {"type": "string", "pattern": "^[a-f0-9]{40}$", "minLength": 40, "maxLength": 40},
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$", "minLength": 64, "maxLength": 64}
+  }
+}

@@ -2,6 +2,111 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-026: Add optional Lovable repository handoff support
+
+**Priority:** P2 | **Tags:** agents, integration, documentation
+**Scope:** PR #1034 onto master. The user selected repository integration support first; no Lovable project, database, connector, workspace skill or deployment is provisioned by this task.
+
+### Plan
+
+- Add a portable, repository-scoped Lovable skill and a versioned handoff contract for canonical policy, exact source provenance, existing task ownership and actual validation evidence.
+- Document optional references to user-owned Lovable Cloud/Supabase data with explicit ownership, authorization and read-only scope. Keep `.tasks/`, GitHub review state and existing ARM/physical gate authority; private model training data is not exposed by these APIs.
+- Register the adapter and align shared agent routing without replacing existing provider configurations. Explain GitHub API access separately from Lovable Git sync and preserve unrelated project/workspace instructions.
+- Run existing integration checks, validate the handoff schema and its intended constraints, review the diff and publish a normal leased update to the existing PR. Observe the published head through one designated reviewer; report missing, pending or rate-limited results accurately.
+
+### Acceptance criteria
+
+- [x] The skill remains usable when imported alone into Lovable and loads canonical repository instructions from the supplied exact-head packet or verified immutable references.
+- [x] Handoffs distinguish advisory analysis, host checks, native ARM execution, modeled firmware and physical operator reports; optional database references cannot become a second task ledger or a test waiver.
+- [x] All existing agent entry points, Qodo skills and original provider IDs are preserved; Amazon Q remains byte-identical to canonical policy.
+- [x] Existing integration checks and schema verification pass. Any unchanged native evidence is identified by its tested-content digest, not relabeled as a new run.
+- [x] The updated PR is published and current-head check/review state is recorded, including external service limitations.
+
+### Verification
+
+The read-only registry check passes with eight agent entry points, ten skills and 27 providers. All 44 existing integration regressions pass. The Draft 2020-12 schema and documented baseline packet validate, and its actual historical policy hash matches. Independent boundary review passes eight positive controls, 26 negative schema-shape controls and three bounded timestamp rejection controls. The timestamp controls register an explicit temporary checker; this adds no repository dependency and does not claim comprehensive RFC3339 parser validation. Amazon Q remains byte-identical to canonical policy, and `git diff --check` passes.
+
+The current tested-content digest remains `28098abaac867cb1b95541bd4387c726ef5d797a865d60b84e58689b10c99877`. Existing frozen armv5/armv7/armv8 reports each contain 118 passing scenarios (354 total), and aggregate validation against the current checkout passes all 11 selected contracts. These are revalidated earlier executions, not new runs. No runtime, archive, test, validation-tool or workflow input changes are made here; physical acceptance is unchanged. Implementation published normally to PR #1034 at `9dca9fbe54013d90bc59fbd3c0cdd75122b370eb`, exact tree `abf1c27bf99b6d0ce2313044cfd5a7949cf027b6`. The single observer's October 11, 19:18:58 UTC snapshot verifies matching PR/ref, unchanged master base and exactly the 11 intended paths. All nine review threads and 20 inline comments remain resolved; Qodo's new-head footer reports zero findings. At that cutoff, 31 current-head checks are starting with no failures, and CodeRabbit is reviewing; these are pending hosted results, not claimed passes. The PR description tracks later hosted outcomes; this task-record follow-up does not change tested inputs.
+
+Read-only account inventory on October 11, 2026 found a Pro workspace with zero projects, workspace skills and added connectors. The user chose repository support before external setup. No account identifiers, credentials or private database content are checked in.
+
+---
+
+## TASK-025: Resolve integration-checker hosted findings
+
+**Priority:** P1 | **Tags:** agents, review, security, validation
+**Scope:** PR #1034 onto master; verified source head `4bec2dbcf913f2e9381e2bfaaaff59a8fe7e8fa4`. Correct newly reported host-only checker findings while preserving registry rejection and filesystem safety. Existing TASK-024 completion is the earlier implementation/publication snapshot.
+
+### Plan
+
+- Independently verify all 11 Sonar findings, including repeated policy literals, frontmatter parsing complexity, numeric character classes, redundant exception handling and caller-supplied root selection.
+- Address two subsequently reported Codex consistency gaps: requested-provider deletion and malformed optional skill metadata must fail validation. Preserve valid existing Qodo trigger headers and document the supported metadata grammar; add isolated negative tests.
+- Reject unquoted leading-decimal exponents consistently across agents' YAML versions while preserving quoted text; add signed/unsigned and quoted controls for the subsequently reported CodeRabbit case.
+- Correct the focused Codex review's three portable-header gaps: decoded lone Unicode surrogates, comma-leading plain scalars, and tab indentation hidden by comment skipping. Cover adjacent reproduced non-ASCII separator/indentation cases while preserving valid Unicode text and space-indented comments. Add explicit binary-number controls for CodeRabbit's already-rejected case without changing working numeric detection.
+- Simplify parsing and make CLI repository selection derive from the checked-in checker location. Keep isolated real-process tests by placing the checker in each disposable fixture repository; preserve no-follow descriptor access, nonregular-file rejection, read-only checks, stderr and timeout assertions.
+- Re-run focused host safety tests and genuine credential-free coverage, independently review the final diff, and obtain fresh frozen all-three-target native evidence for the changed tested content. Keep physical acceptance separate and do not weaken thresholds or suppress findings.
+- Publish normal leased PR updates, inspect current-head Sonar and other agent/check results through one observer, and record evidence-based thread dispositions using the existing Qodo resolver.
+
+### Acceptance criteria
+
+- [x] All current Sonar issues are corrected and current-head strict zero-unresolved enforcement passes.
+- [x] Both valid Codex drift findings have rejected-fixture coverage; its obsolete task-status comment has an evidence-based disposition.
+- [x] The focused Codex portable-header findings have rejection and valid-string controls; CodeRabbit's binary-number claim has an evidence-based disposition.
+- [x] Focused rejection/safety tests, host quality and measured coverage pass without exclusions or changed thresholds.
+- [x] Fresh native evidence matches final tested content and aggregate acceptance passes on all three targets.
+- [x] Published-head review and check states are inspected; external blockers are reported separately. No merge, release, credentials, billing or branch-rule changes.
+
+### Verification
+
+- All 44 focused integration tests pass, preserving the eight required agents, nine skills and 27 requested providers. Fixtures cover no-follow/read-only filesystem access, nonregular files, external-root rejection, linear long-input parsing, complete optional metadata, exact names, ASCII layout and valid Unicode. Binary-number rejection was already implemented; its exact reported signed/unsigned examples and quoted controls now document the evidence-based disposition.
+- Genuine credential-free collection runs 88 tests. Checker coverage is 281/283 lines and 57/58 branches (99.12%); combined Python/native-C is 1882/2029 lines and branches (92.76%). Six intended Python modules are measured, with zero excluded lines, no coverage warnings and unchanged thresholds. Sonar credential variables are absent during regressions.
+- Full isolated UID-0 canonical host quality exits 0 on frozen local source `a02e470080f41fec8ed32e10885bc25f5fbe0d96`, including lifecycle matrices, checksums, ShellCheck and shfmt. The unchanged DNS-environment fixture passes standalone and within the matrix. The preceding hosted push's unexplained timeout remains failure history; no timeout, assertion or gate was weakened.
+- Frozen armv5, armv7 and armv8 executions each pass 118 scenarios, 354 total. Matching aggregate acceptance passes and unblocks only all 11 selected manifest contracts at tested-content digest `28098abaac867cb1b95541bd4387c726ef5d797a865d60b84e58689b10c99877`; builder fingerprint remains `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. The armv5 package target remains older RT-AC68U-class ARMv7/software-float with VFP/NEON disabled. Physical acceptance is unchanged; superseded or interrupted runs cannot unblock this source.
+- Published source `4bec2db` has exact local/remote tree parity. Sonar scan and strict enforcement pass with zero unresolved issues and 88 hosted tests. Qodo reports zero findings on that head. CodeRabbit approves the source. All nine review threads have evidence replies/dispositions and are resolved, with complete pagination; no Codex request remains active. The independent final Unicode/layout review is clean, so no additional reassurance-only review was requested.
+- At the source completion cutoff (18:35:11 UTC), all 36 hosted checks are terminal: 35 succeed and the existing Scorecard check is neutral, with no failures or pending jobs. Both native acceptance aggregates, all six architecture jobs and all three full quality jobs pass. CodeRabbit's four passed pre-merge checks and one inconclusive linked-issue assessment are recorded separately from its approval. The PR body now states the maintainer request and canonical TASK-024/TASK-025 tracking; repository policy has no mandatory GitHub-issue link, and no governing issue applies. The assessment remains enabled, with its refresh and final-head checks tracked as delivery follow-up.
+
+### Completion record
+
+Source corrections, matching local acceptance, authorized publication and review-thread resolution are complete on October 11, 2026 (America/New_York). This completion-record update changes only task documentation and preserves the tested-content digest. Final published-head hosted observation continues; no pending result is relabeled as a pass. PR #1034 stays ready for review onto master, with no merge, release, credentials, billing or branch-rule changes.
+
+---
+
+## TASK-024: Integrate shared development and review workflows
+
+**Priority:** P1 | **Tags:** agents, integrations, validation
+**Baseline:** master `047ce167685f6de8db86519557b865e9f23e98f3` after PR #1033 merged; branch `chore/shared-agent-integrations`.
+
+### Plan
+
+- Inventory the requested plugins and distinguish existing services, repository-consumable skills, optional external capabilities, and unavailable integrations.
+- Add focused planning, implementation, verification, review completion, workflow auditing, security triage and session handoff skills under the canonical AGENTS.md rules. Keep the existing TaskPlanner records and Qodo resolver authoritative for their respective state.
+- Connect existing Codex, Amazon Q, CodeRabbit, Qodo, Claude and Cursor guidance to the shared catalog, and add the GitHub Copilot instructions entry point. Add no credentials, redundant review service, automatic merge, or router-runtime dependency.
+- Add a read-only host validator for integration paths, skill discovery, shared policy pointers and the Amazon Q mirror; exercise rejection behavior with isolated fixtures and register it in the existing quality runner.
+- Verify the final diff and affected host checks, then publish a new PR targeting master. Preserve feature-scoped native ARM acceptance and separate physical release gates; record actual hosted status without borrowing earlier PR results.
+
+### Acceptance criteria
+
+- [x] Every useful supported capability has a documented entry point, with truthful activation and provenance information.
+- [x] All existing agent adapters share AGENTS.md and the same testing/evidence rules.
+- [x] Integration drift fails validation, and valid configurations pass focused regressions.
+- [x] A new reviewable PR targets master; merging and release publication remain separate actions.
+
+### Verification
+
+- Read-only registry check: eight agent entry points, nine skills and all 27 requested plugin dispositions pass; Amazon Q remains byte-identical to AGENTS.md.
+- All 35 integration regressions pass. Genuine credential-free coverage runs 79 tests and measures 98.87% for the new checker, with no coverage exclusions or changed thresholds.
+- Full isolated UID-0 `sh tools/code-quality.sh` completes with exit 0, including host regressions, checksums, warning-level ShellCheck and shfmt. Independent review is clean.
+- The first ARM run's 118 older-ARMv7 scenarios passed, but its evidence was correctly rejected because host validation sources changed during execution. Its logs are retained and are not credited as acceptance.
+- Replacement frozen-snapshot full-system executions each pass 118 scenarios, 354 total. Three-target aggregate evidence passes and unblocks all 11 selected feature groups at content digest `124058f538a25928104be7381a1e51a45e0c4925a7179c1bea2ab786733385cf`; builder fingerprint remains `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. The armv5 package target remains older ARMv7/software-float with VFP and NEON disabled.
+- Published [PR #1034](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1034), ready for review onto master, from head `e583f4603adcc3e510d242a92f1c8e1cc42ac6e3`. Its tree matches the independently tested local commit. Hosted PR checks and external reviews are pending at this completion snapshot and remain delivery follow-up; they are not claimed as passes. Router runtime, package archives and physical release evidence are unchanged. No merge or release is performed.
+
+
+### Completion record
+
+Repository integration implementation, local verification and authorized PR creation are complete on October 11, 2026 (America/New_York). The final metadata-subset clarification and this task record are documentation-only follow-up; tested host sources and native content identity remain unchanged. Current-head hosted findings, if any, must be independently verified and handled before claiming hosted acceptance. The catalog does not install or authenticate external providers.
+
+---
+
 ## TASK-023: Record completed physical-router acceptance
 
 **Priority:** P1 | **Tags:** release, hardware, documentation

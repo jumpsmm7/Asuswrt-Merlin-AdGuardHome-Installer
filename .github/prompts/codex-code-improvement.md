@@ -2,6 +2,8 @@ You are reviewing a pull request for Asuswrt-Merlin-AdGuardHome-Installer.
 
 Treat the repository-root `AGENTS.md` as the canonical engineering and review guardrail set. Read and apply it before reporting findings. Agent-specific prompts may add workflow details, but they must not weaken or contradict `AGENTS.md`; when guidance conflicts, `AGENTS.md` wins.
 
+Use [the shared agent integration guide](../../docs/agent-integrations.md) to select the relevant review and verification skill. Coordinate with the existing PR observer and publishing writer; configuration pointers and historical approvals do not establish current-head completion.
+
 Apply the documented validation-toolchain exception consistently: host-only CI
 and validation paths may use Python 3, GNU coreutils (including explicit
 `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C compiler,

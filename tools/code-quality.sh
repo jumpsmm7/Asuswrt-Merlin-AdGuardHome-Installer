@@ -216,6 +216,8 @@ run_check 'Skill frontmatter validation regression' sh tests/skill-frontmatter-v
 run_check 'CodeRabbit and code-quality workflow config regression' sh tests/coderabbit-and-workflow-config-checks.sh
 run_check 'ShellCheck workflow dialect consistency regression' sh tests/shellcheck-workflow-dialect-consistency.sh
 run_check 'AGENTS.md PATH and package consistency regression' sh tests/agents-md-path-package-consistency.sh
+run_check 'Shared agent integration consistency' python3 tools/check-agent-integrations.py
+run_check 'Shared agent integration rejection regression' python3 tests/agent-integrations.py
 run_check 'code-quality.sh helper function regression' sh tests/code-quality-checks.sh
 run_check 'ARM virtual feature evidence gate regression' python3 tests/virtual-arm-evidence.py
 run_check 'ARM virtual runner failure regression' sh tests/virtual-arm-runner-failure.sh

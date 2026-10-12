@@ -21,6 +21,8 @@ Fetch Qodo review issues for your current branch's PR/MR, fix them interactively
 
 Before validating or applying feedback in this repository, read the canonical [AGENTS.md](../../../AGENTS.md) and the Qodo [REVIEW.md](../../../REVIEW.md). Provider workflows and review prompts must preserve those guardrails. Follow the shared [ARM virtual validation](../../../AGENTS.md#arm-virtual-validation) commands and [virtual testing guide](../../../docs/virtual-arm-testing.md) when relevant; host checks, native assertions and modeled firmware coverage are distinct evidence.
 
+Coordinate this provider-specific workflow through [the shared agent integration guide](../../../docs/agent-integrations.md). Reuse the active PR observer and publishing writer; repository-wide review completion belongs to [router-review-completion](../router-review-completion/SKILL.md), while this skill remains authoritative for Qodo thread dispositions.
+
 ## Prerequisites
 
 ### Required Tools:

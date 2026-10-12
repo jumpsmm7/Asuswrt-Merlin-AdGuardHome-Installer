@@ -8,6 +8,8 @@ Review pull-request changes against the runtime, compatibility, security, lifecy
 
 Read the repository-root [AGENTS.md](AGENTS.md) as the canonical engineering and review guardrails. This file adds Qodo review guidance and must not weaken or contradict those guardrails; `AGENTS.md` wins when guidance conflicts.
 
+Use [the shared agent integration guide](docs/agent-integrations.md) for scoped review completion and verification. Qodo-specific threads remain handled by the existing `.agents/skills/qodo-pr-resolver/SKILL.md`; coordinate with the single PR observer and publishing writer rather than starting a competing review loop.
+
 ## Review posture
 
 Keep reviews targeted and high-signal.

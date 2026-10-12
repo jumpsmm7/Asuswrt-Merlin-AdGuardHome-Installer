@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "canonical_policy": "AGENTS.md",
+  "guide": "docs/agent-integrations.md",
+  "agents": [
+    {"id": "codex", "path": "AGENTS.md", "kind": "canonical"},
+    {"id": "amazonq", "path": ".amazonq/rules/AGENTS.md", "kind": "mirror"},
+    {"id": "coderabbit", "path": ".coderabbit.yaml", "kind": "policy"},
+    {"id": "qodo", "path": "REVIEW.md", "kind": "pointer"},
+    {"id": "claude", "path": "CLAUDE.md", "kind": "pointer"},
+    {"id": "cursor", "path": ".cursorrules", "kind": "pointer"},
+    {"id": "copilot", "path": ".github/copilot-instructions.md", "kind": "pointer"},
+    {"id": "codex-review", "path": ".github/prompts/codex-code-improvement.md", "kind": "pointer"}
+  ],
+  "skills": [
+    {"name": "router-change-plan", "path": ".agents/skills/router-change-plan/SKILL.md"},
+    {"name": "router-change-implementation", "path": ".agents/skills/router-change-implementation/SKILL.md"},
+    {"name": "router-change-verification", "path": ".agents/skills/router-change-verification/SKILL.md"},
+    {"name": "router-review-completion", "path": ".agents/skills/router-review-completion/SKILL.md"},
+    {"name": "router-workflow-audit", "path": ".agents/skills/router-workflow-audit/SKILL.md"},
+    {"name": "router-security-triage", "path": ".agents/skills/router-security-triage/SKILL.md"},
+    {"name": "router-session-handoff", "path": ".agents/skills/router-session-handoff/SKILL.md"},
+    {"name": "router-lovable-handoff", "path": ".agents/skills/router-lovable-handoff/SKILL.md"},
+    {"name": "qodo-get-rules", "path": ".agents/skills/qodo-get-rules/SKILL.md"},
+    {"name": "qodo-pr-resolver", "path": ".agents/skills/qodo-pr-resolver/SKILL.md"}
+  ],
+  "integrations": [
+    {
+      "id": "taskplanner",
+      "name": "Task Plan AI",
+      "mode": "existing",
+      "skills": ["router-change-plan", "router-session-handoff"],
+      "notes": "Preserve the existing .tasks/ workflow and canonical TaskPlanner policy. Local skills guide an agent; they do not install an external planner service.",
+      "source": "plugin://taskplanner@openai-curated-remote"
+    },
+    {
+      "id": "lovable",
+      "name": "Lovable",
+      "mode": "repository-skill",
+      "skills": ["router-lovable-handoff"],
+      "notes": "Portable repository-scoped handoff skill and versioned evidence/owned-database reference contract. Optional Lovable host setup is separate; no workspace, connector, project, database, deployment or router runtime dependency is configured here.",
+      "source": "plugin://lovable@openai-curated-remote"
+    },
+    {
+      "id": "vibe-coding",
+      "name": "Vibe Coding",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; do not infer functionality from the name.",
+      "source": "plugin://vibe-coding@openai-curated-remote"
+    },
+    {
+      "id": "zuora-coding-agent",
+      "name": "Zuora Coding Agent",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; no billing service or repository runner is configured.",
+      "source": "plugin://zuora-coding-agent@openai-curated-remote"
+    },
+    {
+      "id": "opstruth",
+      "name": "OpsTruth",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; existing validation evidence remains authoritative.",
+      "source": "plugin://opstruth@openai-curated-remote"
+    },
+    {
+      "id": "unix-copilot",
+      "name": "Unix Copilot",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; shared BusyBox and POSIX shell rules remain unchanged.",
+      "source": "plugin://unix-copilot@openai-curated-remote"
+    },
+    {
+      "id": "engineering-suite",
+      "name": "EngineeringSuite",
+      "mode": "repository-skill",
+      "skills": ["router-change-plan", "router-change-implementation", "router-change-verification", "router-review-completion", "router-workflow-audit", "router-security-triage", "router-session-handoff"],
+      "notes": "Original project adapters apply available engineering workflow guidance within canonical policy; no upstream package or service is vendored or installed.",
+      "source": "plugin://engineering-suite@openai-curated-remote"
+    },
+    {
+      "id": "zzzops",
+      "name": "ZzzOps",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; no unattended operations runner is configured.",
+      "source": "plugin://zzzops@openai-curated-remote"
+    },
+    {
+      "id": "codeassistant",
+      "name": "Code Assistant",
+      "mode": "excluded",
+      "skills": [],
+      "notes": "Inspected upstream skills require an affiliate footer. That requirement is unsuitable for shared repository defaults, so those skills are not enabled or vendored.",
+      "source": "plugin://codeassistant@openai-curated-remote"
+    },
+    {
+      "id": "qodo",
+      "name": "Qodo",
+      "mode": "existing",
+      "skills": ["qodo-get-rules", "qodo-pr-resolver", "router-review-completion"],
+      "notes": "Preserve REVIEW.md and existing Qodo rule retrieval and resolver contracts. External rules require configured host credentials; the shared adapter coordinates verified findings.",
+      "source": "plugin://qodo@openai-curated-remote"
+    },
+    {
+      "id": "groundwork",
+      "name": "Groundwork",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; task planning remains in the existing .tasks/ system.",
+      "source": "plugin://groundwork@openai-curated-remote"
+    },
+    {
+      "id": "andrej-karpathy-skills",
+      "name": "Andrej Karpathy Skills",
+      "mode": "repository-skill",
+      "skills": ["router-change-implementation"],
+      "notes": "An original project adapter applies explicit assumptions, narrow edits, and verifiable outcomes under canonical router compatibility rules.",
+      "source": "plugin://andrej-karpathy-skills@openai-curated-remote"
+    },
+    {
+      "id": "skillquiver",
+      "name": "Skillquiver",
+      "mode": "repository-skill",
+      "skills": ["router-change-plan", "router-change-implementation", "router-change-verification", "router-review-completion", "router-session-handoff"],
+      "notes": "Original project adapters select useful planning, implementation, validation, review, and handoff guidance within existing authorization and shared policy.",
+      "source": "plugin://skillquiver@openai-curated-remote"
+    },
+    {
+      "id": "get-fable",
+      "name": "get-fable",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; no test-generation or external service behavior is assumed.",
+      "source": "plugin://get-fable@openai-curated-remote"
+    },
+    {
+      "id": "skarn",
+      "name": "Skarn",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; no repository runner is configured.",
+      "source": "plugin://skarn@openai-curated-remote"
+    },
+    {
+      "id": "god-prompt",
+      "name": "GodPrompt",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No verified callable capability or supported repository installation was available in this snapshot; canonical agent policy is not replaced by an uninspected prompt bundle.",
+      "source": "plugin://god-prompt@openai-curated-remote"
+    },
+    {
+      "id": "chatgpt-osint",
+      "name": "Authorised OSINT Toolkit",
+      "mode": "repository-skill",
+      "skills": ["router-security-triage"],
+      "notes": "An original project adapter supports concrete, authorized defensive triage. It does not authorize third-party reconnaissance or send data to an external service.",
+      "source": "plugin://chatgpt-osint@openai-curated-remote"
+    },
+    {
+      "id": "gh-review-loop",
+      "name": "GH Review Loop",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No supported host integration was verified in this snapshot. Use the shared review adapter and existing provider resolver without claiming this plugin is installed.",
+      "source": "plugin://gh-review-loop@openai-curated-remote"
+    },
+    {
+      "id": "code-review",
+      "name": "Code Review",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No supported host integration was verified in this snapshot. Existing agents retain the canonical concrete-finding threshold; no extra review service is configured.",
+      "source": "plugin://code-review@openai-curated-remote"
+    },
+    {
+      "id": "coderabbit",
+      "name": "CodeRabbit",
+      "mode": "existing",
+      "skills": ["router-review-completion"],
+      "notes": "Preserve .coderabbit.yaml and the established PR review service. Registry presence alone does not verify the service installation on another repository or host.",
+      "source": "plugin://coderabbit@openai-curated-remote"
+    },
+    {
+      "id": "app-6a392799cb58819185f82dc01ac13dad",
+      "name": "Miro",
+      "mode": "external-optional",
+      "skills": [],
+      "notes": "Optional diagrams for an explicitly requested task in an authorized Miro workspace. This registry creates no board and makes no external writes.",
+      "source": "plugin://app-6a392799cb58819185f82dc01ac13dad@openai-curated-remote"
+    },
+    {
+      "id": "awesome-maintainer-defense",
+      "name": "Awesome Maintainer Defense",
+      "mode": "repository-skill",
+      "skills": ["router-workflow-audit"],
+      "notes": "An original local adapter guides focused GitHub Actions audits. A separately installed upstream audit skill is optional, manual, and read-only; its script is not vendored.",
+      "source": "plugin://awesome-maintainer-defense@openai-curated-remote"
+    },
+    {
+      "id": "develoop",
+      "name": "Develoop",
+      "mode": "repository-skill",
+      "skills": ["router-review-completion"],
+      "notes": "An original shared adapter applies available review-resolution guidance while retaining existing Qodo provider and convergence rules; no duplicate review runner is configured.",
+      "source": "plugin://develoop@openai-curated-remote"
+    },
+    {
+      "id": "pr-completion",
+      "name": "PR Completion",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No supported host integration was verified in this snapshot. The local review adapter prepares evidence and dispositions; it does not authorize merging or releasing.",
+      "source": "plugin://pr-completion@openai-curated-remote"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "mode": "existing",
+      "skills": ["router-review-completion", "router-workflow-audit"],
+      "notes": "Use existing repository PR, review, check, and Actions workflows through an authorized host connection. No new GitHub App, access token, paid gate, or automatic merge is installed.",
+      "source": "plugin://github@openai-curated-remote"
+    },
+    {
+      "id": "project-memory-core",
+      "name": "PMC",
+      "mode": "unverified",
+      "skills": [],
+      "notes": "No supported host integration was verified in this snapshot. Keep task decisions and session handoffs in .tasks/ rather than inventing a second memory service.",
+      "source": "plugin://project-memory-core@openai-curated-remote"
+    },
+    {
+      "id": "ai-psychiatry",
+      "name": "AI Psychiatry",
+      "mode": "excluded",
+      "skills": [],
+      "notes": "Inspected upstream guidance requires an always-on behavior framework with broad agent configuration changes. It is not enabled or vendored because repository workflows must stay scoped and auditable.",
+      "source": "plugin://ai-psychiatry@openai-curated-remote"
+    }
+  ]
+}
