@@ -206,6 +206,13 @@ def validate_mcp(root):
         key = "servers" if kind == "vscode" else "mcpServers"
         servers = mcp_servers(read_json(root, path), key, path)
         validate_mcp_mirror(servers, canonical, path, kind)
+    for path, key in ((".vscode/mcp.json", "servers"), (".github/mcp.json", "mcpServers")):
+        try:
+            config = read_json(root, path)
+        except FileNotFoundError:
+            continue
+        servers = mcp_servers(config, key, path)
+        validate_mcp_mirror(servers, canonical, path, "portable")
     return len(canonical)
 
 

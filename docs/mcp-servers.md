@@ -37,6 +37,9 @@ client, copy that template to its native location as a local compatibility
 choice, then keep it aligned with the catalog. Copilot CLI does not read the
 native VS Code `servers` format. Custom profiles or personal overrides can
 supersede workspace configuration; inspect the client's effective server list.
+If `.vscode/mcp.json` or `.github/mcp.json` is present in the checkout, the host
+checker validates it against the same catalog so an activated compatibility
+file cannot silently become stale.
 
 Kiro reads the root `AGENTS.md`; custom profiles must preserve the workspace
 instructions as well as MCP configuration. This adds no replacement agent

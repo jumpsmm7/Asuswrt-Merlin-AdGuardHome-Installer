@@ -341,6 +341,34 @@ class IntegrationPolicy(unittest.TestCase):
         with mock.patch.object(GATE, "tomllib", None):
             self.assert_rejected("requires Python 3.11 or newer")
 
+    def test_mcp_optional_native_overrides_match_the_shared_catalog(self):
+        """Activated compatibility files cannot introduce a stale competing catalog."""
+        servers = self.mcp_document(GATE.MCP_SOURCE)["mcpServers"]
+        for relative, key in ((".vscode/mcp.json", "servers"), (".github/mcp.json", "mcpServers")):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.write_mcp(relative, {key: servers})
+                self.assert_passes()
+                stale = copy.deepcopy(servers)
+                del stale["lovable"]
+                self.write_mcp(relative, {key: stale})
+                self.assert_rejected("MCP server inventory mismatch")
+                self.write_mcp(relative, {key: servers})
+
+    def test_mcp_optional_override_symlinks_and_malformed_data_are_rejected(self):
+        """Optional files retain the same no-follow and strict JSON boundary."""
+        for relative in (".vscode/mcp.json", ".github/mcp.json"):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.symlink_to(self.outside / "secret")
+                self.assert_rejected("Too many levels of symbolic links")
+                path.unlink()
+                path.write_text('{', encoding="utf-8")
+                self.assert_rejected("Expecting")
+                path.unlink()
+
     def test_mcp_future_addition_and_coordinated_endpoint_change(self):
         """Reviewed shared additions and URL updates use the catalog as the only source."""
         new_url = "https://mcp.example.com/context7-v2"
