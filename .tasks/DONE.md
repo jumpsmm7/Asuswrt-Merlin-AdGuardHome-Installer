@@ -2,6 +2,43 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-028: Align shared MCP routing across agents
+
+**Priority:** P2 | **Tags:** agents, mcp, configuration, validation
+**Scope:** Existing PR #1035 onto master; source baseline `81515e81e5ec13107c8d667a549c8289e03e4e6d`. Preserve the combined Context7, Firecrawl and Lovable catalog, native client syntax and all existing task/review/test authorities.
+
+### Plan
+
+- Audit all registered agent entry points, portable skills and native MCP mirrors against canonical policy. Distinguish repository configuration from account authentication, effective tool availability and hosted review scopes.
+- Add direct shared MCP guide routing to every registered agent entry point. Clarify CodeRabbit's dashboard authentication and Review-scope requirement, Qodo's unverified hosted external-MCP support, and the common fallback to verified repository context when an optional connection is unavailable.
+- Extend the existing read-only integration checker to require those direct pointers and a safe, nonempty MCP guide; add isolated rejection and valid-fixture coverage without changing provider inventory or introducing dependencies.
+- Run focused host regressions and genuine credential-free coverage, independently review the final diff, and publish normal leased updates to this PR. Obtain fresh matching native evidence for changed checker/tests and inspect published-head checks/review feedback through one observer.
+
+### Acceptance criteria
+
+- [x] All registered agents route to canonical policy, the shared agent guide and the shared MCP guide; Amazon Q remains byte-identical to canonical policy.
+- [x] Available authorized tools and verified repository handoffs share the same finding, task-state, review ownership and feature-evidence rules; missing optional connections do not invent defects or passing external checks.
+- [x] CodeRabbit and Qodo instructions accurately describe hosted activation limits without account changes or unsupported configuration fields.
+- [x] Automated alignment checks and focused regressions pass; genuine coverage and fresh current-content native/hosted outcomes are recorded without weakening gates.
+- [x] Existing PR #1035 is updated and current-head review/check status is verified. No merge, release, account provisioning, secrets or billing changes.
+
+### Verification
+
+Implemented as source `7bb3d757b713320a4ec67ea47ce0e547cda39373`, exact tree `58da394bb96caaeb62a13f3838c9d27e440bd7cc`, matching local `df8d55a24081c684b9db7d4f8d896a1516b57382`.
+
+- All eight agent entry points now directly reference canonical policy, the shared agent guide and the MCP guide. Native server names/URLs remain synchronized; ten skills and 27 provider IDs remain intact. Amazon Q is byte-identical to canonical policy.
+- The read-only checker requires direct MCP routing and a safe nonempty guide. All 60 integration regressions pass, including eight missing-pointer rejection cases and missing, empty, invalid UTF-8, symlink, directory and bounded FIFO guide rejection. Existing native formats, future adapters and no-follow/read-only controls remain covered.
+- Genuine credential-free collection passes 104 tests with all six Python modules retained, zero exclusions and no warnings. Checker coverage is 353/356 lines plus 79/80 branches (99.08%); combined Python/native-C is 1976/2124 (93.03%). Full isolated UID-0/network-none canonical host quality and actionlint pass on frozen source, including privileged lifecycle checks, ShellCheck and shfmt. Independent bounded review found no actionable issue.
+- The single observer's October 12, 18:49:04 UTC snapshot verifies matching published PR/ref/base and open, non-draft, mergeable, unmerged state. All 36 source checks are terminal: 35 successful and existing Scorecard neutral, no failures or pending jobs. All three full quality suites, six fresh ARM executions and both aggregates pass: 118 scenarios per architecture /354 per matrix, all 11 selected feature groups accepted. Exact-head host logs verify 60 integration tests, unchanged 8/10/27 inventory and passing DNS-environment fixture.
+- Sonar verifies exact source SCM, 104 tests, quality gate PASS, strict zero unresolved issues and 98.0% new-code coverage. CodeRabbit completed this source review with no actionable comments and all five pre-merge checks passing. Complete GraphQL/REST pagination confirms zero inline comments/threads, six issue comments and two formal reviews. Formal CodeRabbit/Amazon Q reviews, Qodo's zero-findings footer and completed Codex review still identify historical `a0d3bc8`; no new-source formal approval or Qodo/Codex/Amazon Q review is claimed.
+- Fresh hosted native evidence binds `30f0be165e4d0eedd1cdcb736eb6de471cc9fcb9abcd0508bec275131fcd0c03`, matching the actual normal-permission `df8d55a` Git archive. Local host validation snapshots retain digest `e51fb8325519113ef14554b6dde19bf7c188e6ccaf8ac30385a995b96d2598dc`: 43 included executable files have restricted 0700 modes. Identical tracked bytes with normal Git execute bits independently reproduce the hosted identity. These are distinct filesystem provenance records; earlier native results are not relabeled or reused. The armv5 package target remains older RT-AC68U-class ARMv7/software-float with VFP/NEON disabled; physical acceptance is unchanged.
+
+### Completion record
+
+Repository alignment, source verification and authorized publication are complete. This follow-up changes task records only and preserves tested inputs. Later published-head check/review outcomes are tracked in the PR description rather than pre-claimed here. Hosted account authentication, selected tools and scope activation remain separate; absent optional services do not establish repository defects or external validation. No account, credentials, billing, merge or release changes occur.
+
+---
+
 ## TASK-027: Synchronize repository MCP clients
 
 **Priority:** P2 | **Tags:** agents, mcp, configuration, validation
