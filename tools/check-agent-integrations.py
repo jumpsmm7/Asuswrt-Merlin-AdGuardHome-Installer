@@ -8,12 +8,23 @@ import re
 import stat
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ".agents/integrations.json"
 GUIDE = "docs/agent-integrations.md"
 POLICY = "AGENTS.md"
+MCP_SOURCE = ".mcp.json"
+MCP_ASSETS = (MCP_SOURCE, ".codex/config.toml", ".amazonq/mcp.json", ".cursor/mcp.json", ".kiro/settings/mcp.json",
+              ".agents/mcp-templates/vscode.json")
+REQUIRED_MCP_SERVERS = {"context7", "firecrawl", "lovable"}
+LOVABLE_CURSOR_AUTH = {"CLIENT_ID": "6d465f583e1e4ce5801b1616f735670c"}
 REQUIRED_AGENTS = {
     "codex": (POLICY, "canonical"),
     "amazonq": (".amazonq/rules/AGENTS.md", "mirror"),
@@ -124,6 +135,78 @@ def read_file(root, relative):
 def read_text(root, relative):
     """Decode registration assets as UTF-8 without executing their contents."""
     return read_file(root, relative).decode("utf-8")
+
+
+def read_json(root, relative):
+    """Read strict JSON through the same no-follow repository boundary."""
+    return json.loads(read_text(root, relative), object_pairs_hook=unique_object, parse_constant=reject_constant)
+
+
+def validate_mcp_url(value, label):
+    """Require a literal HTTPS endpoint without embedded credentials or fragments."""
+    value = nonempty_string(value, label)
+    value.encode("utf-8")
+    require("\\" not in value and not any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value),
+            f"invalid {label}")
+    parsed = urlsplit(value)
+    require(parsed.scheme == "https" and bool(parsed.hostname) and parsed.port != 0,
+            f"{label} must be an HTTPS endpoint")
+    require(parsed.username is None and parsed.password is None and not parsed.fragment,
+            f"{label} cannot contain credentials or a fragment")
+    return value
+
+
+def mcp_servers(config, key, path):
+    """Reject wrappers and server IDs outside the declared client format."""
+    fields(config, (key,), path)
+    servers = config[key]
+    require(isinstance(servers, dict) and bool(servers), f"{path} {key} must be a nonempty object")
+    for name in servers:
+        identifier(name, "MCP server ID")
+    return servers
+
+
+def validate_mcp_mirror(servers, canonical, path, kind):
+    """Compare complete inventory while preserving each client's native shape."""
+    require(set(servers) == set(canonical), f"MCP server inventory mismatch: {path}")
+    for name, server in servers.items():
+        label = f"{path} server {name}"
+        expected = {"url"}
+        if kind == "codex":
+            expected.add("enabled")
+        elif kind != "kiro":
+            expected.add("type")
+        if kind == "cursor" and name == "lovable":
+            expected.add("auth")
+        fields(server, expected, label)
+        require(server["url"] == canonical[name]["url"], f"MCP URL mismatch: {label}")
+        if "type" in expected:
+            require(server["type"] == "http", f"MCP transport must be http: {label}")
+        if "enabled" in expected:
+            require(server["enabled"] is True, f"MCP server must be enabled: {label}")
+        if "auth" in expected:
+            require(server["auth"] == LOVABLE_CURSOR_AUTH, f"unsupported MCP OAuth configuration: {label}")
+
+
+def validate_mcp(root):
+    """Verify the shared remote catalog and all repository MCP client mirrors."""
+    canonical = mcp_servers(read_json(root, MCP_SOURCE), "mcpServers", MCP_SOURCE)
+    require(REQUIRED_MCP_SERVERS <= set(canonical), "missing required MCP servers")
+    for name, server in canonical.items():
+        label = f"{MCP_SOURCE} server {name}"
+        fields(server, ("type", "url"), label)
+        require(server["type"] == "http", f"MCP transport must be http: {label}")
+        validate_mcp_url(server["url"], f"MCP URL: {label}")
+    require(tomllib is not None, "MCP configuration validation requires Python 3.11 or newer")
+    codex_path = ".codex/config.toml"
+    codex = mcp_servers(tomllib.loads(read_text(root, codex_path)), "mcp_servers", codex_path)
+    validate_mcp_mirror(codex, canonical, codex_path, "codex")
+    for path, kind in ((".amazonq/mcp.json", "amazonq"), (".cursor/mcp.json", "cursor"),
+                       (".kiro/settings/mcp.json", "kiro"), (".agents/mcp-templates/vscode.json", "vscode")):
+        key = "servers" if kind == "vscode" else "mcpServers"
+        servers = mcp_servers(read_json(root, path), key, path)
+        validate_mcp_mirror(servers, canonical, path, kind)
+    return len(canonical)
 
 
 def records(value, label):
@@ -360,7 +443,7 @@ def validate_integrations(integrations, skill_names):
 
 def validate_repository(root):
     """Verify the complete registry, pointers, mirror, and local skill inventory."""
-    manifest = json.loads(read_text(root, MANIFEST), object_pairs_hook=unique_object, parse_constant=reject_constant)
+    manifest = read_json(root, MANIFEST)
     fields(manifest, ("version", "canonical_policy", "guide", "agents", "skills", "integrations"), "manifest")
     require(type(manifest["version"]) is int and manifest["version"] == 1, "unsupported registry version")
     require(manifest["canonical_policy"] == POLICY, "canonical policy must be AGENTS.md")
@@ -369,6 +452,7 @@ def validate_repository(root):
     agent_count = validate_agents(root, manifest["agents"])
     skill_names = validate_skills(root, manifest["skills"])
     integration_count = validate_integrations(manifest["integrations"], skill_names)
+    validate_mcp(root)
     return agent_count, len(skill_names), integration_count
 
 

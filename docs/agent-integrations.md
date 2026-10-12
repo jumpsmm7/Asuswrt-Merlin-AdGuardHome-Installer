@@ -21,6 +21,12 @@ Provider-specific instructions may describe tools and output formats. They must 
 
 [CODEOWNERS](../.github/CODEOWNERS) names the maintainer for shared agent governance paths. Requiring that owner's approval before merging depends on repository branch protection or ruleset settings; this change does not alter those settings.
 
+## Shared MCP clients
+
+The portable [`.mcp.json` catalog](../.mcp.json) combines the repository's Context7, Firecrawl and Lovable servers. [MCP client guidance](mcp-servers.md) describes synchronized Codex, Amazon Q, Cursor and Kiro mirrors, current Claude/Copilot support, an older VS Code compatibility template, and separate hosted-provider setup. The existing integration checker rejects inventory or URL drift. Kiro reads canonical `AGENTS.md`; custom profiles must retain the workspace instructions and MCP configuration.
+
+Use Context7 for relevant library documentation, Firecrawl for authorized public web retrieval, and Lovable through the existing repository handoff skill. None of these tools replaces the task log, PR observer, local/current-head checks or native/physical acceptance. Configuration does not establish client login or a live connection.
+
 ## Choose the workflow for the task
 
 | Task | Repository skill |

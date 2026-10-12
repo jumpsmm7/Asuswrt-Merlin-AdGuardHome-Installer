@@ -1,4 +1,6 @@
 # Repository-scoped remote MCP servers for Codex.
+# Shared server inventory and URLs: .mcp.json.
+# Validate all native client mirrors with tools/check-agent-integrations.py.
 
 [mcp_servers.context7]
 url = "https://mcp.context7.com/mcp"
