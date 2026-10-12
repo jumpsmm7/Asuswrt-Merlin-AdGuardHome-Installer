@@ -22,6 +22,8 @@ SPEC = importlib.util.spec_from_file_location("agent_integration_checker", CHECK
 GATE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GATE)
 BASELINE = json.loads((REPOSITORY / GATE.MANIFEST).read_text(encoding="utf-8"))
+MCP_KEYS = {relative: "servers" if relative == ".agents/mcp-templates/vscode.json" else "mcpServers"
+            for relative in GATE.MCP_ASSETS}
 
 
 class IntegrationPolicy(unittest.TestCase):
@@ -34,9 +36,10 @@ class IntegrationPolicy(unittest.TestCase):
         self.root.mkdir()
         self.manifest = self.root / GATE.MANIFEST
         self.data = copy.deepcopy(BASELINE)
-        assets = {"AGENTS.md", self.data["guide"]}
+        assets = {"AGENTS.md", self.data["guide"], GATE.MCP_GUIDE}
         assets.update(record["path"] for record in self.data["agents"])
         assets.update(record["path"] for record in self.data["skills"])
+        assets.update(GATE.MCP_ASSETS)
         for relative in assets:
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +59,19 @@ class IntegrationPolicy(unittest.TestCase):
     def write_manifest(self):
         """Publish the test's current declaration, never the real registry."""
         self.manifest.write_text(json.dumps(self.data) + "\n", encoding="utf-8")
+
+    def reset_mcp_assets(self):
+        """Restore checked-in MCP declarations between isolated drift subcases."""
+        for relative in GATE.MCP_ASSETS:
+            shutil.copyfile(REPOSITORY / relative, self.root / relative)
+
+    def write_mcp(self, relative, data):
+        """Write one JSON client fixture without contacting or running providers."""
+        (self.root / relative).write_text(json.dumps(data) + "\n", encoding="utf-8")
+
+    def mcp_document(self, relative):
+        """Read the disposable declaration for a focused JSON mutation."""
+        return json.loads((self.root / relative).read_text(encoding="utf-8"))
 
     def snapshot(self):
         """Record content, permissions, and links without following symlinks."""
@@ -168,6 +184,229 @@ class IntegrationPolicy(unittest.TestCase):
         self.manifest.write_text(text, encoding="utf-8")
         self.assert_cli_rejected()
 
+    def test_mcp_client_inventory_must_match_canonical_union(self):
+        """No client may silently omit a shared server or add an unshared server."""
+        for relative in GATE.MCP_ASSETS:
+            for mutation in ("missing", "additional"):
+                with self.subTest(relative=relative, mutation=mutation):
+                    self.reset_mcp_assets()
+                    path = self.root / relative
+                    if relative.endswith(".toml"):
+                        text = path.read_text(encoding="utf-8")
+                        if mutation == "missing":
+                            text = text[:text.index("[mcp_servers.lovable]")]
+                        else:
+                            text += '\n[mcp_servers.future-server]\nurl = "https://mcp.example.com/mcp"\nenabled = true\n'
+                        path.write_text(text, encoding="utf-8")
+                    else:
+                        data = self.mcp_document(relative)
+                        if mutation == "missing":
+                            del data[MCP_KEYS[relative]]["lovable"]
+                        else:
+                            data[MCP_KEYS[relative]]["future-server"] = {"type": "http", "url": "https://mcp.example.com/mcp"}
+                        self.write_mcp(relative, data)
+                    self.assert_rejected("missing required MCP servers|MCP server inventory mismatch")
+
+    def test_mcp_canonical_required_ids_and_shapes(self):
+        """The managed source retains existing IDs and rejects unusable declarations."""
+        for name in GATE.REQUIRED_MCP_SERVERS:
+            with self.subTest(name=name):
+                self.reset_mcp_assets()
+                data = self.mcp_document(GATE.MCP_SOURCE)
+                del data["mcpServers"][name]
+                self.write_mcp(GATE.MCP_SOURCE, data)
+                self.assert_rejected("missing required MCP servers")
+        malformed = (None, [], False, {}, {"mcpServers": []}, {"mcpServers": {}},
+                     {"mcpServers": {"Bad_ID": {}}})
+        for data in malformed:
+            with self.subTest(data=data):
+                self.write_mcp(GATE.MCP_SOURCE, data)
+                self.assert_rejected("must be an object|unexpected fields|must be a nonempty object|invalid MCP server ID")
+
+    def test_mcp_native_record_fields_and_transport(self):
+        """Misspelled fields, commands, tokens and wrong transport cannot be ignored."""
+        for relative in GATE.MCP_ASSETS:
+            if relative.endswith(".toml"):
+                continue
+            for malformed in (None, [], {}, {"url": "https://mcp.context7.com/mcp", "command": "sh"}):
+                with self.subTest(relative=relative, malformed=malformed):
+                    self.reset_mcp_assets()
+                    data = self.mcp_document(relative)
+                    data[MCP_KEYS[relative]]["context7"] = malformed
+                    self.write_mcp(relative, data)
+                    self.assert_rejected("must be an object|unexpected fields")
+            for field, value in (("headers", {"Authorization": "Bearer forbidden"}), ("apiKey", "forbidden"),
+                                 ("enabled", True), ("autoApprove", ["all"])):
+                with self.subTest(relative=relative, field=field):
+                    self.reset_mcp_assets()
+                    data = self.mcp_document(relative)
+                    data[MCP_KEYS[relative]]["context7"][field] = value
+                    self.write_mcp(relative, data)
+                    self.assert_rejected("unexpected fields")
+            if relative != ".kiro/settings/mcp.json":
+                for value in ("sse", "stdio", False, None):
+                    with self.subTest(relative=relative, transport=value):
+                        self.reset_mcp_assets()
+                        data = self.mcp_document(relative)
+                        data[MCP_KEYS[relative]]["context7"]["type"] = value
+                        self.write_mcp(relative, data)
+                        self.assert_rejected("MCP transport must be http")
+
+    def test_mcp_wrapper_fields_are_exact(self):
+        """Unknown client-level settings cannot bypass the managed declaration boundary."""
+        for relative in GATE.MCP_ASSETS:
+            with self.subTest(relative=relative):
+                self.reset_mcp_assets()
+                if relative.endswith(".toml"):
+                    path = self.root / relative
+                    path.write_text('unexpected = true\n' + path.read_text(encoding="utf-8"), encoding="utf-8")
+                else:
+                    data = self.mcp_document(relative)
+                    data["unexpected"] = True
+                    self.write_mcp(relative, data)
+                self.assert_rejected("unexpected fields")
+
+    def test_mcp_literal_https_url_validation(self):
+        """Remote endpoints reject credentials, fragments, malformed ports and unsafe text."""
+        invalid = (None, False, "", " ", "http://mcp.example.com/mcp", "https:///mcp", "file:///tmp/mcp",
+                   "https://user:password@mcp.example.com/mcp", "https://mcp.example.com/mcp#token",
+                   " https://mcp.example.com/mcp", "https://mcp.example.com/\nmcp", "https://mcp.example.com/\x7fmcp",
+                   "https://mcp.example.com/\\mcp", "https://mcp.example.com/\ud800",
+                   "https://mcp.example.com:0/mcp", "https://mcp.example.com:65536/mcp",
+                   "https://mcp.example.com:bad/mcp", "https://[invalid/mcp")
+        for value in invalid:
+            with self.subTest(url=value):
+                self.reset_mcp_assets()
+                data = self.mcp_document(GATE.MCP_SOURCE)
+                data["mcpServers"]["context7"]["url"] = value
+                self.write_mcp(GATE.MCP_SOURCE, data)
+                self.assert_rejected("MCP URL|Port|port|IPv6|surrogates")
+
+    def test_mcp_mirror_url_drift_is_rejected(self):
+        """Each native client compares literal URLs, including Lovable's query string."""
+        for relative in GATE.MCP_ASSETS[1:]:
+            with self.subTest(relative=relative):
+                self.reset_mcp_assets()
+                if relative.endswith(".toml"):
+                    path = self.root / relative
+                    path.write_text(path.read_text(encoding="utf-8").replace("?src=settings", ""), encoding="utf-8")
+                else:
+                    data = self.mcp_document(relative)
+                    data[MCP_KEYS[relative]]["lovable"]["url"] = "https://mcp.lovable.dev/"
+                    self.write_mcp(relative, data)
+                self.assert_rejected("MCP URL mismatch")
+
+    def test_mcp_codex_enabled_and_field_contract(self):
+        """Codex must use Boolean true and may not add secret or approval overrides."""
+        for text in ('enabled = false', 'enabled = "true"', 'enabled = 1', 'enable = true',
+                     'enabled = true\nhttp_headers = { Authorization = "forbidden" }'):
+            with self.subTest(text=text):
+                self.reset_mcp_assets()
+                path = self.root / ".codex/config.toml"
+                path.write_text(path.read_text(encoding="utf-8").replace("enabled = true", text, 1), encoding="utf-8")
+                self.assert_rejected("MCP server must be enabled|unexpected fields")
+
+    def test_mcp_cursor_public_oauth_configuration(self):
+        """Only Lovable's published public client ID is permitted in Cursor auth."""
+        for value in (None, False, [], {}, {"CLIENT_ID": "wrong"}, {"CLIENT_ID": GATE.LOVABLE_CURSOR_AUTH["CLIENT_ID"],
+                                                                 "CLIENT_SECRET": "forbidden"}):
+            with self.subTest(auth=value):
+                self.reset_mcp_assets()
+                data = self.mcp_document(".cursor/mcp.json")
+                data["mcpServers"]["lovable"]["auth"] = value
+                self.write_mcp(".cursor/mcp.json", data)
+                self.assert_rejected("unsupported MCP OAuth configuration")
+        self.reset_mcp_assets()
+        data = self.mcp_document(".cursor/mcp.json")
+        data["mcpServers"]["context7"]["auth"] = GATE.LOVABLE_CURSOR_AUTH
+        self.write_mcp(".cursor/mcp.json", data)
+        self.assert_rejected("unexpected fields")
+
+    def test_mcp_malformed_json_and_toml(self):
+        """Strict readers reject duplicates, nonstandard constants and malformed syntax."""
+        for relative in GATE.MCP_ASSETS:
+            malformed = ('[mcp_servers', '[mcp_servers.context7]\nurl = "one"\nurl = "two"\n') if relative.endswith(".toml") else (
+                '{', '{"mcpServers":{},"mcpServers":{}}', '{"mcpServers":NaN}')
+            for text in malformed:
+                with self.subTest(relative=relative, text=text):
+                    self.reset_mcp_assets()
+                    (self.root / relative).write_text(text, encoding="utf-8")
+                    self.assert_rejected("Expecting|duplicate JSON key|invalid JSON constant|Expected|Cannot overwrite")
+            if relative.endswith(".toml"):
+                self.assert_cli_rejected()
+        self.assert_cli_rejected()
+
+    def test_mcp_tomllib_host_requirement_is_explicit(self):
+        """Older validation hosts receive a clear version failure, never a fallback parser."""
+        with mock.patch.object(GATE, "tomllib", None):
+            self.assert_rejected("requires Python 3.11 or newer")
+
+    def test_mcp_optional_native_overrides_match_the_shared_catalog(self):
+        """Activated compatibility files cannot introduce a stale competing catalog."""
+        servers = self.mcp_document(GATE.MCP_SOURCE)["mcpServers"]
+        for relative, key in ((".vscode/mcp.json", "servers"), (".github/mcp.json", "mcpServers")):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.write_mcp(relative, {key: servers})
+                self.assert_passes()
+                stale = copy.deepcopy(servers)
+                del stale["lovable"]
+                self.write_mcp(relative, {key: stale})
+                self.assert_rejected("MCP server inventory mismatch")
+                self.write_mcp(relative, {key: servers})
+
+    def test_mcp_optional_override_symlinks_and_malformed_data_are_rejected(self):
+        """Optional files retain the same no-follow and strict JSON boundary."""
+        for relative in (".vscode/mcp.json", ".github/mcp.json"):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.symlink_to(self.outside / "secret")
+                self.assert_rejected("Too many levels of symbolic links")
+                path.unlink()
+                path.write_text('{', encoding="utf-8")
+                self.assert_rejected("Expecting")
+                path.unlink()
+
+    def test_mcp_future_addition_and_coordinated_endpoint_change(self):
+        """Reviewed shared additions and URL updates use the catalog as the only source."""
+        new_url = "https://mcp.example.com/context7-v2"
+        future_url = "https://mcp.example.com:443/mcp"
+        for relative in GATE.MCP_ASSETS:
+            path = self.root / relative
+            if relative.endswith(".toml"):
+                text = path.read_text(encoding="utf-8").replace("https://mcp.context7.com/mcp", new_url)
+                text += f'\n[mcp_servers.future-server]\nurl = "{future_url}"\nenabled = true\n'
+                path.write_text(text, encoding="utf-8")
+            else:
+                data = self.mcp_document(relative)
+                data[MCP_KEYS[relative]]["context7"]["url"] = new_url
+                server = {"url": future_url}
+                if relative != ".kiro/settings/mcp.json":
+                    server["type"] = "http"
+                data[MCP_KEYS[relative]]["future-server"] = server
+                self.write_mcp(relative, data)
+        self.assert_passes()
+        self.assertEqual(GATE.validate_mcp(self.root), len(GATE.REQUIRED_MCP_SERVERS) + 1)
+
+    def test_mcp_missing_and_symlinked_assets_are_rejected_read_only(self):
+        """Every client file is required and file/parent symlinks stay outside the read boundary."""
+        for relative in GATE.MCP_ASSETS:
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                original = path.read_bytes()
+                path.unlink()
+                self.assert_rejected("No such file or directory")
+                path.symlink_to(self.outside / "secret")
+                self.assert_rejected("Too many levels of symbolic links")
+                path.unlink()
+                path.write_bytes(original)
+        directory = self.root / ".kiro/settings"
+        shutil.rmtree(directory)
+        directory.symlink_to(self.outside, target_is_directory=True)
+        self.assert_rejected("Not a directory")
+
     def test_top_level_contract(self):
         """Missing fields, wrong types, and policy redirection fail closed."""
         cases = [
@@ -245,7 +484,7 @@ class IntegrationPolicy(unittest.TestCase):
     def test_additional_agents_must_share_policy(self):
         """Future adapters are permitted but cannot introduce a stale mirror."""
         path = self.root / "NEW-AGENT.md"
-        path.write_text("Read AGENTS.md and docs/agent-integrations.md.\n", encoding="utf-8")
+        path.write_text("Read AGENTS.md, docs/agent-integrations.md and docs/mcp-servers.md.\n", encoding="utf-8")
         self.data["agents"].append({"id": "future-agent", "path": path.name, "kind": "pointer"})
         self.write_manifest()
         self.assert_passes()
@@ -271,6 +510,39 @@ class IntegrationPolicy(unittest.TestCase):
             with self.subTest(content=content):
                 target.write_text(content, encoding="utf-8")
                 self.assert_rejected("agent claude must link the shared policy and guide")
+
+    def test_every_agent_requires_direct_mcp_guide_routing(self):
+        """Each existing entry point fails when only its shared MCP pointer disappears."""
+        for name, (relative, _) in GATE.REQUIRED_AGENTS.items():
+            with self.subTest(agent=name):
+                path = self.root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(GATE.MCP_GUIDE, original)
+                path.write_text(original.replace(GATE.MCP_GUIDE, "removed-mcp-guide"), encoding="utf-8")
+                self.assert_rejected(f"agent {name} must link the shared MCP guide")
+                path.write_text(original, encoding="utf-8")
+
+    def test_shared_mcp_guide_must_be_safe_nonempty_text(self):
+        """Missing, empty, invalid, linked and nonregular guides cannot satisfy routing."""
+        path = self.root / GATE.MCP_GUIDE
+        original = path.read_bytes()
+        for content in (b"", b" \n\t", b"\xff"):
+            with self.subTest(content=content):
+                path.write_bytes(content)
+                self.assert_rejected("MCP guide must be a nonempty string|utf-8")
+        path.unlink()
+        self.assert_rejected("No such file")
+        path.symlink_to(self.outside / "secret")
+        self.assert_rejected("Too many levels of symbolic links")
+        path.unlink()
+        path.mkdir()
+        self.assert_rejected("nonregular registration file")
+        path.rmdir()
+        os.mkfifo(path)
+        self.assert_cli_rejected()
+        path.unlink()
+        path.write_bytes(original)
+        self.assert_passes()
 
     def test_mirror_drift_and_empty_guide(self):
         """Mirrors cannot drift and the integration guide must contain text."""

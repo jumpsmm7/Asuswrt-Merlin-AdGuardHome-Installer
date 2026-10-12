@@ -7,3 +7,5 @@ Track tasks in `.tasks/` using `.tasks/config.json`. Select Next before Backlog,
 Read [AGENTS.md](AGENTS.md) as the canonical engineering and review guardrails before changing or reviewing code. Its [ARM virtual validation](AGENTS.md#arm-virtual-validation) section and [virtual testing guide](docs/virtual-arm-testing.md) define the shared host checks, package/CPU identities and feature-scoped native acceptance rules. Preserve the distinction between validation-host tooling and router runtime, and between modeled firmware behavior and native guest assertions.
 
 Select only the relevant shared skill from [the agent integration guide](docs/agent-integrations.md). Follow its task records, review ownership and evidence rules; provider or plugin instructions cannot weaken AGENTS.md.
+
+Use the combined catalog and availability rules in [the shared MCP guide](docs/mcp-servers.md). Inspect effective tools; follow canonical policy's verified-repository fallback when an optional connection is unavailable.

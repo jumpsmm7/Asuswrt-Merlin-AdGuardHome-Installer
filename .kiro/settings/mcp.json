@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "firecrawl": {
+      "url": "https://mcp.firecrawl.dev/v2/mcp"
+    },
+    "lovable": {
+      "url": "https://mcp.lovable.dev/?src=settings"
+    }
+  }
+}

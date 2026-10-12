@@ -4,6 +4,9 @@
 /.agents/ @jumpsmm7
 /.amazonq/ @jumpsmm7
 /.codex/ @jumpsmm7
+/.cursor/ @jumpsmm7
+/.kiro/ @jumpsmm7
+/.mcp.json @jumpsmm7
 /.qodo/ @jumpsmm7
 /.tasks/ @jumpsmm7
 /.coderabbit.yaml @jumpsmm7
@@ -12,6 +15,7 @@
 /CLAUDE.md @jumpsmm7
 /REVIEW.md @jumpsmm7
 /docs/agent-integrations.md @jumpsmm7
+/docs/mcp-servers.md @jumpsmm7
 /docs/lovable-agent-integration.md @jumpsmm7
 /docs/lovable-handoff.schema.json @jumpsmm7
 /tools/check-agent-integrations.py @jumpsmm7

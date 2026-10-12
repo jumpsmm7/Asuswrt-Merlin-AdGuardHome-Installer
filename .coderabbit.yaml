@@ -93,6 +93,14 @@ reviews:
         Qodo-specific threads and coordinate one observer and publishing writer
         per PR. Provider configuration is not evidence of current-head success.
 
+        Use docs/mcp-servers.md for the shared .mcp.json catalog and availability
+        rules. Hosted CodeRabbit requires dashboard authentication, selected
+        tools and assignment to a Review scope; repository JSON does not
+        activate a connection. When an optional connection is unavailable,
+        follow canonical policy's fallback using current code and verified
+        repository handoffs; do not infer live Lovable access or external
+        validation from repository support.
+
         Apply its validation-toolchain exception consistently: host-only CI and
         validation paths may use Python 3, GNU coreutils (including explicit
         `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C
