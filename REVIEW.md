@@ -10,6 +10,8 @@ Read the repository-root [AGENTS.md](AGENTS.md) as the canonical engineering and
 
 Use [the shared agent integration guide](docs/agent-integrations.md) for scoped review completion and verification. Qodo-specific threads remain handled by the existing `.agents/skills/qodo-pr-resolver/SKILL.md`; coordinate with the single PR observer and publishing writer rather than starting a competing review loop.
 
+Follow [the shared MCP guide](docs/mcp-servers.md) for the combined catalog and availability rules. Qodo's documented MCP server exposes its own tools; hosted Qodo importing these external servers from repository configuration is unverified. Use available authorized context and verified repository handoffs, following canonical policy's fallback when a connection is unavailable. Do not infer a live Lovable connection from repository support.
+
 ## Review posture
 
 Keep reviews targeted and high-signal.

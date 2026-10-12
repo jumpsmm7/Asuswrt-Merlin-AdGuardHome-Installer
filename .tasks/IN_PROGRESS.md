@@ -1,5 +1,27 @@
 # In Progress
 
+## TASK-028: Align shared MCP routing across agents
+
+**Priority:** P2 | **Tags:** agents, mcp, configuration, validation
+**Scope:** Existing PR #1035 onto master; source baseline `81515e81e5ec13107c8d667a549c8289e03e4e6d`. Preserve the combined Context7, Firecrawl and Lovable catalog, native client syntax and all existing task/review/test authorities.
+
+### Plan
+
+- Audit all registered agent entry points, portable skills and native MCP mirrors against canonical policy. Distinguish repository configuration from account authentication, effective tool availability and hosted review scopes.
+- Add direct shared MCP guide routing to every registered agent entry point. Clarify CodeRabbit's dashboard authentication and Review-scope requirement, Qodo's unverified hosted external-MCP support, and the common fallback to verified repository context when an optional connection is unavailable.
+- Extend the existing read-only integration checker to require those direct pointers and a safe, nonempty MCP guide; add isolated rejection and valid-fixture coverage without changing provider inventory or introducing dependencies.
+- Run focused host regressions and genuine credential-free coverage, independently review the final diff, and publish normal leased updates to this PR. Obtain fresh matching native evidence for changed checker/tests and inspect published-head checks/review feedback through one observer.
+
+### Acceptance criteria
+
+- [ ] All registered agents route to canonical policy, the shared agent guide and the shared MCP guide; Amazon Q remains byte-identical to canonical policy.
+- [ ] Available authorized tools and verified repository handoffs share the same finding, task-state, review ownership and feature-evidence rules; missing optional connections do not invent defects or passing external checks.
+- [ ] CodeRabbit and Qodo instructions accurately describe hosted activation limits without account changes or unsupported configuration fields.
+- [ ] Automated alignment checks and focused regressions pass; genuine coverage and fresh current-content native/hosted outcomes are recorded without weakening gates.
+- [ ] Existing PR #1035 is updated and current-head review/check status is verified. No merge, release, account provisioning, secrets or billing changes.
+
+---
+
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 
 **Subsequent repository state:** PR [#1033](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033) was merged into master as `047ce167685f6de8db86519557b865e9f23e98f3` on October 10, 2026 (America/New_York). Pre-merge authorization and check statements below are historical records, not a claim that the PR remains open. Release publication and supplemental traceability remain separate; the quota-blocked reviewer is not relabeled as passing.

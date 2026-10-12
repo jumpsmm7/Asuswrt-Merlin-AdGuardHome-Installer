@@ -19,6 +19,7 @@ except ModuleNotFoundError:
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ".agents/integrations.json"
 GUIDE = "docs/agent-integrations.md"
+MCP_GUIDE = "docs/mcp-servers.md"
 POLICY = "AGENTS.md"
 MCP_SOURCE = ".mcp.json"
 MCP_ASSETS = (MCP_SOURCE, ".codex/config.toml", ".amazonq/mcp.json", ".cursor/mcp.json", ".kiro/settings/mcp.json",
@@ -244,6 +245,7 @@ def validate_agents(root, agents):
         claim(agent["path"], paths, "agent path")
         text = read_text(root, agent["path"])
         require(POLICY in text and GUIDE in text, f"agent {name} must link the shared policy and guide")
+        require(MCP_GUIDE in text, f"agent {name} must link the shared MCP guide")
         registered[name] = (agent["path"], kind)
         if kind == "canonical":
             canonical.append(name)
@@ -456,6 +458,7 @@ def validate_repository(root):
     require(manifest["canonical_policy"] == POLICY, "canonical policy must be AGENTS.md")
     require(manifest["guide"] == GUIDE, f"integration guide must be {GUIDE}")
     nonempty_string(read_text(root, GUIDE), "integration guide")
+    nonempty_string(read_text(root, MCP_GUIDE), "MCP guide")
     agent_count = validate_agents(root, manifest["agents"])
     skill_names = validate_skills(root, manifest["skills"])
     integration_count = validate_integrations(manifest["integrations"], skill_names)

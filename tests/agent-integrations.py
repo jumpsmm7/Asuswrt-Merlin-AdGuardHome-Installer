@@ -36,7 +36,7 @@ class IntegrationPolicy(unittest.TestCase):
         self.root.mkdir()
         self.manifest = self.root / GATE.MANIFEST
         self.data = copy.deepcopy(BASELINE)
-        assets = {"AGENTS.md", self.data["guide"]}
+        assets = {"AGENTS.md", self.data["guide"], GATE.MCP_GUIDE}
         assets.update(record["path"] for record in self.data["agents"])
         assets.update(record["path"] for record in self.data["skills"])
         assets.update(GATE.MCP_ASSETS)
@@ -484,7 +484,7 @@ class IntegrationPolicy(unittest.TestCase):
     def test_additional_agents_must_share_policy(self):
         """Future adapters are permitted but cannot introduce a stale mirror."""
         path = self.root / "NEW-AGENT.md"
-        path.write_text("Read AGENTS.md and docs/agent-integrations.md.\n", encoding="utf-8")
+        path.write_text("Read AGENTS.md, docs/agent-integrations.md and docs/mcp-servers.md.\n", encoding="utf-8")
         self.data["agents"].append({"id": "future-agent", "path": path.name, "kind": "pointer"})
         self.write_manifest()
         self.assert_passes()
@@ -510,6 +510,39 @@ class IntegrationPolicy(unittest.TestCase):
             with self.subTest(content=content):
                 target.write_text(content, encoding="utf-8")
                 self.assert_rejected("agent claude must link the shared policy and guide")
+
+    def test_every_agent_requires_direct_mcp_guide_routing(self):
+        """Each existing entry point fails when only its shared MCP pointer disappears."""
+        for name, (relative, _) in GATE.REQUIRED_AGENTS.items():
+            with self.subTest(agent=name):
+                path = self.root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(GATE.MCP_GUIDE, original)
+                path.write_text(original.replace(GATE.MCP_GUIDE, "removed-mcp-guide"), encoding="utf-8")
+                self.assert_rejected(f"agent {name} must link the shared MCP guide")
+                path.write_text(original, encoding="utf-8")
+
+    def test_shared_mcp_guide_must_be_safe_nonempty_text(self):
+        """Missing, empty, invalid, linked and nonregular guides cannot satisfy routing."""
+        path = self.root / GATE.MCP_GUIDE
+        original = path.read_bytes()
+        for content in (b"", b" \n\t", b"\xff"):
+            with self.subTest(content=content):
+                path.write_bytes(content)
+                self.assert_rejected("MCP guide must be a nonempty string|utf-8")
+        path.unlink()
+        self.assert_rejected("No such file")
+        path.symlink_to(self.outside / "secret")
+        self.assert_rejected("Too many levels of symbolic links")
+        path.unlink()
+        path.mkdir()
+        self.assert_rejected("nonregular registration file")
+        path.rmdir()
+        os.mkfifo(path)
+        self.assert_cli_rejected()
+        path.unlink()
+        path.write_bytes(original)
+        self.assert_passes()
 
     def test_mirror_drift_and_empty_guide(self):
         """Mirrors cannot drift and the integration guide must contain text."""

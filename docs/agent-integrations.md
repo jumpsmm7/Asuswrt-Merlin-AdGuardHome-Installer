@@ -23,9 +23,11 @@ Provider-specific instructions may describe tools and output formats. They must 
 
 ## Shared MCP clients
 
-The portable [`.mcp.json` catalog](../.mcp.json) combines the repository's Context7, Firecrawl and Lovable servers. [MCP client guidance](mcp-servers.md) describes synchronized Codex, Amazon Q, Cursor and Kiro mirrors, current Claude/Copilot support, an older VS Code compatibility template, and separate hosted-provider setup. The existing integration checker rejects inventory or URL drift. Kiro reads canonical `AGENTS.md`; custom profiles must retain the workspace instructions and MCP configuration.
+The portable [`.mcp.json` catalog](../.mcp.json) combines the repository's Context7, Firecrawl and Lovable servers. [MCP client guidance](mcp-servers.md) describes synchronized Codex, Amazon Q, Cursor and Kiro mirrors, current Claude/Copilot support, an older VS Code compatibility template, and separate hosted-provider setup. Every registered agent entry point links that guide; the existing integration checker rejects missing routing, inventory or URL drift. Kiro reads canonical `AGENTS.md`; custom profiles must retain the workspace instructions and MCP configuration.
 
 Use Context7 for relevant library documentation, Firecrawl for authorized public web retrieval, and Lovable through the existing repository handoff skill. None of these tools replaces the task log, PR observer, local/current-head checks or native/physical acceptance. Configuration does not establish client login or a live connection.
+
+Inspect available tools and follow canonical policy's fallback when an optional connection is unavailable. Continue independent work with verified repository context and identify unavailable dependent context. CodeRabbit needs authenticated dashboard connections assigned to a Review scope; hosted Qodo external-MCP client support remains unverified.
 
 ## Choose the workflow for the task
 

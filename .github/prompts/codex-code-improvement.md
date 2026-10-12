@@ -4,6 +4,8 @@ Treat the repository-root `AGENTS.md` as the canonical engineering and review gu
 
 Use [the shared agent integration guide](../../docs/agent-integrations.md) to select the relevant review and verification skill. Coordinate with the existing PR observer and publishing writer; configuration pointers and historical approvals do not establish current-head completion.
 
+Use [the shared MCP guide](../../docs/mcp-servers.md) for the combined catalog and client/hosted availability rules. Rely only on available authorized tools; follow canonical policy's verified-repository fallback when an optional connection is unavailable.
+
 Apply the documented validation-toolchain exception consistently: host-only CI
 and validation paths may use Python 3, GNU coreutils (including explicit
 `/usr/bin/timeout`), Docker, full-system QEMU, cross-compilers, a host C compiler,
