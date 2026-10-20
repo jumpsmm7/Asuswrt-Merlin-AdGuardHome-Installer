@@ -1,7 +1,55 @@
 # In Progress
 
+## TASK-030: Repair installation readiness and installer source selection
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Reproduce the incomplete JFFS preflight and saved-source reset; correct readiness diagnostics, preserve action-scoped dependency repair, retain explicit/saved source through checks/re-exec, define --no-auto-update for a coherent installer/helper bundle, and clarify early unsupported non-interactive fresh-install refusal while preserving interactive compatibility.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** installer; nearest/new readiness/source/CLI regressions; checksums; README; host/native registration
+
+### Implementation checkpoint
+
+Readiness/source/CLI corrections and their focused regressions are implemented. They include stock JFFS read reasons and transaction stages, saved-source retention and read-error refusal, early flagged-fresh-install refusal, and the per-invocation compatible-bundle opt-out. Three new regressions are registered in the canonical host suite and shared native inventory. Independent review and focused checks pass; final integrated host/native evidence and publication remain pending. Interim `36e4fee` coverage passed 104 genuine tests and workflow lint passed 11 workflows, but its interrupted full quality run exposed three older fixture extraction gaps; those results are not a final full-suite pass.
+
+### Acceptance criteria
+
+- [ ] Failed reads cannot report JFFS OK; ready flags avoid unnecessary writes; dependency failures identify their stage. Explicit/saved refs and self-update policy persist without checksum bypasses or mismatched helpers. Interactive fresh setup remains supported; unsupported flagged setup stops before new ordinary writes/downloads, with existing recovery distinct.
+- [ ] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+---
+
+## TASK-031: Remove dnsmasq rebind and DNSSEC state during AGH takeover
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Filter exact rebind/DNSSEC directives, companions, all trust-anchor/key entries and DNSSEC-only references from each managed main/SDN runtime config. Handle mixed/nested includes through safe runtime views, preserve persistent originals and existing per-file transactions/native regeneration.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
+
+### Acceptance criteria
+
+- [ ] All effective targeted options/keys absent at managed publication, including custom/root-rollover anchors. Includes preserve unrelated settings and valid lifetimes. Repeated/overlapping takeover, native fallback and staging/IPSET/publication failures preserve configuration/recovery invariants.
+- [ ] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+---
+
 
 ## TASK-018: Validate physical-router recovery and package v2.6.7
+
+**Published release state:** v2.6.7 is published at tag `047ce167685f6de8db86519557b865e9f23e98f3` (October 10, 2026 America/New_York). Later unchecked pre-merge/quota statements below are historical snapshots, not current release blockers or relabeled passes. Unreported supplemental traceability stays unreported; new v2.7.0 qualification is tracked separately.
 
 **Subsequent repository state:** PR [#1033](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1033) was merged into master as `047ce167685f6de8db86519557b865e9f23e98f3` on October 10, 2026 (America/New_York). Pre-merge authorization and check statements below are historical records, not a claim that the PR remains open. Release publication and supplemental traceability remain separate; the quota-blocked reviewer is not relabeled as passing.
 

@@ -2,6 +2,22 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-029: Establish the v2.7.0 implementation baseline
+
+**Priority:** P1 | **Tags:** v2.7.0, planning, baseline
+
+### Plan and acceptance
+
+- [x] Verify current master and create an isolated implementation worktree without changing the original work checkout.
+- [x] Record the approved complete scope and task IDs, preserving historical v2.6.7 and physical records.
+- [x] Verify published release state and distinguish actual baseline checks from new validation.
+
+### Verification
+
+Master/ref `7ecacf124658cc1ec23cb6aae62622f2ace9bfd5`, tree `b130924b304ad2c9498ee4853a31eb53a7e39329`, fetched normally into isolated `feat/v2.7.0-readiness`. GitHub reports v2.6.7 published October 10, 2026 at 17:57:04 America/New_York. There are no existing open PRs at this snapshot. The archive-update master commit has one successful check; this is not a fresh full quality/native validation claim. Tasks030–036 preserve the accepted scope and upcoming evidence requirements. No runtime change, router action, release publication or new physical pass occurs in this task.
+
+---
+
 ## TASK-028: Align shared MCP routing across agents
 
 **Priority:** P2 | **Tags:** agents, mcp, configuration, validation
