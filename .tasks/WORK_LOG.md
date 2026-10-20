@@ -1,5 +1,7 @@
 # Work Log
 
+- TASK-031 implementation (October 20, 2026 America/New_York): Added staged main/SDN dnsmasq security filtering, static include expansion and safe refusal without altering persistent preferences or sources. Independent review reproduced and verified fixes for native whitespace, escaped-path source selection and unrelated DHCP option preservation. Five focused host regressions and real dnsmasq syntax checks pass; final combined host/native qualification and PR publication remain in progress. No physical result is claimed.
+
 - TASK-030 implementation (October 20, 2026 America/New_York): Reproduced failed JFFS preflight reads, saved-source reset, existing-config read-error fallback and late unsupported CLI refusal. Implemented scoped readiness/source/CLI and component-bundle policy corrections with three registered regressions. Independent/focused checks pass. Final integrated validation, matching native evidence and PR publication remain in progress; interim coverage/lint are not a full-suite or hardware pass.
 
 - TASK-029 (October 19, 2026 America/New_York): Authorized v2.7.0 work started on a clean current-master worktree. Recorded the complete accepted plan and TASK-030–036, including #1036, all runtime DNSSEC keys/includes, diagnostics, resilience, channel testing and separate software/physical qualification. Reconciled published v2.6.7 state without rewriting old check or physical evidence. No runtime or router changes in this baseline commit.

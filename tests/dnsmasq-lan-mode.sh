@@ -476,6 +476,120 @@ assert_resolv_conf_not_unmounted() {
 	[ ! -s "${UMOUNT_CALLS_FILE}" ] || fail "${case_name}: /tmp/resolv.conf was unmounted"
 }
 
+# Main and supported SDN takeover remove exact active security options and keys.
+for takeover_config in main sdn; do
+	reset_case
+	NVRAM_RC_SUPPORT='mtlancfg'
+	takeover_file="${DNSMASQ_CONF_FILE}"
+	[ "${takeover_config}" = main ] || takeover_file="${DNSMASQ_SDN_CONF_FILE}"
+	cat >"${takeover_file}" <<'EOF'
+# dnssec and trust-anchor=comment remain comments
+stop-dns-rebind
+  stop-dns-rebind # firmware rebind
+dnssec
+dns"s"ec
+dnssec-check-unsigned=no
+ dnssec-check-unsigned = yes # enabled
+dnssec-no-timecheck
+proxy-dnssec
+dnssec-debug
+dnssec-timestamp=/tmp/dnsmasq.time
+dnssec-limits=100,20,200
+trust-anchor=.,20326,8,2,root-key
+ trust-anchor = .,38696,8,2,rollover-key
+trust-anchor=private.example,12345,8,2,custom-key
+dns-rr=key.example,48,0102
+dns-rr=key.example,"0043",0304
+dns-rr=key.example,25,0506
+dns-rr=key.example,59,0708
+dns-rr=key.example,60,090a
+dns-rr=key.example,32768,0d0e
+dns-rr=key.example,32769,0b0c
+rebind-domain-ok=/internal.example/
+rebind-localhost-ok
+dnssec-extra=preserved
+trust-anchor-extra=preserved
+dns-rr=ordinary.example,16,0102
+dhcp-range=192.168.50.100,192.168.50.150,12h
+address=/router.example/192.168.50.1
+EOF
+	if [ "${takeover_config}" = main ]; then
+		dnsmasq_action_handler pre_start || fail 'main DNS takeover failed'
+	else
+		dnsmasq_action_handler 1 || fail 'SDN DNS takeover failed'
+	fi
+	if grep -Eq '^[[:space:]]*(stop-dns-rebind|"?dnssec"?|dnssec-check-unsigned|dnssec-no-timecheck|proxy-dnssec|dnssec-debug|dnssec-timestamp|dnssec-limits|trust-anchor)([[:space:]]*(=|#|$))' "${takeover_file}"; then
+		fail "${takeover_config} takeover retained active rebind/DNSSEC options or anchors"
+	fi
+	[ "$(grep -c '^dns-rr=' "${takeover_file}")" -eq 1 ] || fail "${takeover_config} takeover retained DNSSEC key records"
+	for preserved_line in '# dnssec and trust-anchor=comment remain comments' \
+		'rebind-domain-ok=/internal.example/' 'rebind-localhost-ok' 'dnssec-extra=preserved' \
+		'trust-anchor-extra=preserved' 'dns-rr=ordinary.example,16,0102' \
+		'dhcp-range=192.168.50.100,192.168.50.150,12h' 'address=/router.example/192.168.50.1'; do
+		grep -qxF "${preserved_line}" "${takeover_file}" || fail "${takeover_config} takeover changed unrelated config: ${preserved_line}"
+	done
+done
+
+# Main and SDN callbacks publish a complete mixed-include runtime view; failed
+# staging, IPSET refresh and publication preserve the native include references.
+for takeover_config in main sdn; do
+	for takeover_result in success missing_include refresh_failure publication_failure; do
+		reset_case
+		NVRAM_RC_SUPPORT='mtlancfg'
+		takeover_file="${DNSMASQ_CONF_FILE}"
+		[ "${takeover_config}" = main ] || takeover_file="${DNSMASQ_SDN_CONF_FILE}"
+		takeover_source="${TEST_ROOT}/persistent-mixed.conf"
+		printf '%s\n' 'dnssec' 'trust-anchor=private.example,12345,8,2,current-key' \
+			'dhcp-option=lan,6,192.168.50.53' 'dhcp-option=lan,60,example-vendor' \
+			'dhcp-option=lan,61,example-client' 'dhcp-option=lan,66,boot.example' \
+			'address=/included.example/192.168.50.1' >"${takeover_source}"
+		printf '%s\n' 'stop-dns-rebind' "conf-file=${takeover_source}" >"${takeover_file}"
+		cp -p "${takeover_file}" "${TEST_ROOT}/include-original"
+		cp -p "${takeover_source}" "${TEST_ROOT}/source-original"
+		printf '%s\n' 'original ipset' >"${IPSET_FILE}"
+		case "${takeover_result}" in
+			missing_include) rm -f "${takeover_source}" ;;
+			refresh_failure) IPSET_REFRESH_FAIL='1' ;;
+			publication_failure) MV_PUBLISH_FAIL='1' ;;
+		esac
+		if [ "${takeover_config}" = main ]; then
+			dnsmasq_action_handler pre_start
+		else
+			# The shared publication failure injector targets its main-path alias.
+			DNSMASQ_CONF_FILE_SAVED="${DNSMASQ_CONF_FILE}"
+			DNSMASQ_CONF_FILE="${takeover_file}"
+			dnsmasq_action_handler 1
+		fi
+		takeover_status="$?"
+		if [ "${takeover_config}" != main ]; then DNSMASQ_CONF_FILE="${DNSMASQ_CONF_FILE_SAVED}"; fi
+		if [ "${takeover_result}" = success ]; then
+			[ "${takeover_status}" -eq 0 ] || fail "${takeover_config} mixed include takeover failed"
+			grep -qx 'address=/included.example/192.168.50.1' "${takeover_file}" || fail 'mixed include lost local DNS'
+			for option in 60,example-vendor 61,example-client 66,boot.example; do
+				grep -qx "dhcp-option=lan,${option}" "${takeover_file}" || fail "mixed include lost unrelated DHCP option ${option}"
+			done
+			! grep -Eq '^(conf-file|dnssec|trust-anchor|stop-dns-rebind)' "${takeover_file}" || fail 'mixed include retained effective DNSSEC source'
+			cmp -s "${takeover_source}" "${TEST_ROOT}/source-original" || fail 'persistent mixed include was changed'
+			# Firmware regeneration uses current persistent settings on native stop.
+			printf '%s\n' 'trust-anchor=changed.example,54321,8,2,new-key' \
+				'address=/changed.example/192.168.50.2' >"${takeover_source}"
+			cp -p "${TEST_ROOT}/include-original" "${takeover_file}"
+			ADGUARD_RUNNING='0'
+			if [ "${takeover_config}" = main ]; then dnsmasq_action_handler pre_start; else dnsmasq_action_handler 1; fi ||
+				fail 'native regeneration with current persistent settings failed'
+			cmp -s "${takeover_file}" "${TEST_ROOT}/include-original" || fail 'native fallback filtered regenerated config'
+			grep -qx 'trust-anchor=changed.example,54321,8,2,new-key' "${takeover_source}" || fail 'native fallback lost current key preference'
+		else
+			[ "${takeover_status}" -ne 0 ] || fail "${takeover_config} ${takeover_result} unexpectedly succeeded"
+			cmp -s "${takeover_file}" "${TEST_ROOT}/include-original" || fail "${takeover_config} ${takeover_result} changed live native include references"
+			grep -qx 'original ipset' "${IPSET_FILE}" || fail 'failed include takeover changed IPSET state'
+			grep -qx 'original yaml' "${YAML_FILE}" || fail 'failed include takeover changed AGH preferences'
+			if [ "${takeover_result}" = missing_include ]; then assert_no_ipset_refresh 'unsafe include'; fi
+		fi
+		[ -z "$(find "${TEST_ROOT}" -name '*.takeover.*' -print)" ] || fail 'include transaction leaked filter stages'
+	done
+done
+
 # A supplied config must exist and must not resolve through a symlink.
 for target_kind in missing directory symlink; do
 	reset_case
@@ -514,7 +628,8 @@ for install_mode in wan lan; do
 				handoff) DNS_HANDOFF_ACTIVE='1' ;;
 				running) ADGUARD_RUNNING='1' ;;
 			esac
-			printf '%s\n' 'port=53' 'dhcp-range=lan,192.168.50.100,192.168.50.150,255.255.255.0,600s' \
+			printf '%s\n' 'port=53' 'stop-dns-rebind' 'dnssec' 'dnssec-check-unsigned=no' 'trust-anchor=.,20326,8,2,root-key' \
+				'dhcp-range=lan,192.168.50.100,192.168.50.150,255.255.255.0,600s' \
 				'dhcp-option=lan,6,192.168.50.1' >"${DNSMASQ_CONF_FILE}" || fail 'could not seed native postconf configuration'
 			cp "${DNSMASQ_CONF_FILE}" "${TEST_ROOT}/native-postconf.expected" || fail 'could not snapshot native postconf configuration'
 			for attempt in 1 2 3; do

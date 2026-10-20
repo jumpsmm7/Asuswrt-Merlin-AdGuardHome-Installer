@@ -39,6 +39,10 @@ Readiness/source/CLI corrections and their focused regressions are implemented. 
 
 **Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
 
+### Implementation checkpoint
+
+The staged takeover filter removes exact rebind/DNSSEC options and all key/anchor entries, including generic KEY/DS/DNSKEY/CDS/CDNSKEY/TA/DLV records. Static includes are expanded without changing their persistent sources; unsupported input fails before per-file publication. Mixed includes retain unrelated DNS/DHCP settings, and existing rollback/native regeneration remains in place. Independent review, five focused host regressions and real dnsmasq syntax checks pass. The new regression is registered in the shared host/native inventory; final integrated host/native evidence and publication remain pending.
+
 ### Acceptance criteria
 
 - [ ] All effective targeted options/keys absent at managed publication, including custom/root-rollover anchors. Includes preserve unrelated settings and valid lifetimes. Repeated/overlapping takeover, native fallback and staging/IPSET/publication failures preserve configuration/recovery invariants.

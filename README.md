@@ -100,6 +100,7 @@ Optional features may require additional Entware packages. For example, the unus
 
 - Some double-NAT or dual-WAN environments may not be compatible because AdGuardHome takes over DNS service placement on port `53`.
 - The installer moves DNSMASQ to port `553` when AdGuardHome owns port `53`.
+- Managed takeover removes dnsmasq rebind/DNSSEC options and all runtime DNSSEC keys/anchors, including static included configuration. Persistent firmware preferences and custom sources remain available for native recovery. See [dnsmasq takeover behavior and include limitations](docs/dnsmasq-takeover.md).
 - v2.6.0 uses safer runtime defaults for new installs while preserving existing `.config` values during upgrades.
 - New installs and upgrades without a saved policy refuse to terminate unknown non-AdGuardHome owners of port `53` by default. Existing installs that keep `ADGUARDHOME_REFUSE_UNKNOWN_DNS_PORT_KILL=0` retain legacy cleanup until migrated.
 - New installs save `ADGUARD_NETCHECK_MODE=wan` when router/local-cache DNS is selected, or `ADGUARD_NETCHECK_MODE=lan` for LAN-only service management. Existing installs keep their saved mode.
