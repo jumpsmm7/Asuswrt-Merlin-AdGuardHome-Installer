@@ -10776,6 +10776,15 @@ cli_installer_branch_from_args() {
 resolve_installer_branch() {
 	BRANCH=""
 	INSTALLER_SOURCE_ORIGIN="explicit"
+	# Blocklist actions are only menu actions when the saved analyzer setting
+	# enables them. Load that setting before deciding whether $1 is a ref.
+	case "${1:-}" in
+		"9" | blocklists | unusedblocklists)
+			if [ -z "${BLOCKLIST_ANALYZER_SHA256}" ] && { [ -e "${CONF_FILE}" ] || [ -L "${CONF_FILE}" ]; }; then
+				BLOCKLIST_ANALYZER_SHA256="$(conf_value BLOCKLIST_ANALYZER_SHA256)" || return 1
+			fi
+			;;
+	esac
 	case "${1:-}" in
 		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
 			BRANCH="$(cli_installer_branch_from_args "$@")" || {
