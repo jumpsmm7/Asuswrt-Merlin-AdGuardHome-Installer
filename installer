@@ -490,7 +490,11 @@ nvram_transaction_recover_startup() {
 }
 
 nvram_transaction_read_only_diagnostic_requested() {
-	[ "${1:-}" != "--no-auto-update" ] || shift
+	local argument
+	for argument; do
+		shift
+		[ "${argument}" = "--no-auto-update" ] || set -- "$@" "${argument}"
+	done
 	case "${1:-}" in
 		status) return 0 ;;
 		doctor) [ -z "${2:-}" ] && return 0 ;;
@@ -2765,7 +2769,7 @@ jffs_read_settings() {
 	JFFS2_ENABLED="$(/bin/nvram get jffs2_enable 2>/dev/null)" || enable_status=1
 	inventory=""
 	if [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
-		[ -z "${JFFS2_FORMAT}" ] || [ -z "${JFFS2_ENABLED}" ]; then
+		[ -z "${JFFS2_FORMAT}" ] || [ -z "${JFFS2_SCRIPTS}" ] || [ -z "${JFFS2_ENABLED}" ]; then
 		# HND may return failure after emitting a usable inventory.
 		inventory="$(/bin/nvram show 2>/dev/null)" || true
 		if ! printf '%s\n' "${inventory}" | grep -q '^[[:alnum:]_][[:alnum:]_]*='; then
@@ -2789,7 +2793,7 @@ jffs_read_settings() {
 				;;
 		esac
 		if [ "${read_status}" -ne 0 ]; then
-			if [ "${key}" = jffs2_scripts ] || [ -n "${value}" ] ||
+			if [ -n "${value}" ] ||
 				printf '%s\n' "${inventory}" | grep -q "^${key}="; then
 				JFFS_READ_REASON="read-failed:${key}"
 				return 1
@@ -2799,6 +2803,12 @@ jffs_read_settings() {
 			jffs2_format:)
 				if printf '%s\n' "${inventory}" | grep -q '^jffs2_format='; then
 					JFFS_READ_REASON="missing-value:jffs2_format"
+					return 1
+				fi
+				;;
+			jffs2_scripts:)
+				if printf '%s\n' "${inventory}" | grep -q '^jffs2_scripts='; then
+					JFFS_READ_REASON="missing-value:jffs2_scripts"
 					return 1
 				fi
 				;;
@@ -2814,11 +2824,18 @@ jffs_read_settings() {
 		JFFS_ENABLE_KEY="jffs2_on"
 		read_status=0
 		JFFS2_ENABLED="$(/bin/nvram get jffs2_on 2>/dev/null)" || read_status=1
-		if [ "${read_status}" -ne 0 ]; then
+		if [ "${read_status}" -ne 0 ] &&
+			{ [ -n "${JFFS2_ENABLED}" ] || printf '%s\n' "${inventory}" | grep -q '^jffs2_on='; }; then
 			JFFS_READ_REASON="read-failed:jffs2_on"
 			return 1
 		fi
 		case "${JFFS2_ENABLED}" in
+			"")
+				if printf '%s\n' "${inventory}" | grep -q '^jffs2_on='; then
+					JFFS_READ_REASON="missing-value:jffs2_on"
+					return 1
+				fi
+				;;
 			0 | 1) ;;
 			*)
 				JFFS_READ_REASON="invalid-value:jffs2_on"
@@ -2830,10 +2847,12 @@ jffs_read_settings() {
 }
 
 preflight_check_jffs_ready() {
-	local format_state result
+	local format_state read_ok result
 	result="OK"
+	read_ok=1
 	if ! jffs_read_settings; then
 		result="FAIL"
+		read_ok=0
 	elif [ "${JFFS2_FORMAT}" = "1" ]; then
 		result="FAIL"
 		JFFS_READ_REASON="format-pending"
@@ -2842,7 +2861,7 @@ preflight_check_jffs_ready() {
 		JFFS_READ_REASON="enablement-required"
 	fi
 	format_state="${JFFS2_FORMAT:-missing-or-unreadable}"
-	if [ -z "${JFFS2_FORMAT}" ] && [ -z "${JFFS_READ_REASON}" ]; then
+	if [ -z "${JFFS2_FORMAT}" ] && [ "${read_ok}" = 1 ]; then
 		format_state="legacy-absent"
 	fi
 	PTXT "preflight.jffs.required=yes"
@@ -9624,7 +9643,7 @@ uninst_all() {
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	service restart_dnsmasq >/dev/null 2>&1
-	end_op_message 0
+	end_op_message 0 uninstall
 }
 
 # service_event_hook_command is the canonical command-format firmware hook, distinct from manager dispatch calls.
@@ -9877,6 +9896,9 @@ end_op_message() {
 	case "${1:-0}" in
 		0)
 			[ "$2" = "update" ] && exit 0
+			if [ "${2:-}" = uninstall ] && [ "${AI_NO_AUTO_UPDATE:-0}" = 1 ]; then
+				exit 0
+			fi
 			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
 			;;
 		1)
@@ -9957,7 +9979,10 @@ menu() {
 	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
 		case "${CHOSEN}" in
 			1 | install | update | 7 | switchbranch | r | R | restore)
-				installer_bundle_update_allowed || return 1
+				installer_bundle_update_allowed || {
+					end_op_message 1
+					return 1
+				}
 				;;
 		esac
 	fi
@@ -10785,8 +10810,14 @@ resolve_installer_branch() {
 			;;
 		amtmupdate | "") ;;
 		*)
-			if [ -n "${2:-}" ] || ! single_arg_menu_action "${1:-}"; then
+			if [ -n "${2:-}" ]; then
 				BRANCH="$1"
+			else
+				# Menu availability can depend on state loaded after source selection.
+				case "${1:-}" in
+					[1-9] | [qQbBrRdDmM] | install | update | uninstall | changepw | reconfigure | setamtmupdate | setlocalcache | switchbranch | setipset | blocklists | unusedblocklists | backup | restore | doctor | status | migrate-runtime-defaults) ;;
+					*) BRANCH="$1" ;;
+				esac
 			fi
 			;;
 	esac
@@ -11135,6 +11166,16 @@ if [ "${1:-}" = "--no-auto-update" ]; then
 	shift
 fi
 installer_update_policy_from_args "$@"
+
+# Keep diagnostic suffix flags on the same early, read-only dispatch path.
+case "${1:-}:${2:-}" in
+	preflight:* | doctor:* | status:* | *:doctor | *:status)
+		for DIAGNOSTIC_ARGUMENT; do
+			shift
+			[ "${DIAGNOSTIC_ARGUMENT}" = "--no-auto-update" ] || set -- "$@" "${DIAGNOSTIC_ARGUMENT}"
+		done
+		;;
+esac
 
 if [ "${1:-}" = "preflight" ]; then
 	preflight "${2:-install}"

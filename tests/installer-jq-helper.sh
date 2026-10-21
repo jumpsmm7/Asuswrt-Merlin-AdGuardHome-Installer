@@ -106,20 +106,31 @@ rm -f "${TMP_ROOT}/bin/jq" "${ENTWARE_JQ}"
 	. "${FUNCTIONS_FILE}"
 	. "${TMP_ROOT}/menu-functions"
 	INFO=INFO ERROR=ERROR
+	# PTXT captures selected-menu diagnostics without terminal formatting.
 	PTXT() { printf '%s\n' "$*"; }
+	# ptxt_warn retains warning text while avoiding terminal formatting.
 	ptxt_warn() { PTXT "$*"; }
+	# ptxt_step retains progress text while avoiding terminal formatting.
 	ptxt_step() { PTXT "$*"; }
+	# ptxt_fail retains failure text while avoiding terminal formatting.
 	ptxt_fail() { PTXT "$*"; }
+	# ptxt_ok retains success text while avoiding terminal formatting.
 	ptxt_ok() { PTXT "$*"; }
+	# ptxt_phase retains phase text while avoiding terminal formatting.
 	ptxt_phase() { PTXT "$*"; }
+	# end_op_message returns the operation status without restarting the installer.
 	end_op_message() { return "${1:-0}"; }
+	# which forces the selected update to repair its missing PATH-resolved parser.
 	which() { return 1; }
+	# opkg_pkg_installed models jq-full as unregistered so the action must install it.
 	opkg_pkg_installed() { return 1; }
+	# ensure_opkg_package verifies the canonical jq-full flags and installs a usable fixture parser.
 	ensure_opkg_package() {
 		printf '%s\n' "$*" >>"${TMP_ROOT}/action-packages"
 		[ "$*" = 'jq-full --force-depends --force-overwrite --force-reinstall' ] || return 1
 		make_jq "${ENTWARE_JQ}" 0
 	}
+	# inst_AdGuardHome records update orchestration only after a usable parser has been repaired.
 	inst_AdGuardHome() {
 		[ "$1" = update ] && jq_available || return 1
 		: >"${TMP_ROOT}/action-reached"
