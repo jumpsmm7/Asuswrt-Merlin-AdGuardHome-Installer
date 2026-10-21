@@ -1,23 +1,5 @@
 # In Progress
 
-## TASK-037: Remove the unused vulnerable MCP dependency from CI scanning
-
-**Priority:** P1 | **Tags:** v2.7.0, security, ci
-**Scope:** Resolve the OSV MCP finding on both PR #1037 and stacked PR #1040 while preserving Semgrep policy coverage and full vulnerability enforcement.
-
-### Plan
-
-- Verify current Semgrep constraints and the MCP advisory against primary sources; never force an incompatible Python dependency or add a vulnerability suppression.
-- Validate the shipped native Semgrep CLI against the current Python frontend for all existing fixtures, every local policy scope, finding exits and SARIF. Keep its experimental native selector explicit and pin the same engine artifact with SHA-256.
-- Install only the native executable, retain an OSV-readable Semgrep artifact inventory, update reporter output syntax, and verify actual workflow commands before publishing the same change to both branches.
-
-### Acceptance criteria
-
-- [x] Existing policy findings, scope, error exits and SARIF remain enforced without installing the Python MCP SDK. The actual workflow commands pass in an offline clean Ubuntu container with only the TLS/hash-verified native artifact transfer modeled; corrupt hashes and invalid rules refuse. All three original fixtures and 58 injected findings across 17 scoped paths match the original frontend. The pinned OSV reporter passes clean input, fails vulnerable input and emits valid SARIF without the deprecated output warning.
-- [ ] Both published heads pass their full OSV and Semgrep jobs; current review and relevant checks are verified without waivers.
-
----
-
 ## TASK-030: Repair installation readiness and installer source selection
 
 **Priority:** P1 | **Tags:** v2.7.0, reliability, validation
