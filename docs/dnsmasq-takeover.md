@@ -16,7 +16,7 @@ Static absolute `conf-file` and `conf-dir` content is expanded into the same sta
 
 The expansion preserves include position, device/inode deduplication and directory suffix filters. Directory ordering follows dnsmasq 2.80's native directory order or the bytewise sort used from 2.81 onward. The stock-first `dnsmasq --version` probe is needed only for directory includes. Quoted paths with spaces or `#` are supported.
 
-Takeover fails before publishing that configuration when an include cannot be inspected safely. Refused cases include relative or stdin paths, dynamic `conf-script`, missing/unreadable/nonregular files, final symlink sources or directories, selected symlink directory entries, control characters or quoted commas in paths, unsupported quoted escapes, unknown directory ordering versions and nesting deeper than 32 levels. The error is logged as a `filter_dns_security` staging failure. Correct the include source before retrying; a failed filter is not a successful takeover.
+Takeover fails before publishing that configuration when an include cannot be inspected safely. Refused cases include relative or stdin paths, dynamic `conf-script`, missing/unreadable/nonregular files, final symlink sources or directories, selected symlink directory entries, control characters or quoted commas in paths, NUL bytes in configuration content, unsupported quoted escapes, unknown directory ordering versions and nesting deeper than 32 levels. The error is logged as a `filter_dns_security` staging failure. Correct the include source before retrying; a failed filter is not a successful takeover.
 
 ## Publication and recovery
 

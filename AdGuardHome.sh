@@ -1354,7 +1354,7 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_expand_file inspects static absolute config includes. Relative,
 	# stdin, dynamic conf-script and control-character include paths fail closed.
 	dnsmasq_takeover_expand_file() {
-		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS ENTRY NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS
+		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS ENTRY NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS SOURCE_BYTES TEXT_BYTES
 		SOURCE="$1"
 		DEPTH="$2"
 		IDENTITY="${3:-${SOURCE}}"
@@ -1368,6 +1368,10 @@ dnsmasq_takeover_filter() (
 			[ "${IDENTITY}" -ef "${PREVIOUS}" ] && return 0
 		done <"${SEEN}"
 		[ "${DEPTH}" -le 32 ] || return 1
+		# Reject binary input before AWK and shell disagree about NUL boundaries.
+		SOURCE_BYTES="$(wc -c <"${SOURCE}")" || return 1
+		TEXT_BYTES="$(tr -d '\000' <"${SOURCE}" | wc -c)" || return 1
+		[ "${SOURCE_BYTES}" -eq "${TEXT_BYTES}" ] 2>/dev/null || return 1
 		printf '%s\n' "${IDENTITY}" >>"${SEEN}" || return 1
 		RECORDS="${PREFIX}.records.${DEPTH}"
 		awk '
@@ -1418,7 +1422,9 @@ dnsmasq_takeover_filter() (
 							count=split(rest, fields, ","); rest=""
 							for (field=1; field<=count; field++) {
 								gsub(/^[ \t]+|[ \t]+$/, "", fields[field])
-								rest=rest (field == 1 ? "" : ",") fields[field]
+								# Avoid name-(...) concatenation being parsed as a call by BusyBox 1.25.
+								if (field > 1) rest=rest ","
+								rest=rest fields[field]
 							}
 						}
 						gsub(/\036/, " ", rest)
