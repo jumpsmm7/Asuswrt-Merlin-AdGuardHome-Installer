@@ -1328,7 +1328,7 @@ dnsmasq_takeover_filter() (
 	OUTPUT="${PREFIX}.config"
 	SEEN="${PREFIX}.seen"
 	DNSMASQ_DIRECTORY_ORDER=""
-	trap 'rm -f "${OUTPUT}" "${SEEN}" "${PREFIX}".records.* "${PREFIX}".directory.*' 0
+	trap 'rm -f "${OUTPUT}" "${SEEN}" "${PREFIX}".records.* "${PREFIX}".directory.* "${PREFIX}".segment.*' 0
 	cp -p "${INPUT}" "${OUTPUT}" && : >"${OUTPUT}" && : >"${SEEN}" || return 1
 
 	# dnsmasq_takeover_directory_order matches readdir in 2.80 and strcmp in 2.81+.
@@ -1354,7 +1354,7 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_expand_file inspects static absolute config includes. Relative,
 	# stdin, dynamic conf-script and control-character include paths fail closed.
 	dnsmasq_takeover_expand_file() {
-		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS ENTRY NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS SOURCE_BYTES TEXT_BYTES
+		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS entry NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS SOURCE_BYTES TEXT_BYTES
 		SOURCE="$1"
 		DEPTH="$2"
 		IDENTITY="${3:-${SOURCE}}"
@@ -1374,7 +1374,15 @@ dnsmasq_takeover_filter() (
 		[ "${SOURCE_BYTES}" -eq "${TEXT_BYTES}" ] 2>/dev/null || return 1
 		printf '%s\n' "${IDENTITY}" >>"${SEEN}" || return 1
 		RECORDS="${PREFIX}.records.${DEPTH}"
-		awk '
+		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${DEPTH}." awk '
+			# Copy consecutive unchanged lines together, keeping shell records bounded by includes.
+			function flush_segment() {
+				if (segment != "") {
+					if (close(segment) != 0) invalid=1
+					print "S" segment
+					segment=""
+				}
+			}
 			# Normalize option spelling and comments, retaining original output.
 			# Protect quoted commas while recognizing generic RR type fields.
 			function normalized(raw,    text, i, c, quoted, escaped, previous) {
@@ -1388,7 +1396,8 @@ dnsmasq_takeover_filter() (
 					else if (c == "\"") { quoted=!quoted; continue }
 					else if (!quoted && c == "#" && (i == 1 || previous ~ /[ \t]/)) break
 					else if (!quoted && c ~ /[[:space:]]/) c=" "
-					if (quoted && c ~ /[[:cntrl:]]/) c="\035"
+					# Raw RS must not collide with the marker added for a quoted space.
+					if (c == "\036" || (quoted && c ~ /[[:cntrl:]]/)) c="\035"
 					else if (quoted && c == ",") c="\034"
 					else if (quoted && c == " ") c="\036"
 					text=text c; previous=c
@@ -1397,6 +1406,7 @@ dnsmasq_takeover_filter() (
 				return text
 			}
 			BEGIN {
+				segprefix=ENVIRON["DNSMASQ_TAKEOVER_SEGMENT_PREFIX"]
 				split("stop-dns-rebind dnssec dnssec-check-unsigned dnssec-no-timecheck proxy-dnssec dnssec-debug dnssec-timestamp dnssec-limits trust-anchor", names, " ")
 				for (i in names) remove[names[i]]=1
 			}
@@ -1428,18 +1438,25 @@ dnsmasq_takeover_filter() (
 							}
 						}
 						gsub(/\036/, " ", rest)
+						flush_segment()
 						print (name == "conf-file" ? "F" : "D") rest
 						next
 					}
 				}
-				print "L" $0
+				if (segment == "") {
+					segment_count++
+					segment=segprefix segment_count
+				}
+				print $0 > segment
 			}
-			END { if (invalid) exit 1 }
+			END { flush_segment(); if (invalid) exit 1 }
 		' "${SOURCE}" >"${RECORDS}" || return 1
 		while IFS= read -r LINE; do
 			VALUE="${LINE#?}"
 			case "${LINE}" in
-				L*) printf '%s\n' "${VALUE}" >>"${OUTPUT}" || return 1 ;;
+				S*)
+					cat "${VALUE}" >>"${OUTPUT}" && rm -f "${VALUE}" || return 1
+					;;
 				F*) dnsmasq_takeover_expand_file "${VALUE}" "$((DEPTH + 1))" || return 1 ;;
 				D*)
 					DIRECTORY="${VALUE%%,*}"
@@ -1448,8 +1465,8 @@ dnsmasq_takeover_filter() (
 					case "${DIRECTORY}" in /*) ;; *) return 1 ;; esac
 					[ -d "${DIRECTORY}" ] && [ ! -L "${DIRECTORY}" ] && [ -r "${DIRECTORY}" ] || return 1
 					# Validate filenames before passing a newline-delimited find list.
-					for ENTRY in "${DIRECTORY}"/* "${DIRECTORY}"/.[!.]* "${DIRECTORY}"/..?*; do
-						case "${ENTRY}" in *[[:cntrl:]]*) return 1 ;; esac
+					for entry in "${DIRECTORY}"/* "${DIRECTORY}"/.[!.]* "${DIRECTORY}"/..?*; do
+						case "${entry}" in *[[:cntrl:]]*) return 1 ;; esac
 					done
 					dnsmasq_takeover_directory_order || return 1
 					LIST="${PREFIX}.directory.${DEPTH}"
@@ -1458,8 +1475,8 @@ dnsmasq_takeover_filter() (
 						LC_ALL=C sort "${LIST}" >"${LIST}.sorted" || return 1
 						mv "${LIST}.sorted" "${LIST}" || return 1
 					fi
-					while IFS= read -r ENTRY; do
-						NAME="${ENTRY##*/}"
+					while IFS= read -r entry; do
+						NAME="${entry##*/}"
 						case "${NAME}" in .* | *~ | \#*\#) continue ;; esac
 						ALLOW="0"
 						DENY="0"
@@ -1479,9 +1496,9 @@ dnsmasq_takeover_filter() (
 							esac
 						done
 						[ "${DENY}" = 0 ] && { [ "${WANT_ALLOW}" = 0 ] || [ "${ALLOW}" = 1 ]; } || continue
-						[ ! -L "${ENTRY}" ] && [ -e "${ENTRY}" ] || return 1
-						[ -f "${ENTRY}" ] || continue
-						dnsmasq_takeover_expand_file "${ENTRY}" "$((DEPTH + 1))" || return 1
+						[ ! -L "${entry}" ] && [ -e "${entry}" ] || return 1
+						[ -f "${entry}" ] || continue
+						dnsmasq_takeover_expand_file "${entry}" "$((DEPTH + 1))" || return 1
 					done <"${LIST}"
 					;;
 			esac

@@ -118,6 +118,26 @@ done <"${ROOT}/native-list"
 cmp -s "${STAGE}" "${ROOT}/legacy-expected" || fail 'legacy readdir order changed'
 DNSMASQ_TEST_VERSION='2.91'
 
+# Unmatched validation globs do not become entries in an empty or ordinary-only directory.
+for directory_case in empty ordinary; do
+	PLAIN_DIRECTORY="${ROOT}/${directory_case}-directory"
+	mkdir "${PLAIN_DIRECTORY}"
+	printf '%s\n' 'address=/before-directory.example/192.0.2.1' >"${ROOT}/plain-expected"
+	if [ "${directory_case}" = ordinary ]; then
+		printf '%s\n' 'address=/ordinary-directory.example/192.0.2.2' >"${PLAIN_DIRECTORY}/ordinary.conf"
+		cat "${PLAIN_DIRECTORY}/ordinary.conf" >>"${ROOT}/plain-expected"
+	fi
+	printf '%s\n' 'address=/after-directory.example/192.0.2.3' >>"${ROOT}/plain-expected"
+	for directory_version in 2.80 2.91; do
+		DNSMASQ_TEST_VERSION="${directory_version}"
+		printf '%s\n' 'address=/before-directory.example/192.0.2.1' "conf-dir=${PLAIN_DIRECTORY}" \
+			'address=/after-directory.example/192.0.2.3' >"${STAGE}"
+		dnsmasq_takeover_filter "${STAGE}" "${MAIN}" || fail "${directory_case} directory was rejected on ${directory_version}"
+		cmp -s "${STAGE}" "${ROOT}/plain-expected" || fail 'directory sentinel globs changed runtime output'
+	done
+done
+DNSMASQ_TEST_VERSION='2.91'
+
 # Exact active spellings include legal partial quotes; hash in data is retained.
 printf '%s\n' 'dns"s"ec' '"stop"-dns-rebind' 'dnssec-check-unsigned = no # comment' \
 	'dnssec#ordinary=preserved' 'address=/hash.example/192.0.2.1#literal' \
@@ -154,6 +174,12 @@ printf '%s\n' "conf-dir=${DIRECTORY},*.conf" >"${ROOT}/unsafe-version"
 CONTROL_PATH="${ROOT}/sources/control$(printf '\013').conf"
 printf '%s\n' 'address=/control.example/192.0.2.1' >"${CONTROL_PATH}"
 printf '%s\n' "conf-file=\"${CONTROL_PATH}\"" >"${ROOT}/unsafe-control"
+# A raw RS byte must never alias the internal marker for a quoted space.
+CONTROL_MARKER_PATH="${ROOT}/sources/marker$(printf '\036')name.conf"
+SPACE_MARKER_PATH="${ROOT}/sources/marker name.conf"
+printf '%s\n' 'address=/raw-marker.example/192.0.2.1' >"${CONTROL_MARKER_PATH}"
+printf '%s\n' 'address=/space-marker.example/192.0.2.2' >"${SPACE_MARKER_PATH}"
+printf '%s\n' "conf-file=${CONTROL_MARKER_PATH}" >"${ROOT}/unsafe-marker"
 for unsafe_source in "${ROOT}"/unsafe-*; do
 	cp -p "${unsafe_source}" "${STAGE}"
 	case "${unsafe_source}" in *unsafe-version) DNSMASQ_TEST_VERSION='unknown' ;; esac
@@ -179,11 +205,17 @@ cp -p "${STAGE}" "${ROOT}/read-failure-original"
 (
 	# awk injects a failed include read while retaining all other AWK behavior.
 	awk() {
-		for argument; do [ "${argument}" != "${KEYS}" ] || return 1; done
-		command awk "$@"
+		for argument; do
+			if [ "${argument}" = "${KEYS}" ]; then
+				: >"${ROOT}/read-failure-injected"
+				return 1
+			fi
+		done
+		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${DNSMASQ_TAKEOVER_SEGMENT_PREFIX:-}" command awk "$@"
 	}
 	if dnsmasq_takeover_filter "${STAGE}" "${MAIN}"; then fail 'unreadable nested source was accepted'; fi
 )
+[ -f "${ROOT}/read-failure-injected" ] || fail 'nested read failure boundary was not exercised'
 cmp -s "${STAGE}" "${ROOT}/read-failure-original" || fail 'read failure published a partially expanded stage'
 
 # Final filter-stage publication failure also leaves the original stage intact.
@@ -196,6 +228,61 @@ cmp -s "${STAGE}" "${ROOT}/read-failure-original" || fail 'read failure publishe
 	if dnsmasq_takeover_filter "${STAGE}" "${MAIN}"; then fail 'failed filter-stage rename succeeded'; fi
 )
 cmp -s "${STAGE}" "${ROOT}/read-failure-original" || fail 'filter-stage rename failure changed the stage'
+
+# Large unchanged runs use a bounded shell record count and one bulk append.
+awk 'BEGIN { for (i=1; i<=20000; i++) print "address=/large-" i ".example/192.0.2.1" }' >"${STAGE}"
+cp -p "${STAGE}" "${ROOT}/large-original"
+(
+	TAKEOVER_READ_CALLS=0
+	# read counts shell record processing while forwarding to the real builtin.
+	read() {
+		TAKEOVER_READ_CALLS="$((TAKEOVER_READ_CALLS + 1))"
+		command read "$@"
+	}
+	# cat records bulk segment appends without changing their bytes.
+	cat() {
+		case "${1:-}" in "${STAGE}.takeover.segment."*) printf '%s\n' append >>"${ROOT}/large-appends" ;; esac
+		command cat "$@"
+	}
+	# mv captures the shell read count at the final publication boundary.
+	mv() {
+		if [ "${2:-}" = "${STAGE}" ]; then printf '%s\n' "${TAKEOVER_READ_CALLS}" >"${ROOT}/large-reads"; fi
+		command mv "$@"
+	}
+	dnsmasq_takeover_filter "${STAGE}" "${MAIN}" || fail 'large unchanged run failed'
+)
+cmp -s "${STAGE}" "${ROOT}/large-original" || fail 'bulk passthrough changed a large unchanged run'
+[ "$(cat "${ROOT}/large-reads")" -le 4 ] || fail 'unchanged lines still require per-line shell reads'
+[ "$(wc -l <"${ROOT}/large-appends")" -eq 1 ] || fail 'unchanged run was not copied with one bulk append'
+[ -z "$(find "${ROOT}" -name '*.takeover.*' -print)" ] || fail 'successful bulk filtering leaked temporary artifacts'
+
+# Segment creation and bulk-copy failures cannot publish partial output.
+for failure_case in create append; do
+	cp -p "${ROOT}/large-original" "${STAGE}"
+	(
+		# awk injects an unwritable segment destination without bypassing the real parser.
+		awk() {
+			if [ "${failure_case}" = create ]; then
+				DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${ROOT}/large-original/segment." command awk "$@"
+			else
+				DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${DNSMASQ_TAKEOVER_SEGMENT_PREFIX:-}" command awk "$@"
+			fi
+		}
+		# cat injects an interrupted bulk append after writing a partial output.
+		cat() {
+			case "${failure_case}:${1:-}" in
+				"append:${STAGE}.takeover.segment."*)
+					printf '%s\n' partial
+					return 1
+					;;
+			esac
+			command cat "$@"
+		}
+		if dnsmasq_takeover_filter "${STAGE}" "${MAIN}"; then fail "segment ${failure_case} failure was accepted"; fi
+	) >"${ROOT}/segment-${failure_case}.log" 2>&1
+	cmp -s "${STAGE}" "${ROOT}/large-original" || fail "segment ${failure_case} failure changed the stage"
+	[ -z "$(find "${ROOT}" -name '*.takeover.*' -print)" ] || fail "segment ${failure_case} failure leaked temporary artifacts"
+done
 
 # Deep distinct includes are bounded even though ordinary inode cycles terminate.
 deep_index=0
