@@ -16,7 +16,7 @@
 
 ### Implementation checkpoint
 
-Readiness/source/CLI corrections and their focused regressions are implemented. They include stock JFFS read reasons and transaction stages, saved-source retention and read-error refusal, early flagged-fresh-install refusal, and the per-invocation compatible-bundle opt-out. Three new regressions are registered in the canonical host suite and shared native inventory. Independent review and focused checks pass; final integrated host/native evidence and publication remain pending. Interim `36e4fee` coverage passed 104 genuine tests and workflow lint passed 11 workflows, but its interrupted full quality run exposed three older fixture extraction gaps; those results are not a final full-suite pass.
+Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037). Initial source `709eb2d` passed the complete host suite, Sonar gates and both fresh three-architecture matrices (121 scenarios per target); OSV remains an unwaived dependency blocker. Review follow-up preserves source refs independently of menu availability, supports inventory-verified absent legacy JFFS flags, keeps suffix opt-out diagnostics on the read-only recovery path, returns refused menu actions correctly and terminates a completed opt-out uninstall successfully. Seventeen nearest regressions and three exact BusyBox 1.25.1 fixtures pass; all 80 touched shell-fixture functions have purpose comments. These source changes require fresh published-head validation and review before completion. Interim `36e4fee` coverage and interrupted quality evidence remain historical, not a final pass.
 
 ### Acceptance criteria
 
