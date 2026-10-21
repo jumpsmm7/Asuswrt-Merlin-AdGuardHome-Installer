@@ -29,13 +29,52 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pinned Semgrep Community Edition
+      - name: Install pinned native Semgrep Community Edition
         shell: sh
+        env:
+          SEMGREP_WHEEL_URL: 'https://files.pythonhosted.org/packages/cc/6c/621944b4843c7484aeaefd5b232d93780bdf95259567c10a9a8129f08dc6/semgrep-1.179.0-cp310.cp311.cp312.cp313.cp314.py310.py311.py312.py313.py314-none-manylinux_2_34_x86_64.whl'
         run: |
           set -eu
-          python3 -m venv "${RUNNER_TEMP}/semgrep-venv"
-          "${RUNNER_TEMP}/semgrep-venv/bin/pip" install --disable-pip-version-check --require-hashes -r requirements-semgrep.txt
-          printf '%s\n' "${RUNNER_TEMP}/semgrep-venv/bin" >> "${GITHUB_PATH}"
+          # Native-only scanning avoids the unused Python MCP server dependency.
+          # See docs/security-scanning.md for the native CLI boundary and validation.
+          archive="${RUNNER_TEMP}/semgrep.whl"
+          native_dir="${RUNNER_TEMP}/semgrep-native"
+          curl -fsSL --proto '=https' --proto-redir '=https' "${SEMGREP_WHEEL_URL}" -o "${archive}"
+          python3 - "${archive}" "${native_dir}" <<'PY'
+          import hashlib
+          import pathlib
+          import re
+          import shlex
+          import sys
+          import zipfile
+
+          spec = shlex.split(pathlib.Path("requirements-semgrep.txt").read_text(), comments=True)
+          if len(spec) != 2 or not re.fullmatch(r"semgrep==[0-9]+\.[0-9]+\.[0-9]+", spec[0]) or not re.fullmatch(r"--hash=sha256:[0-9a-f]{64}", spec[1]):
+              raise SystemExit("Invalid native Semgrep artifact inventory")
+          version = spec[0].split("==", 1)[1]
+          archive = pathlib.Path(sys.argv[1])
+          with archive.open("rb") as handle:
+              digest = hashlib.file_digest(handle, "sha256").hexdigest()
+          if digest != spec[1].split(":", 1)[1]:
+              raise SystemExit("Native Semgrep archive SHA-256 mismatch")
+          directory = pathlib.Path(sys.argv[2])
+          directory.mkdir(mode=0o700)
+          binary = directory / "osemgrep"
+          with zipfile.ZipFile(archive) as wheel:
+              prefix = f"semgrep-{version}.data/purelib/semgrep/bin/"
+              binary.write_bytes(wheel.read(prefix + "semgrep-core"))
+              libraries = directory / "libs"
+              libraries.mkdir()
+              for member in wheel.infolist():
+                  if member.filename.startswith(prefix + "libs/") and not member.is_dir():
+                      name = member.filename.removeprefix(prefix + "libs/")
+                      if not name or "/" in name or name in (".", ".."):
+                          raise SystemExit("Invalid native library member")
+                      (libraries / name).write_bytes(wheel.read(member))
+          binary.chmod(0o755)
+          PY
+          "${native_dir}/osemgrep" --experimental --version
+          printf '%s\n' "${native_dir}" >> "${GITHUB_PATH}"
 
       - name: Verify insecure downloader fixtures
         shell: sh
@@ -44,9 +83,13 @@ jobs:
           fixture_dir="${RUNNER_TEMP}/semgrep-insecure-fixture"
           mkdir -p "${fixture_dir}"
           cp tests/fixtures/semgrep/insecure-downloads.sh "${fixture_dir}/installer"
-          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/installer" >"${fixture_dir}/results.json"
+          osemgrep scan --experimental --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/installer" >"${fixture_dir}/results.json"
           [ "$(grep -o 'asuswrt-no-direct-insecure-curl' "${fixture_dir}/results.json" | wc -l)" -eq 4 ]
           [ "$(grep -o 'asuswrt-no-direct-insecure-wget' "${fixture_dir}/results.json" | wc -l)" -eq 1 ]
+          # A positive fixture must also fail the actual enforcement interface.
+          scan_status=0
+          osemgrep scan --experimental --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --error "${fixture_dir}/installer" >/dev/null 2>&1 || scan_status=$?
+          [ "${scan_status}" -eq 1 ]
 
       - name: Verify chmod guardrail fixtures
         shell: sh
@@ -58,7 +101,7 @@ jobs:
           cp tests/fixtures/semgrep/chmod-world-writable.sh "${fixture_dir}/installer"
           (
             cd "${fixture_dir}"
-            semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json installer > "${fixture_json}"
+            osemgrep scan --experimental --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json installer > "${fixture_json}"
           )
           python3 - "${fixture_json}" <<'PY'
           import json
@@ -81,12 +124,12 @@ jobs:
           fixture_dir="${RUNNER_TEMP}/semgrep-path-fixture"
           mkdir -p "${fixture_dir}"
           cp tests/fixtures/semgrep/inherited-service-path.sh "${fixture_dir}/AdGuardHome.sh"
-          semgrep scan --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/AdGuardHome.sh" >"${fixture_dir}/results.json"
+          osemgrep scan --experimental --config "${GITHUB_WORKSPACE}/.semgrep.yml" --metrics=off --json "${fixture_dir}/AdGuardHome.sh" >"${fixture_dir}/results.json"
           [ "$(grep -o 'asuswrt-service-path-must-be-fixed' "${fixture_dir}/results.json" | wc -l)" -eq 3 ]
 
       - name: Generate Semgrep SARIF
         shell: sh
-        run: semgrep scan --config .semgrep.yml --metrics=off --sarif --output semgrep.sarif .
+        run: osemgrep scan --experimental --config .semgrep.yml --metrics=off --sarif . > semgrep.sarif
 
       - name: Upload Semgrep results
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -97,4 +140,4 @@ jobs:
 
       - name: Enforce repository security policies
         shell: sh
-        run: semgrep scan --config .semgrep.yml --metrics=off --error .
+        run: osemgrep scan --experimental --config .semgrep.yml --metrics=off --error .
