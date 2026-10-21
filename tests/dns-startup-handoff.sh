@@ -144,6 +144,7 @@ adguard_dnsmasq_running() { return 1; }
 # Only firmware paths and external service/publication dependencies are isolated.
 (
 	sed -n '/^dns_handoff_is_active() {$/,/^}$/p; /^dnsmasq_delete_matching() {$/,/^}$/p' "${MANAGER_PATH}" >"${TEST_ROOT}/postconf-helpers"
+	sed -n '/^dnsmasq_takeover_filter() ($/,/^)/p' "${MANAGER_PATH}" >>"${TEST_ROOT}/postconf-helpers"
 	. "${TEST_ROOT}/postconf-helpers"
 	sed 's|CONFIG="/etc/dnsmasq.conf"|CONFIG="${DNSMASQ_CONF_FILE}"|' "${MANAGER_DNSMASQ_FUNCTIONS}" >"${TEST_ROOT}/postconf-runtime"
 	. "${TEST_ROOT}/postconf-runtime"
