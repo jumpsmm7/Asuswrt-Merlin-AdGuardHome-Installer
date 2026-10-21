@@ -2,6 +2,30 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-037: Remove the unused vulnerable MCP dependency from CI scanning
+
+**Priority:** P1 | **Tags:** v2.7.0, security, ci
+**Scope:** Resolve the OSV MCP finding on both PR #1037 and stacked PR #1040 while preserving Semgrep policy coverage and full vulnerability enforcement.
+
+### Plan
+
+- Verify current Semgrep constraints and the MCP advisory against primary sources; never force an incompatible Python dependency or add a vulnerability suppression.
+- Validate the shipped native Semgrep CLI against the current Python frontend for all existing fixtures, every local policy scope, finding exits and SARIF. Keep its experimental native selector explicit and pin the same engine artifact with SHA-256.
+- Install only the native executable, retain an OSV-readable Semgrep artifact inventory, update reporter output syntax, and verify actual workflow commands before publishing the same change to both branches.
+
+### Acceptance criteria
+
+- [x] Existing policy findings, scope, error exits and SARIF remain enforced without installing the Python MCP SDK. The actual workflow commands pass in an offline clean Ubuntu container with only the TLS/hash-verified native artifact transfer modeled; corrupt hashes and invalid rules refuse. All three original fixtures and 58 injected findings across 17 scoped paths match the original frontend. The pinned OSV reporter passes clean input, fails vulnerable input and emits valid SARIF without the deprecated output warning.
+- [x] Both published implementation heads pass their full/new-vulnerability OSV and Semgrep jobs without waivers. Current-head CodeRabbit reviews complete with no actionable comments, 5/5 pre-merge checks and zero unresolved threads; Sonar passes. Remaining unrelated host/native runs at the recorded cutoff are delivery follow-up, not a prerequisite for this scoped dependency correction.
+
+### Verification
+
+At the October 21, 2026 20:18 UTC cutoff, PR #1037 implementation `a8b324cb40e8b783500dd6bbe0ba86086e78bd47` and stacked PR #1040 implementation `d88e73025b1f5bf5e5f7239de58e199fd94c5f95` each pass both full and new-vulnerability OSV jobs and both Semgrep jobs. Actual scanner logs confirm one inventoried Semgrep package and exit 0; native policy runs retain all five rules across 17 scoped files, fixture detections, finding enforcement and valid SARIF. The reporter deprecation is removed; the separate scanner-action output warning remains upstream. Current-head CodeRabbit reports no actionable comments and 5/5 pre-merge checks; all 15 readiness and five DNS threads are resolved. Sonar passes with zero new issues. Native/host delivery jobs still running at this cutoff are not represented as completed.
+
+The task-record follow-up changes no tested input, workflow, artifact inventory, router runtime or MCP client configuration. Subsequent published-head outcomes remain in the PRs. Physical v2.7.0 qualification and later release phases remain separate.
+
+---
+
 ## TASK-029: Establish the v2.7.0 implementation baseline
 
 **Priority:** P1 | **Tags:** v2.7.0, planning, baseline
