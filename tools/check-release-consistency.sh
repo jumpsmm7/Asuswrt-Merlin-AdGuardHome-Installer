@@ -227,15 +227,44 @@ verify_architecture_metadata() {
 
 cd "${RELEASE_ROOT}" || exit 1
 
-AI_VERSION="$(awk -F= '/^AI_VERSION="v[0-9]{1,2}(\.[0-9]{1,2}){2}"$/ { gsub(/"/, "", $2); print $2; exit }' installer)"
-BANNER_VERSION="$(awk '{ for (field = 1; field <= NF; field++) if ($field ~ /^v[0-9]{1,2}(\.[0-9]{1,2}){2}$/) { print $field; exit } }' installer)"
+INSTALLER_VERSION_PATTERN='v[0-9][0-9]?[.][0-9][0-9]?[.][0-9][0-9]?(-rc[.][1-9][0-9]?)?'
+AI_VERSION="$(awk -F= -v pattern="${INSTALLER_VERSION_PATTERN}" '
+	/^AI_VERSION=/ {
+		count++
+		if ($0 !~ ("^AI_VERSION=\"" pattern "\"$")) invalid = 1
+		gsub(/"/, "", $2); version = $2
+	}
+	END { if (count != 1 || invalid) exit 1; print version }' installer)" || AI_VERSION=""
+BANNER_VERSION="$(awk -v pattern="${INSTALLER_VERSION_PATTERN}" '
+	/^AI_VERSION=/ { exit }
+	{ for (field = 1; field <= NF; field++) if ($field ~ ("^" pattern "$")) { version = $field; count++ } }
+	END { if (count != 1) exit 1; print version }' installer)" || BANNER_VERSION=""
 [ -n "${AI_VERSION}" ] || fail 'installer AI_VERSION is missing or invalid'
 [ -n "${BANNER_VERSION}" ] || fail 'installer banner version is missing or invalid'
 [ "${AI_VERSION}" = "${BANNER_VERSION}" ] || fail "banner ${BANNER_VERSION:-<missing>} and AI_VERSION ${AI_VERSION:-<missing>} differ"
 
-STALE_RELEASE_VERSION="${AI_VERSION%.*}.1"
+# Published v2.6.7 installers accept only numeric versions from master. Keep
+# candidates on opt-in refs until their version is stable before promotion.
+case "${AI_VERSION}" in
+	*-rc.*)
+		RELEASE_BRANCH="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+		MASTER_BOUND_REF=0
+		case "${GITHUB_REF:-}" in
+			refs/heads/master | refs/heads/gh-readonly-queue/master/*) MASTER_BOUND_REF=1 ;;
+			*) : ;;
+		esac
+		if [ "${GITHUB_BASE_REF:-}" = master ] || [ "${MASTER_BOUND_REF}" -eq 1 ] ||
+			[ "${RELEASE_BRANCH}" = refs/heads/master ]; then
+			fail 'release-candidate AI_VERSION cannot be published on master; set a stable version before promotion'
+		fi
+		;;
+	*) : ;;
+esac
+
+RELEASE_VERSION_BASE="${AI_VERSION%-rc.*}"
+STALE_RELEASE_VERSION="${RELEASE_VERSION_BASE%.*}.1"
 STALE_RELEASE_PATTERN="$(printf '%s\n' "${STALE_RELEASE_VERSION}" | sed 's/\./\\./g')"
-if [ "${STALE_RELEASE_VERSION}" != "${AI_VERSION}" ] && grep -q "${STALE_RELEASE_PATTERN}\\([^0-9]\\|$\\)" installer; then
+if [ "${STALE_RELEASE_VERSION}" != "${RELEASE_VERSION_BASE}" ] && grep -q "${STALE_RELEASE_PATTERN}\\([^0-9]\\|$\\)" installer; then
 	fail "release identifier ${STALE_RELEASE_VERSION} remains in installer"
 fi
 

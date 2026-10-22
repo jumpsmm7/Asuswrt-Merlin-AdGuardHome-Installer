@@ -1196,6 +1196,7 @@ FINALIZE_REMOVE_PARTIAL_FAIL='1'
 dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${FINALIZE_STAGE}" "${FINALIZE_SNAPSHOT}" || fail 'published transaction failed when only snapshot cleanup failed'
 [ -f "${FINALIZE_SNAPSHOT}/cleanup.pending" ] || fail 'failed snapshot cleanup did not retain its cleanup-only marker'
 [ ! -e "${FINALIZE_SNAPSHOT}/restore.pending" ] || fail 'committed snapshot remained eligible for rollback after cleanup failure'
+[ ! -e "${FINALIZE_STAGE}.previous" ] || fail 'committed cleanup failure retained an unnecessary dnsmasq backup'
 if IPSet_Lock dnsmasq_ipset_state_recover_pending; then
 	fail 'cleanup retry unexpectedly succeeded while snapshot removal was failing'
 fi
@@ -1206,6 +1207,113 @@ IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'next transaction did not
 [ ! -e "${FINALIZE_SNAPSHOT}" ] || fail 'retried committed snapshot cleanup retained its directory'
 grep -qx 'committed ipset' "${IPSET_FILE}" || fail 'cleanup retry rolled back committed IPSET state'
 grep -qx 'committed yaml' "${YAML_FILE}" || fail 'cleanup retry rolled back committed YAML state'
+
+# Failed refresh/publication must keep the coupled dnsmasq backup while IPSet
+# restoration is pending, including partial restoration and marker failures.
+for failure_stage in refresh publication; do
+	for restore_fault in ipset yaml compensation marker; do
+		reset_case
+		RETRY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.${failure_stage}-${restore_fault}-retry"
+		RETRY_STAGE="${DNSMASQ_CONF_FILE}.adguard.${failure_stage}-${restore_fault}-retry"
+		printf '%s\n' '# rejected config' >"${RETRY_STAGE}" || fail 'could not stage restoration-retry fixture'
+		printf '%s\n' 'previous ipset' >"${IPSET_FILE}" || fail 'could not create restoration-retry IPSet fixture'
+		printf '%s\n' 'previous yaml' >"${YAML_FILE}" || fail 'could not create restoration-retry YAML fixture'
+		case "${failure_stage}" in
+			refresh) IPSET_REFRESH_FAIL='1' ;;
+			publication)
+				IPSET_REFRESH_CHANGE='1'
+				MV_PUBLISH_FAIL='1'
+				;;
+		esac
+		case "${restore_fault}" in
+			ipset) RESTORE_FAIL='1' ;;
+			yaml) RESTORE_YAML_FAIL='1' ;;
+			compensation)
+				RESTORE_YAML_FAIL='1'
+				RESTORE_COMPENSATE_FAIL='1'
+				;;
+			marker)
+				MARK_CLEANUP_FAIL='1'
+				MARK_CLEANUP_FAIL_SNAPSHOT="${RETRY_SNAPSHOT}"
+				;;
+		esac
+		if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${RETRY_STAGE}" "${RETRY_SNAPSHOT}"; then
+			fail "${failure_stage}/${restore_fault}: failed restoration reported success"
+		fi
+		grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail "${failure_stage}/${restore_fault}: failed transaction published dnsmasq"
+		[ ! -e "${RETRY_STAGE}" ] || fail "${failure_stage}/${restore_fault}: failed transaction retained its stage"
+		[ -f "${RETRY_SNAPSHOT}/restore.pending" ] || fail "${failure_stage}/${restore_fault}: failed restoration lost its marker"
+		[ "$(sed -n '1p' "${RETRY_SNAPSHOT}/config.pending")" = "${RETRY_STAGE}.previous" ] ||
+			fail "${failure_stage}/${restore_fault}: failed restoration lost its backup association"
+		grep -q "state=${failure_stage} action=restore_ipset result=failed snapshot=${RETRY_SNAPSHOT}" "${LOG_FILE}" ||
+			fail "${failure_stage}/${restore_fault}: failed restoration did not identify its recovery snapshot"
+		if [ "${failure_stage}/${restore_fault}" = 'refresh/ipset' ]; then
+			# A blocked later transaction must leave the older recovery owner intact.
+			LATER_STAGE="${DNSMASQ_CONF_FILE}.adguard.blocked-retry"
+			printf '%s\n' '# later config' >"${LATER_STAGE}" || fail 'could not stage blocked recovery fixture'
+			BACKUP_RESTORE_FAIL='1'
+			if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${LATER_STAGE}" "${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.blocked-retry"; then
+				fail 'later transaction bypassed failed pending recovery'
+			fi
+			[ ! -e "${LATER_STAGE}" ] || fail 'blocked later transaction retained its stage'
+			[ -f "${RETRY_SNAPSHOT}/config.pending" ] || fail 'blocked later transaction consumed the older recovery association'
+		fi
+		IPSET_REFRESH_FAIL='0'
+		MV_PUBLISH_FAIL='0'
+		RESTORE_FAIL='0'
+		RESTORE_YAML_FAIL='0'
+		RESTORE_COMPENSATE_FAIL='0'
+		MARK_CLEANUP_FAIL='0'
+		BACKUP_RESTORE_FAIL='0'
+		if ! IPSet_Lock dnsmasq_ipset_state_recover_pending; then
+			[ -f "${RETRY_STAGE}.previous" ] || printf '%s\n' "Missing pending recovery backup: ${RETRY_STAGE}.previous" >&2
+			fail "${failure_stage}/${restore_fault}: actual pending recovery failed after removing the fault"
+		fi
+		grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail "${failure_stage}/${restore_fault}: retry did not restore dnsmasq"
+		grep -qx 'previous ipset' "${IPSET_FILE}" || fail "${failure_stage}/${restore_fault}: retry did not restore IPSet"
+		grep -qx 'previous yaml' "${YAML_FILE}" || fail "${failure_stage}/${restore_fault}: retry did not restore YAML"
+		[ ! -e "${RETRY_STAGE}.previous" ] || fail "${failure_stage}/${restore_fault}: completed recovery retained its backup"
+		[ ! -e "${RETRY_SNAPSHOT}" ] || fail "${failure_stage}/${restore_fault}: completed recovery retained its snapshot"
+		IPSet_Lock dnsmasq_ipset_state_recover_pending || fail "${failure_stage}/${restore_fault}: repeated recovery failed"
+	done
+done
+
+# Successful restoration followed only by snapshot cleanup failure needs no
+# dnsmasq backup; a later cleanup retry must preserve the restored live files.
+for failure_stage in refresh publication; do
+	for cleanup_fault in complete partial; do
+		reset_case
+		RETRY_SNAPSHOT="${TEST_ROOT}/.AdGuardHome.dnsmasq-ipset.${failure_stage}-${cleanup_fault}-cleanup"
+		RETRY_STAGE="${DNSMASQ_CONF_FILE}.adguard.${failure_stage}-${cleanup_fault}-cleanup"
+		printf '%s\n' '# rejected config' >"${RETRY_STAGE}" || fail 'could not stage restoration-cleanup fixture'
+		printf '%s\n' 'previous ipset' >"${IPSET_FILE}" || fail 'could not create restoration-cleanup IPSet fixture'
+		case "${failure_stage}" in
+			refresh) IPSET_REFRESH_FAIL='1' ;;
+			publication)
+				IPSET_REFRESH_CHANGE='1'
+				MV_PUBLISH_FAIL='1'
+				;;
+		esac
+		FINALIZE_FAIL_SNAPSHOT="${RETRY_SNAPSHOT}"
+		case "${cleanup_fault}" in
+			complete) FINALIZE_REMOVE_FAIL='1' ;;
+			partial) FINALIZE_REMOVE_PARTIAL_FAIL='1' ;;
+		esac
+		if dnsmasq_publish_staged_config "${DNSMASQ_CONF_FILE}" "${RETRY_STAGE}" "${RETRY_SNAPSHOT}"; then
+			fail "${failure_stage}/${cleanup_fault}: failed transaction reported success"
+		fi
+		[ -f "${RETRY_SNAPSHOT}/cleanup.pending" ] || fail "${failure_stage}/${cleanup_fault}: failed cleanup lost its marker"
+		[ ! -e "${RETRY_SNAPSHOT}/restore.pending" ] || fail "${failure_stage}/${cleanup_fault}: restored snapshot remained rollback-pending"
+		[ ! -e "${RETRY_STAGE}.previous" ] || fail "${failure_stage}/${cleanup_fault}: cleanup-only failure retained a backup"
+		FINALIZE_REMOVE_FAIL='0'
+		FINALIZE_REMOVE_PARTIAL_FAIL='0'
+		IPSet_Lock dnsmasq_ipset_state_recover_pending || fail "${failure_stage}/${cleanup_fault}: cleanup-only recovery failed"
+		grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail "${failure_stage}/${cleanup_fault}: cleanup retry changed dnsmasq"
+		grep -qx 'previous ipset' "${IPSET_FILE}" || fail "${failure_stage}/${cleanup_fault}: cleanup retry changed IPSet"
+		grep -qx 'original yaml' "${YAML_FILE}" || fail "${failure_stage}/${cleanup_fault}: cleanup retry changed YAML"
+		[ ! -e "${RETRY_SNAPSHOT}" ] || fail "${failure_stage}/${cleanup_fault}: cleanup retry retained its snapshot"
+	done
+done
 
 # A failed restore-to-cleanup marker transition makes publication unsafe and
 # rolls the dnsmasq, IPSet, and YAML state back while propagating failure.
@@ -1664,7 +1772,13 @@ fi
 grep -q "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}" "${LOG_FILE}" ||
 	fail 'failed signal restoration did not report its retained snapshot'
 [ ! -e "${CONFIG_STAGE}" ] || fail 'failed signal restoration retained staged dnsmasq state'
-rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear failed signal restoration snapshot'
+RESTORE_FAIL='0'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'actual recovery after failed signal restoration was not retryable'
+grep -qx '# base config' "${DNSMASQ_CONF_FILE}" || fail 'failed signal restoration retry did not restore dnsmasq'
+grep -qx 'original ipset' "${IPSET_FILE}" || fail 'failed signal restoration retry did not restore IPSet'
+grep -qx 'original yaml' "${YAML_FILE}" || fail 'failed signal restoration retry did not restore YAML'
+[ ! -e "${CONFIG_STAGE}.previous" ] || fail 'failed signal restoration retry retained its backup'
+[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'failed signal restoration retry retained its snapshot'
 
 # A signal delivered during rollback must not re-enter IPSET restoration.
 reset_case
@@ -1695,7 +1809,9 @@ if wait "${transaction_pid}"; then
 fi
 [ "$(wc -l <"${RESTORE_CALLS}")" -eq 1 ] || fail 'signal cleanup re-entered active IPSET restoration'
 [ ! -e "${CONFIG_STAGE}" ] || fail 'signal during IPSET restoration retained the staged configuration'
-rm -rf "${IPSET_SNAPSHOT_DIR}" || fail 'could not clear signal restoration snapshot'
+IPSet_Lock dnsmasq_ipset_state_recover_pending || fail 'signal during IPSET restoration lost retryable recovery state'
+[ ! -e "${CONFIG_STAGE}.previous" ] || fail 'signal during IPSET restoration retained its recovered backup'
+[ ! -e "${IPSET_SNAPSHOT_DIR}" ] || fail 'signal during IPSET restoration retained its recovered snapshot'
 
 # A signal after mv publishes the stage must not restore IPSET over published state.
 reset_case

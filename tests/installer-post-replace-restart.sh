@@ -51,19 +51,28 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	URL_ARCH='https://example.invalid'
 	INFO='Info:'
 	ERROR='Error:'
-	DOWNLOAD_COUNT=0
+	PUBLISH_COUNT=0
 	RUNNING=1
 
 	adguard_install_abort_trap_disable_preserve_defer() { :; }
+	# Signal dispatch is exercised separately by installer-update-prefetch.sh.
+	adguard_install_abort_trap_enable() { :; }
 	adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 	adguard_remote_md5() { :; }
 	adguard_remote_sha256() { :; }
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	ensure_sha256sum_tool() { :; }
-	download_file() {
-		DOWNLOAD_COUNT="$((DOWNLOAD_COUNT + 1))"
-		[ "${DOWNLOAD_COUNT}" -ne 3 ]
+	# Prefetch is covered separately; force the second publication to fail after replacement.
+	download_file() { return 0; }
+	# Model completed prefetch so this fixture reaches post-replacement publication.
+	adguard_service_bundle_stage() { return 0; }
+	# Fail the second service publication after the old binary has been stopped.
+	adguard_service_publish_file() {
+		PUBLISH_COUNT="$((PUBLISH_COUNT + 1))"
+		[ "${PUBLISH_COUNT}" -ne 2 ]
 	}
+	# Keep modeled staging cleanup independent of the restart assertion.
+	adguard_service_bundle_cleanup() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }
 	agh_process_count() { printf '%s\n' "${RUNNING}"; }
@@ -98,7 +107,7 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ptxt_fail() { PTXT "$1"; }
 
 	if inst_AdGuardHome update release; then
-		fail 'installer reported success after a service-file download failed'
+		fail 'installer reported success after a service-file publication failed'
 	fi
 ) || fail 'post-replacement restart regression subprocess failed'
 

@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.6.7                               #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.7.0-rc.1                          #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -24,11 +24,17 @@ export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 umask 077
 
-AI_VERSION="v2.6.7"
+AI_VERSION="v2.7.0-rc.1"
 export AI_VERSION
+SUPPORT_EXPORT_SOURCE_REF="unknown"
+SUPPORT_EXPORT_RECOVERY_STATUS="not-reported"
 readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
 ADGUARD_METADATA_DIR_OWNED=0
+ADGUARD_SERVICE_STAGE_DIR=""
+ADGUARD_SERVICE_STAGE_OWNED=0
+ADGUARD_SERVICE_PUBLISH_DIR=""
+ADGUARD_SERVICE_PUBLISH_OWNED=0
 readonly ADGUARDHOME_WAIT_TIMEOUT="60"
 readonly ADGUARDHOME_FIRMWARE_WAIT_TIMEOUT="15"
 readonly ADGUARDHOME_READY_TIMEOUT="180"
@@ -489,6 +495,7 @@ nvram_transaction_recover_startup() {
 	nvram_transaction_recover_pending
 }
 
+# Recognize diagnostics permitted after a recoverable NVRAM cleanup failure.
 nvram_transaction_read_only_diagnostic_requested() {
 	local argument
 	for argument; do
@@ -496,7 +503,7 @@ nvram_transaction_read_only_diagnostic_requested() {
 		[ "${argument}" = "--no-auto-update" ] || set -- "$@" "${argument}"
 	done
 	case "${1:-}" in
-		status) return 0 ;;
+		status | support-export) return 0 ;;
 		doctor) [ -z "${2:-}" ] && return 0 ;;
 	esac
 	case "${2:-}" in
@@ -2075,6 +2082,8 @@ on_installer_exit() {
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation during exit cleanup."
 	fi
 	adguard_committed_binary_cleanup_retry || true
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
+	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
 	cleanup_api_files
 	installer_cleanup_tmp_file setup "${SETUP_YAML_TMP_FILE:-}"
 	installer_cleanup_tmp_file blocklist "${BLOCKLIST_YAML_TMP_FILE:-}"
@@ -5501,6 +5510,25 @@ check_jffs_enabled() {
 	fi
 }
 
+# installer_version_value reads one exact stable/RC identity without executing source.
+# Keep this grammar aligned with tools/check-release-consistency.sh.
+installer_version_value() {
+	awk '
+		/^AI_VERSION=/ {
+			count++
+			if ($0 !~ /^AI_VERSION="v[0-9][0-9]?[.][0-9][0-9]?[.][0-9][0-9]?(-rc[.][1-9][0-9]?)?"$/) invalid = 1
+			value = $0
+			sub(/^AI_VERSION="v/, "", value)
+			sub(/"$/, "", value)
+		}
+		END {
+			if (count != 1 || invalid) exit 1
+			print value
+		}
+	' "$1"
+}
+
+# Compare installed and verified remote identities and report available updates.
 check_version() {
 	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 REMOTE_INSTALLER_URL REMOTE_INSTALLER_MD5_URL REMOTE_CACHE_TOKEN ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
 	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
@@ -5513,7 +5541,7 @@ check_version() {
 			REMOTE_INSTALLER_MD5="${REMOTE_INSTALLER}.md5sum"
 			varcnt="0"
 			until [ -n "${LINSTALL}" ] && [ -n "${RMNSTALL}" ] && [ -n "${MD5SUM_L}" ] && [ -n "${MD5SUM_R}" ]; do
-				if [ -z "${LINSTALL}" ]; then LINSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${TARG_DIR}/installer")"; fi
+				if [ -z "${LINSTALL}" ]; then LINSTALL="$(installer_version_value "${TARG_DIR}/installer")"; fi
 				if [ -z "${MD5SUM_L}" ]; then MD5SUM_L="$(file_md5 "${TARG_DIR}/installer" 2>/dev/null)"; fi
 				if [ -z "${RMNSTALL}" ] || [ -z "${MD5SUM_R}" ]; then
 					rm -f "${REMOTE_INSTALLER}" "${REMOTE_INSTALLER_MD5}"
@@ -5521,7 +5549,7 @@ check_version() {
 					REMOTE_INSTALLER_URL="$(http_url_with_cache_token "${RURL}/installer" "${REMOTE_CACHE_TOKEN}")"
 					REMOTE_INSTALLER_MD5_URL="$(http_url_with_cache_token "${RURL}/installer.md5sum" "${REMOTE_CACHE_TOKEN}")"
 					if http_get_file "${REMOTE_INSTALLER_URL}" "${REMOTE_INSTALLER}" && [ -s "${REMOTE_INSTALLER}" ]; then
-						RMNSTALL="$(awk -F= '/^AI_VERSION=/ { gsub(/"/, "", $2); sub(/^v/, "", $2); if ($2 ~ /^[0-9]{1,2}(\.[0-9]{1,2}){2}$/) print $2; exit }' "${REMOTE_INSTALLER}")"
+						RMNSTALL="$(installer_version_value "${REMOTE_INSTALLER}")"
 						MD5SUM_R="$(file_md5 "${REMOTE_INSTALLER}" 2>/dev/null)"
 						MD5SUM_EXPECTED=""
 						if http_get_file "${REMOTE_INSTALLER_MD5_URL}" "${REMOTE_INSTALLER_MD5}" && [ -s "${REMOTE_INSTALLER_MD5}" ]; then
@@ -5981,6 +6009,8 @@ adguard_install_signal_traps_disable() {
 
 # adguard_install_abort_trap_disable removes installation signal handlers and clears all tracked install and restore recovery state.
 adguard_install_abort_trap_disable() {
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
+	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
 	adguard_install_signal_traps_disable
 	ADGUARD_INSTALL_REPLACE_ACTIVE="0"
 	ADGUARD_INSTALL_OLD_BINARY=""
@@ -6033,6 +6063,8 @@ adguard_install_abort_on_signal() {
 	RESTORE_TARGET_INSTALLED="${ADGUARD_RESTORE_TARGET_INSTALLED:-0}"
 	TIMEZONE_TMP="${ADGUARD_TIMEZONE_TMP:-}"
 	adguard_install_signal_traps_disable
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
+	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
 	if [ "${ADGUARD_INSTALL_COMMIT_PENDING:-0}" = "1" ] &&
 		[ -z "${EVENT_SCRIPTS_ACTIVE_SNAPSHOT:-}" ] &&
 		[ "${REPLACE_ACTIVE}" = "1" ] && [ -n "${OLD_BINARY}" ]; then
@@ -6694,6 +6726,7 @@ install_adguard_archive() {
 	return 0
 }
 
+# Back up the current installation or restore a verified archive with directory rollback.
 backup_restore() {
 	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] && [ "${1:-}" = "RESTORE" ]; then
@@ -6774,6 +6807,12 @@ backup_restore() {
 			return 1
 		fi
 		ptxt_ok "Validated staged AdGuardHome backup."
+		# Resolve and verify every online dependency before replacing the live directory.
+		if ! adguard_restore_prepare_online_dependencies; then
+			adguard_install_abort_trap_disable
+			rm -rf "${RESTORE_STAGE_DIR}"
+			return 1
+		fi
 		ptxt_step "Preserving current AdGuardHome installation for rollback."
 		if [ -e "${TARG_DIR}" ] && ! mv "${TARG_DIR}" "${RESTORE_ROLLBACK_DIR}"; then
 			adguard_install_abort_trap_disable
@@ -7499,6 +7538,124 @@ add_firewall_event_scripts() {
 	return 0
 }
 
+# Remove only known current-process service staging files from a directory we created.
+adguard_service_bundle_cleanup() {
+	local name
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" = "1" ] || return 0
+	[ "${ADGUARD_SERVICE_STAGE_DIR:-}" = "${BASE_DIR}/.AdGuardHome.services.$$" ] &&
+		[ -d "${ADGUARD_SERVICE_STAGE_DIR}" ] && [ ! -L "${ADGUARD_SERVICE_STAGE_DIR}" ] || return 1
+	for name in installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
+		rm -f "${ADGUARD_SERVICE_STAGE_DIR}/${name}" "${ADGUARD_SERVICE_STAGE_DIR}/.${name}.$$" \
+			"${ADGUARD_SERVICE_STAGE_DIR}/.${name}.$$.md5sum" "${ADGUARD_SERVICE_STAGE_DIR}/.${name}.$$.sha256sum" || break
+	done
+	if ! rmdir "${ADGUARD_SERVICE_STAGE_DIR}"; then
+		PTXT "${ERROR} Service staging cleanup is incomplete; retained at ${ADGUARD_SERVICE_STAGE_DIR}."
+		return 1
+	fi
+	ADGUARD_SERVICE_STAGE_DIR=""
+	ADGUARD_SERVICE_STAGE_OWNED=0
+	return 0
+}
+
+# Download through the existing checksum policy while AdGuard Home DNS is available.
+# Restore additionally stages the installer, which its final setup normally downloads.
+adguard_service_bundle_stage() {
+	local include_installer
+	include_installer="${1:-0}"
+	if [ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" = "1" ]; then
+		[ "${ADGUARD_SERVICE_STAGE_DIR}" = "${BASE_DIR}/.AdGuardHome.services.$$" ] &&
+			[ ! -L "${ADGUARD_SERVICE_STAGE_DIR}" ] &&
+			[ "${ADGUARD_SERVICE_STAGE_SOURCE:-}" = "${RURL}" ] &&
+			[ -f "${ADGUARD_SERVICE_STAGE_DIR}/AdGuardHome.sh" ] &&
+			[ -f "${ADGUARD_SERVICE_STAGE_DIR}/S99AdGuardHome" ] &&
+			[ -f "${ADGUARD_SERVICE_STAGE_DIR}/rc.func.AdGuardHome" ] &&
+			{ [ "${include_installer}" != "1" ] || [ -f "${ADGUARD_SERVICE_STAGE_DIR}/installer" ]; }
+		return $?
+	fi
+	ADGUARD_SERVICE_STAGE_DIR="${BASE_DIR}/.AdGuardHome.services.$$"
+	if ! (umask 077 && mkdir "${ADGUARD_SERVICE_STAGE_DIR}"); then
+		PTXT "${ERROR} Unable to create private service staging at ${ADGUARD_SERVICE_STAGE_DIR}."
+		return 1
+	fi
+	ADGUARD_SERVICE_STAGE_OWNED=1
+	ADGUARD_SERVICE_STAGE_SOURCE="${RURL}"
+	if ! download_file "${ADGUARD_SERVICE_STAGE_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
+		! download_file "${ADGUARD_SERVICE_STAGE_DIR}" 755 "${RURL}/S99AdGuardHome" ||
+		! download_file "${ADGUARD_SERVICE_STAGE_DIR}" 644 "${RURL}/rc.func.AdGuardHome" ||
+		{ [ "${include_installer}" = "1" ] && ! download_file "${ADGUARD_SERVICE_STAGE_DIR}" 755 "${RURL}/installer"; }; then
+		PTXT "${ERROR} Required AdGuardHome service files could not be prefetched; the installed service was left unchanged."
+		adguard_service_bundle_cleanup || true
+		return 1
+	fi
+	if [ "${include_installer}" = "1" ] &&
+		! installer_version_value "${ADGUARD_SERVICE_STAGE_DIR}/installer" >/dev/null; then
+		PTXT "${ERROR} The prefetched installer failed version validation."
+		adguard_service_bundle_cleanup || true
+		return 1
+	fi
+	return 0
+}
+
+# Restore prepares checksum support and optional timezone selection before the
+# live directory moves. Later restore setup must use these local dependencies.
+adguard_restore_prepare_online_dependencies() {
+	if ! ensure_sha256sum_tool; then
+		ptxt_warn "SHA-256 support is unavailable; downloads will require matching MD5 metadata."
+	fi
+	if [ ! -f "${ADDON_DIR}/localtime" ]; then
+		PTXT "${INFO} Before restoring AdGuardHome, please choose your right timezone!"
+		if ! create_dir "${ADDON_DIR}" || ! chmod 755 "${ADDON_DIR}" || ! set_timezone; then
+			PTXT "${ERROR} Unable to prepare the timezone before restoring AdGuardHome."
+			return 1
+		fi
+	fi
+	adguard_service_bundle_stage 1
+}
+
+# Remove the known publication file and retain ownership if cleanup is incomplete.
+adguard_service_publish_cleanup() {
+	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" = "1" ] || return 0
+	case "${ADGUARD_SERVICE_PUBLISH_DIR:-}" in
+		"${ADDON_DIR}/.AdGuardHome.service.$$" | "/opt/etc/init.d/.AdGuardHome.service.$$" | "${TARG_DIR}/.AdGuardHome.service.$$") ;;
+		*) return 1 ;;
+	esac
+	[ -d "${ADGUARD_SERVICE_PUBLISH_DIR}" ] && [ ! -L "${ADGUARD_SERVICE_PUBLISH_DIR}" ] || return 1
+	if ! rm -f "${ADGUARD_SERVICE_PUBLISH_DIR}/file" || ! rmdir "${ADGUARD_SERVICE_PUBLISH_DIR}"; then
+		PTXT "${ERROR} Service publication staging cleanup is incomplete; retained at ${ADGUARD_SERVICE_PUBLISH_DIR}."
+		return 1
+	fi
+	ADGUARD_SERVICE_PUBLISH_DIR=""
+	ADGUARD_SERVICE_PUBLISH_OWNED=0
+	return 0
+}
+
+# Copy into an owned directory on the destination filesystem before atomic publication.
+# A failed copy, chmod or rename leaves the existing target available.
+adguard_service_publish_file() {
+	local target_dir name perm
+	target_dir="$1"
+	name="$2"
+	perm="$3"
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" = "1" ] &&
+		[ "${ADGUARD_SERVICE_STAGE_DIR:-}" = "${BASE_DIR}/.AdGuardHome.services.$$" ] &&
+		[ -f "${ADGUARD_SERVICE_STAGE_DIR}/${name}" ] &&
+		[ ! -L "${ADGUARD_SERVICE_STAGE_DIR}/${name}" ] &&
+		[ ! -d "${target_dir}/${name}" ] || return 1
+	adguard_service_publish_cleanup || return 1
+	ADGUARD_SERVICE_PUBLISH_DIR="${target_dir}/.AdGuardHome.service.$$"
+	if ! (umask 077 && mkdir "${ADGUARD_SERVICE_PUBLISH_DIR}"); then
+		return 1
+	fi
+	ADGUARD_SERVICE_PUBLISH_OWNED=1
+	if ! cp "${ADGUARD_SERVICE_STAGE_DIR}/${name}" "${ADGUARD_SERVICE_PUBLISH_DIR}/file" ||
+		! chmod "${perm}" "${ADGUARD_SERVICE_PUBLISH_DIR}/file" ||
+		! mv -f "${ADGUARD_SERVICE_PUBLISH_DIR}/file" "${target_dir}/${name}"; then
+		adguard_service_publish_cleanup || true
+		return 1
+	fi
+	adguard_service_publish_cleanup
+}
+
 remove_firewall_event_scripts() {
 	local SNAPSHOT_DIR
 	SNAPSHOT_DIR="${BASE_DIR}/.AdGuardHome.firewall-hooks-remove.$$"
@@ -7578,7 +7735,7 @@ inst_AdGuardHome() {
 	fi
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
-	if ! ensure_sha256sum_tool; then
+	if [ "${1:-RESTORE}" != "RESTORE" ] && ! ensure_sha256sum_tool; then
 		ptxt_warn "SHA-256 support is unavailable; downloads will require matching MD5 metadata."
 	fi
 	INSTALLER_MD5_OLD=""
@@ -7602,6 +7759,7 @@ inst_AdGuardHome() {
 				if [ "${USE_OLD}" = "YES" ]; then
 					PTXT "${INFO} Installing from an old backup!"
 					backup_restore RESTORE
+					return "$?"
 				elif [ "${USE_OLD}" = "NO" ]; then
 					PTXT "${INFO} Continuing without restoring from backup!"
 				fi
@@ -7621,25 +7779,35 @@ inst_AdGuardHome() {
 				fi
 			fi
 		fi
-		if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
-			PTXT "${ERROR} Unable to detect the Internet!"
-			end_op_message 1 "$1"
-			return 1
+		if [ "${1:-RESTORE}" = "RESTORE" ]; then
+			# backup_restore prepared this before changing the target directory.
+			if ! adguard_service_bundle_stage 1 ||
+				! adguard_service_publish_file "${TARG_DIR}" installer 755; then
+				PTXT "${ERROR} Unable to install the prefetched restore installer."
+				end_op_message 1 "$1"
+				return 1
+			fi
+		else
+			if [ -z "${REMOTE_VER}" ] || [ -z "${REMOTE_BETA}" ] || [ -z "${REMOTE_EDGE}" ] || { ! check_connection; }; then
+				PTXT "${ERROR} Unable to detect the Internet!"
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "Internet and remote version metadata are available."
+			ptxt_step "Preparing AdGuardHome target directory."
+			if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "AdGuardHome target directory is ready."
+			ptxt_step "Downloading installer update."
+			if ! download_file "${TARG_DIR}" 755 "${RURL}/installer" || ! installer_version_value "${TARG_DIR}/installer" >/dev/null; then
+				PTXT "${ERROR} Failed to download installer."
+				end_op_message 1 "$1"
+				return 1
+			fi
+			ptxt_ok "Installer update downloaded and validated."
 		fi
-		ptxt_ok "Internet and remote version metadata are available."
-		ptxt_step "Preparing AdGuardHome target directory."
-		if ! create_dir "${TARG_DIR}" || ! ensure_adguardhome_directory_permissions; then
-			end_op_message 1 "$1"
-			return 1
-		fi
-		ptxt_ok "AdGuardHome target directory is ready."
-		ptxt_step "Downloading installer update."
-		if ! download_file "${TARG_DIR}" 755 "${RURL}/installer" || ! awk '{ print }' "${TARG_DIR}/installer" | grep -m1 "^AI_VERSION=" | grep -qoE '[0-9]{1,2}([.][0-9]{1,2})([.][0-9]{1,2})'; then
-			PTXT "${ERROR} Failed to download installer."
-			end_op_message 1 "$1"
-			return 1
-		fi
-		ptxt_ok "Installer update downloaded and validated."
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${1:-RESTORE}" != "RESTORE" ]; then
 			if [ "${1:-install}" != "update" ]; then
@@ -7778,6 +7946,14 @@ inst_AdGuardHome() {
 				ptxt_warn "The AdGuard Home archive was verified through the intentional legacy-compatible MD5 verification path because SHA-256 metadata is unavailable."
 			fi
 			if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+			# Fresh CLI installs have no menu signal handler. Arm owned-prefetch
+			# cleanup before the first service download, while service state is intact.
+			adguard_install_abort_trap_enable "${RESTART_AFTER_ABORT}"
+			if ! adguard_service_bundle_stage; then
+				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
+				end_op_message 1 "$1"
+				return 1
+			fi
 			ptxt_step "Replacing AdGuardHome package with downloaded archive."
 			if ! install_adguard_archive "${BASE_DIR}/${REMOTE_ADGUARD_ARCHIVE}"; then
 				rm -f "${BASE_DIR:?}/${REMOTE_ADGUARD_ARCHIVE}"
@@ -7797,6 +7973,14 @@ inst_AdGuardHome() {
 			fi
 			ptxt_ok "AdGuardHome command symlink is ready."
 		fi
+	fi
+	if [ "${1:-install}" != "RESTORE" ] && [ "${ADGUARD_INSTALL_REPLACE_ACTIVE:-0}" != "1" ]; then
+		if [ "$(agh_process_count)" -gt 0 ]; then RESTART_AFTER_ABORT="1"; fi
+		adguard_install_abort_trap_enable "${RESTART_AFTER_ABORT}"
+	fi
+	if ! adguard_service_bundle_stage; then
+		end_op_message 1 "$1"
+		return 1
 	fi
 	ptxt_phase "Installing service integration."
 	ptxt_step "Installing AdGuardHome service scripts and addon hooks."
@@ -7819,14 +8003,15 @@ inst_AdGuardHome() {
 			return 1
 		}
 	fi
-	if ! download_file "${ADDON_DIR}" 755 "${RURL}/AdGuardHome.sh" ||
-		! download_file "/opt/etc/init.d" 755 "${RURL}/S99AdGuardHome" ||
-		! download_file "/opt/etc/init.d" 644 "${RURL}/rc.func.AdGuardHome"; then
+	if ! adguard_service_publish_file "${ADDON_DIR}" AdGuardHome.sh 755 ||
+		! adguard_service_publish_file "/opt/etc/init.d" S99AdGuardHome 755 ||
+		! adguard_service_publish_file "/opt/etc/init.d" rc.func.AdGuardHome 644; then
 		PTXT "${ERROR} Required AdGuardHome service files could not be installed."
 		adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 		end_op_message 1 "$1"
 		return 1
 	fi
+	adguard_service_bundle_cleanup || true
 	ptxt_ok "AdGuardHome service files installed."
 	if ! adguard_install_mode_confirmed; then
 		PTXT "${WARN:-WARNING:} Router mode remains unknown/unreadable (${ADGUARD_INSTALL_MODE_RAW:-unreadable}); retained ADGUARD_INSTALL_MODE=${ADGUARD_INSTALL_MODE} and deferred all mode-dependent migration."
@@ -7976,8 +8161,12 @@ inst_AdGuardHome() {
 	if [ "${1:-update}" != "update" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
-			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
-			if ! set_timezone; then
+			if [ "${1:-install}" = "RESTORE" ]; then
+				PTXT "${ERROR} The prepared restore timezone is unavailable."
+			else
+				PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
+			fi
+			if [ "${1:-install}" = "RESTORE" ] || ! set_timezone; then
 				all_event_scripts_transaction_rollback || true
 				MIGRATE_STATUS=1
 				if ! adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}"; then
@@ -9852,7 +10041,10 @@ end_op_header() {
 	exec "${0}.tmp" "${BRANCH}" && rm -rf "${0}.tmp"
 }
 
+# Clean owned staging, preserve operation status, and return or relaunch the menu.
 end_op_message() {
+	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
+	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
 	case "${1:-0}" in
 		1)
 			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
@@ -10346,6 +10538,458 @@ startup_action_allows_unknown_install_mode() {
 	esac
 }
 
+# Support export: bounded, read-only collection with a fixed typed schema.
+
+# support_export_clock reads the kernel monotonic clock without an external probe.
+support_export_clock() {
+	local rest uptime
+	IFS=' ' read -r uptime rest </proc/uptime || return 1
+	SX_NOW="${uptime%%.*}"
+	case "${SX_NOW}" in '' | *[!0-9]*) return 1 ;; esac
+}
+
+# support_export_pid reads a direct child's kernel identity and state.
+support_export_pid() {
+	local record
+	IFS= read -r record 2>/dev/null <"/proc/$1/stat" || return 1
+	record="${record##*) }"
+	set -f
+	set -- ${record}
+	[ "$#" -ge 20 ] || return 1
+	SX_PID_STATE="$1"
+	SX_PID_PARENT="$2"
+	SX_PID_START="${20}"
+	case "${SX_PID_PARENT}" in '' | *[!0-9]*) return 1 ;; esac
+	case "${SX_PID_START}" in '' | *[!0-9]*) return 1 ;; esac
+}
+
+# Fixed stock probes do not spawn persistent workers. On interruption, one
+# bounded procfs scan also records their immediate children, where visible.
+# This is cleanup for observed workers, not a supervisor for daemonized programs.
+support_export_children() {
+	local entry pid scanned
+	SX_CHILDREN=''
+	scanned=0
+	set +f
+	for entry in /proc/[0-9]*/stat; do
+		scanned="$((scanned + 1))"
+		[ "${scanned}" -le 512 ] || break
+		pid="${entry#/proc/}"
+		pid="${pid%/stat}"
+		if support_export_pid "${pid}" && [ "${SX_PID_PARENT}" = "${SX_CHILD_PID}" ]; then
+			SX_CHILDREN="${SX_CHILDREN} ${pid}:${SX_PID_START}"
+		fi
+	done
+	set -f
+}
+
+# Signal only still-identical probe processes, and never wait on a live task.
+support_export_stop() {
+	local attempt child pid start signal
+	[ -n "${SX_CHILD_PID:-}" ] || return 0
+	support_export_children
+	for attempt in 1 2; do
+		if [ "${attempt}" -eq 1 ]; then signal=TERM; else signal=KILL; fi
+		for child in ${SX_CHILDREN}; do
+			pid="${child%:*}"
+			start="${child#*:}"
+			if support_export_pid "${pid}" && [ "${SX_PID_START}" = "${start}" ]; then
+				kill -"${signal}" "${pid}" 2>/dev/null || true
+			fi
+		done
+		if support_export_pid "${SX_CHILD_PID}" && [ "${SX_PID_START}" = "${SX_CHILD_START}" ] && [ "${SX_PID_STATE}" != Z ]; then
+			kill -"${signal}" "${SX_CHILD_PID}" 2>/dev/null || true
+		fi
+		usleep 100000 2>/dev/null || sleep 1
+	done
+	if ! support_export_pid "${SX_CHILD_PID}" || [ "${SX_PID_STATE}" = Z ]; then
+		wait "${SX_CHILD_PID}" 2>/dev/null || true
+		SX_CHILD_PID=''
+		return 0
+	fi
+	# A kernel task stuck in uninterruptible I/O must not block diagnostics.
+	return 1
+}
+
+# support_export_probe caps output and waits at most two seconds for one fixed
+# external command. Failed, oversized and expired probes are never parsed.
+support_export_probe() {
+	local deadline size status
+	SX_PROBE_STATUS=125
+	[ -z "${SX_CHILD_PID:-}" ] || return 1
+	support_export_clock || return 1
+	[ "${SX_NOW}" -lt "${SX_DEADLINE}" ] || {
+		SX_FAILURES="$((SX_FAILURES + 1))"
+		return 1
+	}
+	deadline="$((SX_NOW + 2))"
+	(
+		# BusyBox ash expresses file-size limits in 512-byte blocks.
+		ulimit -f 16 || exit 1
+		exec "$@"
+	) >"${SX_STAGE}/work/probe" 2>/dev/null </dev/null &
+	SX_CHILD_PID="$!"
+	SX_CHILD_START=''
+	if support_export_pid "${SX_CHILD_PID}"; then SX_CHILD_START="${SX_PID_START}"; fi
+	while support_export_pid "${SX_CHILD_PID}" && [ "${SX_PID_STATE}" != Z ]; do
+		if [ -z "${SX_CHILD_START}" ]; then SX_CHILD_START="${SX_PID_START}"; fi
+		if ! support_export_clock || [ "${SX_NOW}" -ge "${deadline}" ] || [ "${SX_NOW}" -ge "${SX_DEADLINE}" ]; then
+			SX_PROBE_STATUS=124
+			SX_TIMEOUTS="$((SX_TIMEOUTS + 1))"
+			SX_FAILURES="$((SX_FAILURES + 1))"
+			support_export_stop || true
+			return 1
+		fi
+		usleep 100000 2>/dev/null || sleep 1
+	done
+	wait "${SX_CHILD_PID}" 2>/dev/null
+	status="$?"
+	SX_CHILD_PID=''
+	SX_PROBE_STATUS="${status}"
+	size="$(wc -c <"${SX_STAGE}/work/probe")" || size=8192
+	case "${size}" in '' | *[!0-9]*) size=8192 ;; esac
+	[ "${size}" -lt 8192 ] || {
+		SX_PROBE_STATUS=125
+		SX_FAILURES="$((SX_FAILURES + 1))"
+		return 1
+	}
+	[ "${status}" -eq 0 ] || {
+		SX_FAILURES="$((SX_FAILURES + 1))"
+		return 1
+	}
+}
+
+# support_export_emit accepts only the named value type and one short line.
+support_export_emit() {
+	local key type value
+	key="$1"
+	type="$2"
+	value="$3"
+	if [ "${#value}" -gt 96 ]; then value=unknown; fi
+	case "${value}" in '' | *[[:cntrl:]]*) value=unknown ;; esac
+	case "${type}:${value}" in
+		integer:*)
+			case "${value}" in *[!0-9]* | '') value=unknown ;; esac
+			[ "${#value}" -le 12 ] || value=unknown
+			;;
+		version:*)
+			value="$(printf '%s\n' "${value}" | awk 'length($0) <= 64 && /^v?[0-9]+[.][0-9]+[.][0-9]+(-([abr][.][0-9]+|rc[.][1-9][0-9]?))?([+][0-9a-f]+)?$/ { print; found=1 } END { if (!found) print "unknown" }')" || value=unknown
+			;;
+		model:*)
+			value="$(printf '%s\n' "${value}" | awk 'length($0) <= 32 && /^(RT|GT|TUF|RP)-[A-Z]+[0-9][0-9A-Z+-]*$|^(ET|XT|XD)[0-9][0-9A-Z+-]*$/ { print; found=1 } END { if (!found) print "unknown" }')" || value=unknown
+			;;
+		firmware:*)
+			case "${value}" in *[!0-9._-]* | '' | [!0-9]* | *[!0-9]) value=unknown ;; esac
+			[ "${#value}" -le 32 ] || value=unknown
+			;;
+		reference:*)
+			case "${value}" in
+				master | dev | dev[0-9] | unknown) ;;
+				*)
+					if [ "${#value}" -eq 40 ]; then
+						case "${value}" in *[!0-9a-fA-F]*) value=custom ;; esac
+					else
+						value="$(printf '%s\n' "${value}" | awk 'length($0) <= 32 && /^v[0-9]+[.][0-9]+[.][0-9]+(-rc[.][1-9][0-9]?)?$/ { print; found=1 } END { if (!found) print "custom" }')" || value=custom
+					fi
+					;;
+			esac
+			;;
+		architecture:armv5l | architecture:armv5tel | architecture:armv6l | architecture:armv7l | architecture:armv8l | architecture:aarch64 | architecture:mips | architecture:mipsel) ;;
+		architecture:*) value=unknown ;;
+		category:*)
+			case "${value}" in
+				unknown | none | absent | present | available | missing | unsafe | valid | invalid | yes | no | release | stable | beta | edge | complete | incomplete | pending | failed | checked | not-attempted | not-reported | completed | adguardhome | dnsmasq | foreign | mixed | unowned | binary-replace | directory-restore | restore | setup | nvram | event-hooks | package | yaml | blocklist | operation | service | install) ;;
+				*) value=unknown ;;
+			esac
+			;;
+		*) value=unknown ;;
+	esac
+	printf '%s=%s\n' "${key}" "${value}" || SX_WRITE_FAILED=1
+}
+
+# support_export_snapshot reads at most 8192 bytes of a fixed regular input.
+support_export_snapshot() {
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	support_export_probe dd "if=$1" bs=1024 count=8
+}
+
+# support_export_config returns only two selected preference keys; it never
+# sources private configuration or copies any other key into the report.
+support_export_config() {
+	local key value
+	SX_SOURCE="${SUPPORT_EXPORT_SOURCE_REF:-unknown}"
+	SX_CHANNEL=unknown
+	if support_export_snapshot /opt/etc/AdGuardHome/.config; then
+		while IFS='=' read -r key value; do
+			case "${key}" in
+				INSTALLER_BRANCH | ADGUARD_BRANCH)
+					case "${value}" in \"*\")
+						value="${value#\"}"
+						value="${value%\"}"
+						;;
+					esac
+					if [ "${key}" = INSTALLER_BRANCH ]; then
+						[ "${SX_SOURCE}" != unknown ] || SX_SOURCE="${value}"
+					else
+						case "${value}" in release | stable | beta | edge) SX_CHANNEL="${value}" ;; esac
+					fi
+					;;
+			esac
+		done <"${SX_STAGE}/work/probe"
+	fi
+	support_export_emit installer.source reference "${SX_SOURCE}"
+	support_export_emit adguardhome.channel category "${SX_CHANNEL}"
+}
+
+# support_export_hook reports file categories, never a hook's actual content.
+support_export_hook() {
+	local first hook state
+	hook="$1"
+	state=missing
+	[ ! -e "/jffs/scripts/${hook}" ] || state=present
+	[ ! -L "/jffs/scripts/${hook}" ] || state=unsafe
+	support_export_emit "hook.${hook}.state" category "${state}"
+	state=unknown
+	if support_export_snapshot "/jffs/scripts/${hook}"; then
+		IFS= read -r first <"${SX_STAGE}/work/probe" || first=''
+		if [ "${first}" = '#!/bin/sh' ]; then state=valid; else state=invalid; fi
+	fi
+	support_export_emit "hook.${hook}.header" category "${state}"
+	state=no
+	[ ! -x "/jffs/scripts/${hook}" ] || state=yes
+	support_export_emit "hook.${hook}.executable" category "${state}"
+}
+
+# support_export_marker classifies fixed recovery artifacts without reading paths.
+support_export_marker() {
+	local state
+	state=absent
+	[ ! -e "$2" ] || state=present
+	[ ! -L "$2" ] || state=unsafe
+	support_export_emit "$1" category "${state}"
+}
+
+# support_export_collect renders only fixed keys from bounded snapshots.
+support_export_collect() {
+	local count field first hook key owner port result stage transport value version
+	SX_WRITE_FAILED=0
+	printf '%s\n' 'support.schema=1' 'support.privacy=allowlist' 'support.upload=none' || SX_WRITE_FAILED=1
+	support_export_emit installer.version version "${AI_VERSION:-unknown}"
+	support_export_config
+	version=unknown
+	if [ -f /opt/etc/AdGuardHome/AdGuardHome ] && [ ! -L /opt/etc/AdGuardHome/AdGuardHome ] &&
+		[ -x /opt/etc/AdGuardHome/AdGuardHome ] && support_export_probe /opt/etc/AdGuardHome/AdGuardHome --version; then
+		IFS= read -r first <"${SX_STAGE}/work/probe" || first=''
+		case "${first}" in 'AdGuard Home, version '*) version="${first#AdGuard Home, version }" ;; esac
+	fi
+	support_export_emit adguardhome.version version "${version}"
+	for key in productid firmver buildno extendno; do
+		value=unknown
+		if support_export_probe nvram get "${key}"; then
+			# A second line makes the entire value invalid rather than silently
+			# accepting a valid prefix followed by injected report content.
+			value="$(cat "${SX_STAGE}/work/probe")"
+		fi
+		case "${key}" in
+			productid) support_export_emit router.model model "${value}" ;;
+			*) support_export_emit "router.${key}" firmware "${value}" ;;
+		esac
+	done
+	value=unknown
+	if support_export_probe uname -m; then value="$(cat "${SX_STAGE}/work/probe")"; fi
+	support_export_emit router.architecture architecture "${value}"
+	value=missing
+	[ ! -x /opt/bin/opkg ] || value=available
+	support_export_emit entware.state category "${value}"
+	support_export_marker installation.state /opt/etc/AdGuardHome
+	value=unknown
+	if support_export_probe df -Pk /opt; then
+		value="$(awk 'NR == 2 && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ { print $4; exit }' "${SX_STAGE}/work/probe")"
+	fi
+	support_export_emit storage.opt.available_kib integer "${value}"
+	value=unknown
+	if support_export_probe df -Pk /jffs; then
+		value="$(awk 'NR == 2 && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ { print $4; exit }' "${SX_STAGE}/work/probe")"
+	fi
+	support_export_emit storage.jffs.available_kib integer "${value}"
+	if support_export_snapshot /proc/meminfo; then
+		for field in MemTotal MemAvailable MemFree SwapTotal SwapFree; do
+			value="$(awk -v key="${field}:" '$1 == key && $2 ~ /^[0-9]+$/ { print $2; exit }' "${SX_STAGE}/work/probe")"
+			support_export_emit "memory.${field}.kib" integer "${value}"
+		done
+	else
+		for field in MemTotal MemAvailable MemFree SwapTotal SwapFree; do support_export_emit "memory.${field}.kib" integer unknown; done
+	fi
+	count=unknown
+	if support_export_probe pidof AdGuardHome; then
+		count="$(awk '{ for (i=1; i<=NF; i++) { if ($i !~ /^[0-9]+$/) { invalid=1; exit } n++ } } END { if (!invalid && n <= 128) print n+0 }' "${SX_STAGE}/work/probe")"
+	elif [ "${SX_PROBE_STATUS}" -eq 1 ] && [ ! -s "${SX_STAGE}/work/probe" ]; then count=0; fi
+	support_export_emit process.daemon.count integer "${count}"
+	count=unknown
+	if support_export_probe ps -ww; then
+		count="$(awk '/AdGuardHome[.]sh|S99AdGuardHome|rc[.]func[.]AdGuardHome/ { for (i=1; i<=NF; i++) if ($i == "monitor-start") { n++; break } } END { print n+0 }' "${SX_STAGE}/work/probe")"
+	fi
+	support_export_emit process.monitor.count integer "${count}"
+	result=unknown
+	if support_export_probe netstat -nltup; then result=complete; fi
+	for port in 53 553; do
+		for transport in tcp udp; do
+			owner=unknown
+			if [ "${result}" = complete ]; then
+				owner="$(awk -v protocol="${transport}" -v port=":${port}" '
+					$1 ~ ("^" protocol "6?$") && $4 ~ (port "$") {
+						value="unowned"
+						for (i=5; i<=NF; i++) if ($i ~ /^[0-9]+\//) {
+							if ($i ~ /\/AdGuardHome$/) value="adguardhome"
+							else if ($i ~ /\/dnsmasq$/) value="dnsmasq"
+							else value="foreign"
+						}
+						if (owner != "" && owner != value) owner="mixed"; else if (owner == "") owner=value
+					}
+					END { print owner == "" ? "none" : owner }
+				' "${SX_STAGE}/work/probe")"
+			fi
+			support_export_emit "listener.${transport}.${port}.owner" category "${owner}"
+		done
+	done
+	for hook in dnsmasq.postconf dnsmasq-sdn.postconf init-start services-stop service-event-end firewall-start; do support_export_hook "${hook}"; done
+	support_export_marker recovery.nvram /opt/etc/.AdGuardHome.nvram
+	support_export_marker recovery.event_hooks /opt/etc/.AdGuardHome.event-hooks-recovery
+	support_export_marker recovery.binary_cleanup /opt/etc/.AdGuardHome.binary-cleanup
+	support_export_marker recovery.dns_handoff /tmp/AdGuardHome.dns-handoff/active
+	support_export_emit recovery.prior_startup category "${SUPPORT_EXPORT_RECOVERY_STATUS:-not-reported}"
+	result=none
+	stage=none
+	if [ -L /opt/etc/.AdGuardHome.rollback_result ]; then
+		result=unsafe
+	elif support_export_snapshot /opt/etc/.AdGuardHome.rollback_result; then
+		result=unknown
+		stage=unknown
+		while IFS='=' read -r key value; do
+			case "${key}" in
+				result)
+					case "${value}" in
+						'rollback restored' | 'restore complete' | 'rollback complete' | restored | removed-failed-install) result=complete ;;
+						'no rollback attempted' | 'interrupted: no rollback attempted' | 'failed: no change') result=not-attempted ;;
+						'rollback failed' | 'rollback partial' | 'rollback unavailable' | 'incomplete prior rollback detected' | restore-failed | cleanup-failed | restart-failed | replace-failed | yaml-invalid-moved | yaml-quarantine-failed | staged-yaml-invalid-moved | staged-yaml-quarantine-failed) result=incomplete ;;
+					esac
+					;;
+				context)
+					case "${value}" in
+						'package install') stage=package ;;
+						'backup restore') stage=restore ;;
+						'NVRAM transaction' | 'DNS NVRAM transaction' | 'DNSFilter NVRAM transaction') stage=nvram ;;
+						'yaml validation') stage=yaml ;;
+						'blocklist yaml replacement' | blocklist-yaml) stage=blocklist ;;
+						'AdGuardHome service restart' | service-restart) stage=service ;;
+						'installer abort' | install-abort) stage=install ;;
+						'AdGuardHome binary rollback' | binary-replace) stage=binary-replace ;;
+						'AdGuardHome directory rollback' | directory-restore) stage=directory-restore ;;
+						setup-yaml | setup) stage=setup ;;
+						operation | restore | nvram | event-hooks) stage="${value}" ;;
+					esac
+					;;
+			esac
+		done <"${SX_STAGE}/work/probe"
+	fi
+	support_export_emit recovery.rollback.result category "${result}"
+	support_export_emit recovery.rollback.stage category "${stage}"
+	support_export_emit collection.failed_probes integer "${SX_FAILURES}"
+	support_export_emit collection.timed_out_probes integer "${SX_TIMEOUTS}"
+	[ "${SX_WRITE_FAILED}" -eq 0 ]
+}
+
+# support_export_cleanup removes only this invocation's still-identical private
+# staging directory. The published destination is never removed on any path.
+support_export_cleanup() {
+	local identity inode mode links owner rest
+	support_export_stop || true
+	[ "${SX_OWNED:-0}" -eq 1 ] && [ -d "${SX_STAGE}" ] && [ ! -L "${SX_STAGE}" ] || return 0
+	identity="$(ls -ldni "${SX_STAGE}" 2>/dev/null)" || {
+		printf '%s\n' 'support-export: staging ownership could not be verified; private staging retained.' >&2
+		return 0
+	}
+	read -r inode mode links owner rest <<EOF
+${identity}
+EOF
+	[ "${inode}" = "${SX_INODE}" ] && [ "${owner}" = "${SX_UID}" ] && [ "${mode}" = drwx------ ] || {
+		printf '%s\n' 'support-export: staging ownership could not be verified; private staging retained.' >&2
+		return 0
+	}
+	rm -rf "${SX_STAGE}" 2>/dev/null ||
+		printf '%s\n' 'support-export: private staging cleanup failed.' >&2
+}
+
+# support_export accepts exactly --output /absolute/new-file. Collection runs
+# in a subshell so traps, limits, cwd and umask never modify installer state.
+support_export() {
+	(
+		local destination parent physical name mode links owner rest key value size
+		[ "$#" -eq 2 ] && [ "$1" = --output ] || {
+			printf '%s\n' 'support-export: usage: support-export --output /absolute/new-report.txt' >&2
+			exit 2
+		}
+		destination="$2"
+		[ "${#destination}" -le 512 ] || exit 2
+		case "${destination}" in /*) ;; *) exit 2 ;; esac
+		case "${destination}" in *[[:cntrl:]]* | */ | *//* | */../* | */./* | */.. | */.) exit 2 ;; esac
+		parent="${destination%/*}"
+		[ -n "${parent}" ] || parent=/
+		name="${destination##*/}"
+		CDPATH='' cd -P "${parent}" 2>/dev/null || exit 1
+		physical="$(pwd -P)" || exit 1
+		[ "${physical}" = "${parent}" ] || exit 1
+		[ ! -e "./${name}" ] && [ ! -L "./${name}" ] || exit 1
+		umask 077
+		SX_STAGE="./.AdGuardHome.support-export.$$"
+		SX_OWNED=0
+		SX_CHILD_PID=''
+		SX_CHILD_START=''
+		SX_FAILURES=0
+		SX_TIMEOUTS=0
+		SX_INODE=''
+		SX_UID=''
+		while read -r key value owner rest; do
+			if [ "${key}" = Uid: ]; then
+				SX_UID="${owner}"
+				break
+			fi
+		done </proc/self/status
+		case "${SX_UID}" in '' | *[!0-9]*) exit 1 ;; esac
+		trap 'support_export_cleanup' 0
+		trap 'exit 1' HUP INT TERM
+		mkdir -m 700 "${SX_STAGE}" 2>/dev/null || exit 1
+		SX_OWNED=1
+		mkdir -m 700 "${SX_STAGE}/work" "${SX_STAGE}/publish" 2>/dev/null || exit 1
+		support_export_clock || exit 1
+		SX_DEADLINE="$((SX_NOW + 30))"
+		support_export_probe ls -ldni "${SX_STAGE}" || exit 1
+		read -r SX_INODE mode links owner rest <"${SX_STAGE}/work/probe" || exit 1
+		[ "${owner}" = "${SX_UID}" ] && [ "${mode}" = drwx------ ] || exit 1
+		support_export_probe ls -ldn . || exit 1
+		read -r mode links owner rest <"${SX_STAGE}/work/probe" || exit 1
+		[ "${owner}" = "${SX_UID}" ] || exit 1
+		case "${mode}" in d????w???? | d???????w?)
+			# A root-owned sticky directory such as /tmp permits exclusive
+			# publication; other shared writable parents are unsafe.
+			[ "${owner}" = 0 ] || exit 1
+			case "${mode}" in *t | *T) ;; *) exit 1 ;; esac
+			;;
+		esac
+		# Allow a 16 KiB report with BusyBox ash's 512-byte blocks.
+		ulimit -f 32 || exit 1
+		support_export_collect >"${SX_STAGE}/publish/${name}" || exit 1
+		size="$(wc -c <"${SX_STAGE}/publish/${name}")" || exit 1
+		case "${size}" in '' | *[!0-9]*) exit 1 ;; esac
+		[ "${size}" -le 16384 ] || exit 1
+		# Linking into the held parent directory creates exactly name and
+		# refuses every existing object, including a raced symlink/directory.
+		ln "${SX_STAGE}/publish/${name}" . 2>/dev/null || exit 1
+		printf '%s\n' 'support-export: sanitized report created; sharing remains under operator control.'
+	)
+}
+
+# List supported CLI actions, required arguments, and update-policy restrictions.
 cli_usage() {
 	PTXT "${INFO} Usage:" \
 		"${INFO}   sh installer --no-auto-update [installer-ref] [menu-action]" \
@@ -10358,6 +11002,7 @@ cli_usage() {
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
 		"${INFO}   sh installer preflight [install|reconfigure|update|restore|uninstall|status]" \
 		"${INFO}   sh installer doctor [--fix]" \
+		"${INFO}   sh installer support-export --output /absolute/new-report.txt" \
 		"${INFO}   sh installer ipset refresh [--yes] [--dry-run]" \
 		"${INFO}   sh installer ipset status" \
 		"${INFO}   sh installer ipset doctor" \
@@ -11154,11 +11799,14 @@ fi
 if ! nvram_transaction_recover_startup; then
 	if [ "${NVRAM_TRANSACTION_RECOVERY_DIAGNOSTIC_SAFE:-0}" = "1" ] && nvram_transaction_read_only_diagnostic_requested "$@"; then
 		PTXT "${WARNING} Unable to remove a completed installer-managed NVRAM snapshot; continuing with read-only diagnostics."
+		SUPPORT_EXPORT_RECOVERY_STATUS="pending"
 	else
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock after recovery; review ${ROLLBACK_RESULT_FILE} and any preserved snapshot."
 		exit 1
 	fi
 fi
+
+[ "${SUPPORT_EXPORT_RECOVERY_STATUS}" != "not-reported" ] || SUPPORT_EXPORT_RECOVERY_STATUS="checked"
 
 if [ "${1:-}" = "--no-auto-update" ]; then
 	AI_NO_AUTO_UPDATE=1
@@ -11169,13 +11817,19 @@ installer_update_policy_from_args "$@"
 
 # Keep diagnostic suffix flags on the same early, read-only dispatch path.
 case "${1:-}:${2:-}" in
-	preflight:* | doctor:* | status:* | *:doctor | *:status)
+	preflight:* | doctor:* | status:* | support-export:* | *:doctor | *:status)
 		for DIAGNOSTIC_ARGUMENT; do
 			shift
 			[ "${DIAGNOSTIC_ARGUMENT}" = "--no-auto-update" ] || set -- "$@" "${DIAGNOSTIC_ARGUMENT}"
 		done
 		;;
 esac
+
+if [ "${1:-}" = "support-export" ]; then
+	shift
+	support_export "$@"
+	exit "$?"
+fi
 
 if [ "${1:-}" = "preflight" ]; then
 	preflight "${2:-install}"

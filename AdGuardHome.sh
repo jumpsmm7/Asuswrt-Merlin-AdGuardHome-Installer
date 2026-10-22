@@ -2108,6 +2108,7 @@ dnsmasq_publish_staged_config() (
 					dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
 						agh_log error dnsmasq_params "state=signal action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 				else
+					CONFIG_BACKUP_RETAIN="1"
 					agh_log error dnsmasq_params "state=signal action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 				fi
 				ROLLBACK_ACTIVE="0"
@@ -2162,6 +2163,7 @@ dnsmasq_publish_staged_config() (
 				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
 					agh_log error dnsmasq_params "state=refresh action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			else
+				CONFIG_BACKUP_RETAIN="1"
 				agh_log error dnsmasq_params "state=refresh action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			ROLLBACK_ACTIVE="0"
@@ -2180,6 +2182,7 @@ dnsmasq_publish_staged_config() (
 				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.pending ||
 					agh_log error dnsmasq_params "state=publication action=finalize_snapshot result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			else
+				CONFIG_BACKUP_RETAIN="1"
 				agh_log error dnsmasq_params "state=publication action=restore_ipset result=failed snapshot=${IPSET_SNAPSHOT_DIR}"
 			fi
 			ROLLBACK_ACTIVE="0"

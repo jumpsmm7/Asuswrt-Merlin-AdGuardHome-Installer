@@ -6,11 +6,13 @@ export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/opt/sbin:/opt/bin
 MODEL_ROOT=/tmp/virtual-arm-native
 REPO_ROOT=/repo
 FOREIGN_PID=''
+CHANNEL=setup
+PROCS=AdGuardHome
 
 # fail prints the failure plus native process/socket and firmware-model logs,
 # then exits so registered traps can stop the isolated fixture resources.
 fail() {
-	printf '%s\n' "FAIL: virtual ARM native: $*" >&2
+	printf '%s\n' "FAIL: virtual ARM native: package=${ARCH:-unknown} channel=${CHANNEL}: $*" >&2
 	netstat -nlp >&2 2>/dev/null || true
 	for log in "${MODEL_ROOT}"/*.log "${MODEL_ROOT}/firmware.calls"; do
 		[ ! -f "${log}" ] || {
@@ -24,7 +26,7 @@ fail() {
 # pass writes an assertion result to stdout; it does not claim firmware
 # equivalence for modeled operations.
 pass() {
-	printf '%s\n' "PASS: virtual ARM native: $*"
+	printf '%s\n' "PASS: virtual ARM native: package=${ARCH:-unknown} channel=${CHANNEL}: $*"
 }
 
 # cleanup terminates this fixture's foreign owner and modeled DNS processes,
@@ -56,6 +58,17 @@ assert_dnsmasq() {
 	query 192.168.88.1 "${port}" udp A guest.sdn.test 192.168.88.42
 	query 192.168.88.1 "${port}" tcp A guest.sdn.test 192.168.88.42
 	pass "main and modeled SDN native dnsmasq own TCP/UDP port ${port} and answer DNS"
+}
+
+# assert_adguardhome checks the actual channel executable and its real DNS
+# listener ownership after both startup and restart.
+assert_adguardhome() {
+	local pid
+	adguardhome_single_process_running || fail 'native startup did not produce one AdGuardHome process'
+	pid="$(pidof AdGuardHome)" || fail 'could not identify native AdGuardHome PID'
+	[ "$(readlink "/proc/${pid}/exe")" = /opt/etc/AdGuardHome/AdGuardHome ] || fail 'native daemon does not execute the installed channel payload'
+	adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || fail 'native AdGuardHome does not own configured TCP/UDP port53'
+	pass "installed channel binary owns TCP/UDP port53; pid=${pid} binary_sha256=${CHANNEL_BINARY_SHA256}"
 }
 
 # write_preferences overwrites the isolated product preference file with the
@@ -156,7 +169,7 @@ cat >/jffs/scripts/dnsmasq-sdn.postconf <<'EOF'
 EOF
 chmod 755 /jffs/scripts/dnsmasq.postconf /jffs/scripts/dnsmasq-sdn.postconf || fail 'could not make modeled firmware hooks executable'
 
-cat >/opt/etc/AdGuardHome/AdGuardHome.yaml <<'EOF'
+cat >"${MODEL_ROOT}/AdGuardHome.base.yaml" <<'EOF'
 http:
   address: 192.168.77.1:3000
 users: []
@@ -186,30 +199,6 @@ statistics:
   enabled: false
 schema_version: 27
 EOF
-write_preferences enabled NO || fail 'could not write lifecycle preferences'
-for channel in ${CHANNELS}; do
-	case "${channel}" in stable | beta | edge) ;; *) fail "unknown native channel: ${channel}" ;; esac
-	case "${ARCH}" in armv8) archive_target=arm64 ;; *) archive_target="${ARCH}" ;; esac
-	archive="${REPO_ROOT}/${ARCH}/AdGuardHome_${channel}_linux_${archive_target}.tar.gz"
-	[ -f "${archive}" ] && [ -f "${archive}.sha256sum" ] || fail "missing committed archive or digest: ${archive}"
-	expected="$(cat "${archive}.sha256sum")"
-	actual="$(sha256sum "${archive}" | awk '{print $1}')"
-	[ "${expected}" = "${actual}" ] || fail "committed ${channel} archive digest mismatch"
-	# Keep extraction beside the installed binary so the stable move is atomic
-	# and does not duplicate its pages across the guest's ephemeral mounts.
-	extract="/opt/var/virtual-arm-native-extract-${channel}"
-	mkdir "${extract}" && tar -xzf "${archive}" -C "${extract}" ./AdGuardHome/AdGuardHome || fail "could not extract native ${channel} payload"
-	version="$("${extract}/AdGuardHome/AdGuardHome" --version 2>&1)" || fail "${channel} binary did not execute in the native ${ARCH} package guest"
-	case "${version}" in *'AdGuard Home'*'version'*) ;; *) fail "unexpected ${channel} version response: ${version}" ;; esac
-	printf '%s\n' "PASS: native binary channel=${channel} ${version}"
-	"${extract}/AdGuardHome/AdGuardHome" --check-config -c /opt/etc/AdGuardHome/AdGuardHome.yaml \
-		--no-check-update -l /dev/null >"${MODEL_ROOT}/check-config-${channel}.log" 2>&1 || fail "native ${channel} configuration validation failed"
-	if [ "${channel}" = stable ]; then
-		mv "${extract}/AdGuardHome/AdGuardHome" /opt/etc/AdGuardHome/AdGuardHome || fail 'could not install native stable payload'
-	fi
-	rm -rf "${extract}" || fail "could not release ${channel} extraction memory"
-	pass "committed ${channel} native CPU execution and configuration validation"
-done
 ln -s /opt/etc/AdGuardHome/AdGuardHome /opt/sbin/AdGuardHome || fail 'could not install executable link'
 
 cat >"${MODEL_ROOT}/dnsmasq-main.base" <<EOF
@@ -240,88 +229,135 @@ awk '$0 == "case \"${1:-}\" in" { found=1; exit } { print } END { if (!found) ex
 	"${REPO_ROOT}/AdGuardHome.sh" >"${MODEL_ROOT}/manager.helpers" || fail 'could not read actual manager functions'
 awk '$0 == "PRECMD=\"pre_start_adguardhome\"" { found=1; exit } { print } END { if (!found) exit 1 }' \
 	"${REPO_ROOT}/S99AdGuardHome" >"${MODEL_ROOT}/s99.helpers" || fail 'could not read actual startup functions'
-# shellcheck disable=SC1090
-. "${MODEL_ROOT}/manager.helpers"
-# shellcheck disable=SC1090
-. "${MODEL_ROOT}/s99.helpers"
-LOG_FILE="${MODEL_ROOT}/AdGuardHome.log"
-PRECMD=pre_start_adguardhome
-POSTCMD=post_start_adguardhome
-POSTFAILCMD=post_start_failure_adguardhome
-DESC=AdGuardHome
-LOWER_SCRIPT_LOC='. /opt/etc/init.d/rc.func.AdGuardHome'
-ADGUARDHOME_STARTUP_CHECK_RETRIES=90
-ADGUARDHOME_DNS_READY_RETRIES=90
-ADGUARDHOME_DNSMASQ_READY_RETRIES=30
-ADGUARDHOME_DNSMASQ_READY_TIMEOUT=15
-export ADGUARDHOME_STARTUP_CHECK_RETRIES ADGUARDHOME_DNS_READY_RETRIES ADGUARDHOME_DNSMASQ_READY_RETRIES ADGUARDHOME_DNSMASQ_READY_TIMEOUT
-load_operation_config action || fail 'could not load actual product preferences'
-/sbin/service restart_dnsmasq || fail 'could not start initial main/SDN native DNS'
-assert_dnsmasq 53
+# Each subshell reloads the unchanged product helpers and clears their cached
+# operation state. Only one channel payload/data tree occupies writable guest
+# memory at a time; a newer channel's YAML migration cannot affect the next.
+completed_channels=0
+for CHANNEL in ${CHANNELS}; do
+	(
+		trap cleanup 0
+		trap 'fail "native channel interrupted by HUP/INT/TERM"' HUP INT TERM
+		# shellcheck disable=SC1090
+		. "${MODEL_ROOT}/manager.helpers"
+		# shellcheck disable=SC1090
+		. "${MODEL_ROOT}/s99.helpers"
+		LOG_FILE="${MODEL_ROOT}/AdGuardHome-${CHANNEL}.log"
+		PRECMD=pre_start_adguardhome
+		POSTCMD=post_start_adguardhome
+		POSTFAILCMD=post_start_failure_adguardhome
+		DESC=AdGuardHome
+		LOWER_SCRIPT_LOC='. /opt/etc/init.d/rc.func.AdGuardHome'
+		ADGUARDHOME_STARTUP_CHECK_RETRIES=90
+		ADGUARDHOME_DNS_READY_RETRIES=90
+		ADGUARDHOME_DNS_WAIT_RETRIES=90
+		ADGUARDHOME_DNSMASQ_READY_RETRIES=30
+		ADGUARDHOME_DNSMASQ_READY_TIMEOUT=15
+		export ADGUARDHOME_STARTUP_CHECK_RETRIES ADGUARDHOME_DNS_READY_RETRIES ADGUARDHOME_DNS_WAIT_RETRIES ADGUARDHOME_DNSMASQ_READY_RETRIES ADGUARDHOME_DNSMASQ_READY_TIMEOUT
+		post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || fail 'previous channel left daemon, handoff or resolver switch'
+		rm -rf /opt/etc/AdGuardHome && mkdir /opt/etc/AdGuardHome || fail 'could not reset isolated channel data'
+		cp "${MODEL_ROOT}/AdGuardHome.base.yaml" /opt/etc/AdGuardHome/AdGuardHome.yaml || fail 'could not reset isolated channel configuration'
+		write_preferences enabled NO || fail 'could not write lifecycle preferences'
+		case "${CHANNEL}" in stable | beta | edge) ;; *) fail "unknown native channel: ${CHANNEL}" ;; esac
+		case "${ARCH}" in armv8) archive_target=arm64 ;; *) archive_target="${ARCH}" ;; esac
+		archive_relative="${ARCH}/AdGuardHome_${CHANNEL}_linux_${archive_target}.tar.gz"
+		archive="${REPO_ROOT}/${archive_relative}"
+		[ -f "${archive}" ] && [ -f "${archive}.sha256sum" ] || fail "missing committed archive or digest: ${archive}"
+		CHANNEL_ARCHIVE_SHA256="$(cat "${archive}.sha256sum")"
+		actual="$(sha256sum "${archive}" | awk '{print $1}')"
+		[ "${CHANNEL_ARCHIVE_SHA256}" = "${actual}" ] || fail "committed ${CHANNEL} archive digest mismatch"
+		# Extraction and installation share a mount, so moving the payload is
+		# atomic and does not duplicate pages across ephemeral mounts.
+		extract="/opt/var/virtual-arm-native-extract-${CHANNEL}"
+		mkdir "${extract}" && tar -xzf "${archive}" -C "${extract}" ./AdGuardHome/AdGuardHome || fail "could not extract native ${CHANNEL} payload"
+		CHANNEL_BINARY_SHA256="$(sha256sum "${extract}/AdGuardHome/AdGuardHome" | awk '{print $1}')"
+		printf '%s\n' "NATIVE_CHANNEL BEGIN package=${ARCH} channel=${CHANNEL} archive=${archive_relative} archive_sha256=${CHANNEL_ARCHIVE_SHA256} binary_sha256=${CHANNEL_BINARY_SHA256}"
+		version="$("${extract}/AdGuardHome/AdGuardHome" --version 2>&1)" || fail "${CHANNEL} binary did not execute in the native ${ARCH} package guest"
+		case "${version}" in *'AdGuard Home'*'version'*) ;; *) fail "unexpected ${CHANNEL} version response: ${version}" ;; esac
+		printf '%s\n' "Native provenance package=${ARCH} channel=${CHANNEL} archive=${archive_relative} archive_sha256=${CHANNEL_ARCHIVE_SHA256} binary_sha256=${CHANNEL_BINARY_SHA256}" \
+			"Native version channel=${CHANNEL} ${version}" | tee "${MODEL_ROOT}/provenance-${CHANNEL}.log" || fail 'could not record native channel provenance'
+		"${extract}/AdGuardHome/AdGuardHome" --check-config -c /opt/etc/AdGuardHome/AdGuardHome.yaml \
+			--no-check-update -l /dev/null >"${MODEL_ROOT}/check-config-${CHANNEL}.log" 2>&1 || fail "native ${CHANNEL} configuration validation failed"
+		mv "${extract}/AdGuardHome/AdGuardHome" /opt/etc/AdGuardHome/AdGuardHome || fail "could not install native ${CHANNEL} payload"
+		rm -rf "${extract}" || fail "could not release ${CHANNEL} extraction memory"
+		pass "committed ${CHANNEL} native CPU execution and configuration validation"
+		printf '%s\n' "channel=${CHANNEL} begin" >>"${MODEL_ROOT}/firmware.calls" || fail 'could not record firmware model channel boundary'
+		load_operation_config action || fail 'could not load actual product preferences'
+		/sbin/service restart_dnsmasq || fail 'could not start initial main/SDN native DNS'
+		assert_dnsmasq 53
 
-adguardhome_run start_adguardhome || fail 'actual manager/startup/lower-helper native startup failed'
-adguardhome_single_process_running || fail 'native startup did not produce one AdGuardHome process'
-adguardhome_owns_dns "$(adguardhome_dns_bind_scope)" || fail 'native AdGuardHome does not own configured TCP/UDP port53'
-assert_dnsmasq 553
-for server in 127.0.0.1 192.168.77.1; do
-	for transport in udp tcp; do
-		query "${server}" 53 "${transport}" A client.test 192.168.77.42
-		query "${server}" 53 "${transport}" PTR 42.77.168.192.in-addr.arpa client.test
-		query "${server}" 53 "${transport}" AAAA client.test fd00:77::42
-	done
+		adguardhome_run start_adguardhome || fail 'actual manager/startup/lower-helper native startup failed'
+		assert_adguardhome
+		assert_dnsmasq 553
+		for server in 127.0.0.1 192.168.77.1; do
+			for transport in udp tcp; do
+				query "${server}" 53 "${transport}" A localhost 127.0.0.1
+				query "${server}" 53 "${transport}" A client.test 192.168.77.42
+				query "${server}" 53 "${transport}" PTR 42.77.168.192.in-addr.arpa client.test
+				query "${server}" 53 "${transport}" AAAA client.test fd00:77::42
+			done
+		done
+		query 127.0.0.1 53 udp A guest.sdn.test 192.168.88.42
+		query 127.0.0.1 53 tcp A guest.sdn.test 192.168.88.42
+		curl --fail --silent --max-time 10 http://192.168.77.1:3000/control/status >"${MODEL_ROOT}/http-status-${CHANNEL}.log" || fail 'native AdGuardHome HTTP API not available'
+		jq -e '.dns_port == 53 and .protection_enabled == true' "${MODEL_ROOT}/http-status-${CHANNEL}.log" >/dev/null || fail 'native API returned unexpected DNS state'
+		pass 'actual manager/S99/lower startup, real local/A/PTR/AAAA UDP/TCP forwarding, SDN forwarding and HTTP API'
+
+		write_preferences enabled YES || fail 'could not enable optional Local Cache'
+		adguard_local_cache_sync verify || fail 'actual optional Local Cache could not activate with native listeners ready'
+		resolv_conf_is_tmp_mount || fail 'native resolver bind mount was not established'
+		grep -q '^nameserver 127.0.0.1$' /etc/resolv.conf || fail 'native resolver mount did not switch to loopback'
+		pass 'actual optional Local Cache created a kernel bind mount after native DNS readiness'
+
+		before_pid="$(pidof AdGuardHome)"
+		adguardhome_run restart_adguardhome || fail 'actual manager native restart failed'
+		after_pid="$(pidof AdGuardHome)"
+		[ -n "${after_pid}" ] && [ "${before_pid}" != "${after_pid}" ] || fail 'native restart did not replace the real daemon PID'
+		assert_adguardhome
+		assert_dnsmasq 553
+		query 127.0.0.1 53 tcp A client.test 192.168.77.42
+		pass 'actual manager restart replaced the daemon and restored native DNS forwarding'
+		adguard_local_cache_sync verify || fail 'native Local Cache did not reactivate after restart'
+		resolv_conf_is_tmp_mount || fail 'native resolver mount was not active before stop'
+
+		adguardhome_run stop_adguardhome || fail 'actual manager native stop/recovery failed'
+		post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || fail 'actual shutdown postconditions incomplete'
+		! resolv_conf_is_tmp_mount || fail 'optional resolver mount survived native shutdown'
+		grep -q '^nameserver 192.168.77.1$' /etc/resolv.conf || fail 'native resolver file was not restored after shutdown'
+		assert_dnsmasq 53
+		pass 'actual stop removed daemon and handoff, restored resolver mount and main/SDN native TCP/UDP DNS'
+		adguardhome_run stop_adguardhome || fail 'repeated native stop was not idempotent'
+		assert_dnsmasq 53
+		pass 'native repeated stop retains healthy main/SDN DNS'
+
+		/sbin/service stop_dnsmasq || fail 'could not prepare native foreign-owner fixture'
+		write_preferences disabled NO || fail 'could not disable modeled firmware handoff for conflict fixture'
+		load_operation_config action || fail 'could not load conflict preferences'
+		/usr/bin/agh-dns-query 192.168.77.1 53 hold >"${MODEL_ROOT}/foreign-owner-${CHANNEL}.log" 2>&1 &
+		FOREIGN_PID="$!"
+		attempt=0
+		until grep -q '^READY:' "${MODEL_ROOT}/foreign-owner-${CHANNEL}.log"; do
+			kill -0 "${FOREIGN_PID}" 2>/dev/null || fail 'native foreign owner exited'
+			[ "${attempt}" -lt 10 ] || fail 'native foreign owner did not bind in time'
+			sleep 1
+			attempt="$((attempt + 1))"
+		done
+		if adguardhome_run start_adguardhome; then fail 'actual startup accepted a foreign TCP/UDP port53 owner'; fi
+		kill -0 "${FOREIGN_PID}" 2>/dev/null || fail 'actual startup killed the foreign native port53 owner'
+		post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || fail 'refused native startup left daemon, handoff or resolver switch'
+		pass 'actual startup rejected a foreign native TCP/UDP port53 owner and preserved its PID'
+		kill -TERM "${FOREIGN_PID}" && wait "${FOREIGN_PID}" 2>/dev/null || true
+		FOREIGN_PID=''
+		write_preferences enabled NO || fail 'could not restore native recovery preferences'
+		load_operation_config action || fail 'could not load final recovery preferences'
+		/sbin/service restart_dnsmasq || fail 'could not recover main/SDN native DNS after conflict test'
+		assert_dnsmasq 53
+		printf '%s\n' "channel=${CHANNEL} complete" >>"${MODEL_ROOT}/firmware.calls" || fail 'could not record firmware model channel completion'
+		printf '%s\n' "NATIVE_CHANNEL COMPLETE package=${ARCH} channel=${CHANNEL} archive_sha256=${CHANNEL_ARCHIVE_SHA256} binary_sha256=${CHANNEL_BINARY_SHA256}"
+	)
+	channel_status="$?"
+	[ "${channel_status}" -eq 0 ] || exit "${channel_status}"
+	completed_channels="$((completed_channels + 1))"
 done
-query 127.0.0.1 53 udp A guest.sdn.test 192.168.88.42
-query 127.0.0.1 53 tcp A guest.sdn.test 192.168.88.42
-curl --fail --silent --max-time 10 http://192.168.77.1:3000/control/status >"${MODEL_ROOT}/http-status.log" || fail 'native AdGuardHome HTTP API not available'
-jq -e '.dns_port == 53 and .protection_enabled == true' "${MODEL_ROOT}/http-status.log" >/dev/null || fail 'native API returned unexpected DNS state'
-pass 'actual manager/S99/lower startup, real A/PTR/AAAA UDP/TCP forwarding, SDN forwarding and HTTP API'
-
-write_preferences enabled YES || fail 'could not enable optional Local Cache'
-adguard_local_cache_sync verify || fail 'actual optional Local Cache could not activate with native listeners ready'
-resolv_conf_is_tmp_mount || fail 'native resolver bind mount was not established'
-grep -q '^nameserver 127.0.0.1$' /etc/resolv.conf || fail 'native resolver mount did not switch to loopback'
-pass 'actual optional Local Cache created a kernel bind mount after native DNS readiness'
-
-before_pid="$(pidof AdGuardHome)"
-adguardhome_run restart_adguardhome || fail 'actual manager native restart failed'
-after_pid="$(pidof AdGuardHome)"
-[ -n "${after_pid}" ] && [ "${before_pid}" != "${after_pid}" ] || fail 'native restart did not replace the real daemon PID'
-assert_dnsmasq 553
-query 127.0.0.1 53 tcp A client.test 192.168.77.42
-pass 'actual manager restart replaced the daemon and restored native DNS forwarding'
-adguard_local_cache_sync verify || fail 'native Local Cache did not reactivate after restart'
-resolv_conf_is_tmp_mount || fail 'native resolver mount was not active before stop'
-
-adguardhome_run stop_adguardhome || fail 'actual manager native stop/recovery failed'
-post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || fail 'actual shutdown postconditions incomplete'
-! resolv_conf_is_tmp_mount || fail 'optional resolver mount survived native shutdown'
-grep -q '^nameserver 192.168.77.1$' /etc/resolv.conf || fail 'native resolver file was not restored after shutdown'
-assert_dnsmasq 53
-pass 'actual stop removed daemon and handoff, restored resolver mount and main/SDN native TCP/UDP DNS'
-adguardhome_run stop_adguardhome || fail 'repeated native stop was not idempotent'
-assert_dnsmasq 53
-pass 'native repeated stop retains healthy main/SDN DNS'
-
-/sbin/service stop_dnsmasq || fail 'could not prepare native foreign-owner fixture'
-write_preferences disabled NO || fail 'could not disable modeled firmware handoff for conflict fixture'
-load_operation_config action || fail 'could not load conflict preferences'
-/usr/bin/agh-dns-query 192.168.77.1 53 hold >"${MODEL_ROOT}/foreign-owner.log" 2>&1 &
-FOREIGN_PID="$!"
-attempt=0
-until grep -q '^READY:' "${MODEL_ROOT}/foreign-owner.log"; do
-	kill -0 "${FOREIGN_PID}" 2>/dev/null || fail 'native foreign owner exited'
-	[ "${attempt}" -lt 10 ] || fail 'native foreign owner did not bind in time'
-	sleep 1
-	attempt="$((attempt + 1))"
-done
-if adguardhome_run start_adguardhome; then fail 'actual startup accepted a foreign TCP/UDP port53 owner'; fi
-kill -0 "${FOREIGN_PID}" 2>/dev/null || fail 'actual startup killed the foreign native port53 owner'
-post_stop_process_ready && post_stop_handoff_cleared && post_stop_native_resolver_ready || fail 'refused native startup left daemon, handoff or resolver switch'
-pass 'actual startup rejected a foreign native TCP/UDP port53 owner and preserved its PID'
-kill -TERM "${FOREIGN_PID}" && wait "${FOREIGN_PID}" 2>/dev/null || true
-FOREIGN_PID=''
-write_preferences enabled NO || fail 'could not restore native recovery preferences'
-load_operation_config action || fail 'could not load final recovery preferences'
-/sbin/service restart_dnsmasq || fail 'could not recover main/SDN native DNS after conflict test'
-assert_dnsmasq 53
-pass "${ARCH} native feature scenario complete; channels=${CHANNELS}; firmware dispatch, client DHCP, physical interfaces and soak remain outside this scenario"
+CHANNEL=all
+[ "${completed_channels}" -eq 3 ] || fail 'native channel lifecycle matrix is incomplete'
+pass "${ARCH} native feature scenario complete; channels=${CHANNELS}; completed_channel_lifecycles=${completed_channels}; firmware dispatch, client DHCP, physical interfaces and soak remain outside this scenario"
