@@ -19,9 +19,9 @@ fail() {
 	exit 1
 }
 
+(umask 077 && mkdir "${TEST_ROOT}") || exit 1
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
-(umask 077 && mkdir "${TEST_ROOT}") || exit 1
 EXPECTED_INSTALLER_VERSION="$(awk -F '"' '/^AI_VERSION="[^"]+"$/ { version=$2; count++ }
 	END { if (count != 1) exit 1; print version }' "${INSTALLER_PATH}")" || fail 'could not read exact installer version'
 mkdir -p "${TEST_ROOT}/bin" "${TEST_ROOT}/fs/opt/etc" \

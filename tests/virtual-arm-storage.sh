@@ -24,10 +24,10 @@ cleanup() {
 
 [ "$(id -u)" = 0 ] && { [ -f /run/virtual-arm-guest ] || [ -f /.dockerenv ]; } ||
 	fail 'requires an isolated root ARM guest or privileged test container'
-[ ! -e "${TEST_ROOT}" ] && [ ! -L "${TEST_ROOT}" ] || fail 'private fixture path already exists'
-(umask 077 && mkdir -p "${TEST_ROOT}/storage" "${TEST_ROOT}/base") || fail 'could not create private fixture'
+(umask 077 && mkdir "${TEST_ROOT}") || fail 'could not reserve private fixture'
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
+(umask 077 && mkdir "${TEST_ROOT}/storage" "${TEST_ROOT}/base") || fail 'could not create private fixture'
 sed -n \
 	-e '/^adguard_service_bundle_cleanup() {$/,/^}/p' \
 	-e '/^adguard_service_bundle_stage() {$/,/^}/p' \

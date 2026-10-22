@@ -82,7 +82,9 @@ run_update_path() {
 		}
 		# Prefetch may precede default pinning; publication must follow it.
 		adguard_service_bundle_stage() { return 0; }
+		# Model staging cleanup without adding events to the defaults-ordering trace.
 		adguard_service_bundle_cleanup() { return 0; }
+		# Record publication and fail it to verify defaults precede service replacement.
 		adguard_service_publish_file() {
 			printf '%s\n' "publish:$3:$2" >>"${CALLS_FILE}"
 			return 1

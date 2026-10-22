@@ -88,7 +88,9 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	download_file() { return 0; }
 	# Service staging/publication is outside this timezone recovery fixture.
 	adguard_service_bundle_stage() { return 0; }
+	# Model successful service publication before exercising timezone recovery.
 	adguard_service_publish_file() { return 0; }
+	# Model successful staging cleanup while timezone recovery remains under test.
 	adguard_service_bundle_cleanup() { return 0; }
 	# md5_is_valid determines whether an MD5 checksum is valid.
 	md5_is_valid() { return 1; }

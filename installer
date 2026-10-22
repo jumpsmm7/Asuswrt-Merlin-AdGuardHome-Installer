@@ -495,6 +495,7 @@ nvram_transaction_recover_startup() {
 	nvram_transaction_recover_pending
 }
 
+# Recognize diagnostics permitted after a recoverable NVRAM cleanup failure.
 nvram_transaction_read_only_diagnostic_requested() {
 	local argument
 	for argument; do
@@ -5527,6 +5528,7 @@ installer_version_value() {
 	' "$1"
 }
 
+# Compare installed and verified remote identities and report available updates.
 check_version() {
 	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 REMOTE_INSTALLER_URL REMOTE_INSTALLER_MD5_URL REMOTE_CACHE_TOKEN ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
 	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
@@ -6724,6 +6726,7 @@ install_adguard_archive() {
 	return 0
 }
 
+# Back up the current installation or restore a verified archive with directory rollback.
 backup_restore() {
 	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
 	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] && [ "${1:-}" = "RESTORE" ]; then
@@ -7756,6 +7759,7 @@ inst_AdGuardHome() {
 				if [ "${USE_OLD}" = "YES" ]; then
 					PTXT "${INFO} Installing from an old backup!"
 					backup_restore RESTORE
+					return "$?"
 				elif [ "${USE_OLD}" = "NO" ]; then
 					PTXT "${INFO} Continuing without restoring from backup!"
 				fi
@@ -10037,6 +10041,7 @@ end_op_header() {
 	exec "${0}.tmp" "${BRANCH}" && rm -rf "${0}.tmp"
 }
 
+# Clean owned staging, preserve operation status, and return or relaunch the menu.
 end_op_message() {
 	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
 	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
@@ -10619,7 +10624,8 @@ support_export_probe() {
 	}
 	deadline="$((SX_NOW + 2))"
 	(
-		ulimit -f 8 || exit 1
+		# BusyBox ash expresses file-size limits in 512-byte blocks.
+		ulimit -f 16 || exit 1
 		exec "$@"
 	) >"${SX_STAGE}/work/probe" 2>/dev/null </dev/null &
 	SX_CHILD_PID="$!"
@@ -10825,7 +10831,7 @@ support_export_collect() {
 	fi
 	support_export_emit process.monitor.count integer "${count}"
 	result=unknown
-	if support_export_probe netstat -nlp; then result=complete; fi
+	if support_export_probe netstat -nltup; then result=complete; fi
 	for port in 53 553; do
 		for transport in tcp udp; do
 			owner=unknown
@@ -10918,7 +10924,7 @@ EOF
 # in a subshell so traps, limits, cwd and umask never modify installer state.
 support_export() {
 	(
-		local destination parent physical name mode links owner rest key value
+		local destination parent physical name mode links owner rest key value size
 		[ "$#" -eq 2 ] && [ "$1" = --output ] || {
 			printf '%s\n' 'support-export: usage: support-export --output /absolute/new-report.txt' >&2
 			exit 2
@@ -10970,8 +10976,12 @@ support_export() {
 			case "${mode}" in *t | *T) ;; *) exit 1 ;; esac
 			;;
 		esac
-		ulimit -f 16 || exit 1
+		# Allow a 16 KiB report with BusyBox ash's 512-byte blocks.
+		ulimit -f 32 || exit 1
 		support_export_collect >"${SX_STAGE}/publish/${name}" || exit 1
+		size="$(wc -c <"${SX_STAGE}/publish/${name}")" || exit 1
+		case "${size}" in '' | *[!0-9]*) exit 1 ;; esac
+		[ "${size}" -le 16384 ] || exit 1
 		# Linking into the held parent directory creates exactly name and
 		# refuses every existing object, including a raced symlink/directory.
 		ln "${SX_STAGE}/publish/${name}" . 2>/dev/null || exit 1
@@ -10979,6 +10989,7 @@ support_export() {
 	)
 }
 
+# List supported CLI actions, required arguments, and update-policy restrictions.
 cli_usage() {
 	PTXT "${INFO} Usage:" \
 		"${INFO}   sh installer --no-auto-update [installer-ref] [menu-action]" \

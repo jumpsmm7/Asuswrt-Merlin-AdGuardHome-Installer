@@ -12,6 +12,8 @@ fail() {
 }
 # cleanup removes this regression's private archives and scenario files.
 cleanup() { rm -rf "${TMP_ROOT}"; }
+(umask 077 && mkdir "${TMP_ROOT}") || fail 'could not reserve private fixture directory'
+export TMP_ROOT
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}/remote/AdGuardHome/data" || exit 1
@@ -33,6 +35,13 @@ awk '
 	/^sha256_manifest_digest\(\)/,/^}/
 ' "${SCRIPT_PATH}" >"${FUNCTIONS_FILE}"
 sed -n '/^set_timezone() {$/,/^}/p; /^filter_timezone_members() {$/,/^}/p; /^format_timezone_menu() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}"
+# Translate only fixture paths; real orchestration must not access host /opt or /root.
+# Model timezone compression with gzip, supported by the native guest's BusyBox.
+# The real download/checksum, archive member checks, selection and copy still run;
+# bzip2 package-format coverage belongs to the separate tzdata conversion tests.
+sed 's#/opt/#${TMP_ROOT}/opt/#g; s#TMP="/root"#TMP="${TMP_ROOT}/timezone"#; s/tar tjf /tar tzf /; s/tar xjf /tar xzf /' \
+	"${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.isolated" || fail 'could not isolate extracted fixture paths'
+mv "${FUNCTIONS_FILE}.isolated" "${FUNCTIONS_FILE}" || fail 'could not publish isolated fixture functions'
 cat >"${TMP_ROOT}/remote/AdGuardHome/AdGuardHome" <<'EOF_BINARY'
 #!/bin/sh
 printf '%s\n' 'AdGuard Home version new'
@@ -47,11 +56,11 @@ done
 TZ_ARCH="$(uname -m)"
 case "${TZ_ARCH}" in aarch64 | arm64) TZ_ARCH=aarch64 ;; armv7l) TZ_ARCH=arm ;; esac
 TZ_DATA="tzdata-2026e-1-${TZ_ARCH}.pkg.tar.bz2"
-mkdir -p "${TMP_ROOT}/remote/timezone/usr/share/zoneinfo/posix" /opt/bin || fail 'could not create timezone fixture'
+mkdir -p "${TMP_ROOT}/remote/timezone/usr/share/zoneinfo/posix" "${TMP_ROOT}/timezone" "${TMP_ROOT}/opt/bin" || fail 'could not create timezone fixture'
 printf '%s\n' 'fixture timezone' >"${TMP_ROOT}/remote/timezone/usr/share/zoneinfo/posix/UTC"
-tar -cjf "${TMP_ROOT}/remote/${TZ_DATA}" -C "${TMP_ROOT}/remote/timezone" usr || fail 'could not create timezone archive'
-printf '%s\n' '#!/bin/sh' 'cat' >/opt/bin/column
-chmod 755 /opt/bin/column || fail 'could not create modeled Entware column'
+tar -czf "${TMP_ROOT}/remote/${TZ_DATA}" -C "${TMP_ROOT}/remote/timezone" usr || fail 'could not create timezone archive'
+printf '%s\n' '#!/bin/sh' 'cat' >"${TMP_ROOT}/opt/bin/column"
+chmod 755 "${TMP_ROOT}/opt/bin/column" || fail 'could not create modeled Entware column'
 
 # run_case runs real orchestration against one modeled DNS/download/publication fault.
 run_case() (
@@ -76,12 +85,14 @@ run_case() (
 	ADGUARD_SERVICE_PUBLISH_OWNED=0
 	INFO='Info:' ERROR='Error:' BOLD='' NORM=''
 	RUNNING=1 SERVICE_INTERRUPTED=0 TARGET_MUTATED=0 SERVICE_REFRESH_ONLY=0
-	mkdir -p "${TARG_DIR}" "${ADDON_DIR}" /opt/etc/init.d /opt/sbin
+	RESTORE_PREFETCH_ATTEMPTS=0
+	REMOTE_VER=new REMOTE_BETA=new REMOTE_EDGE=new
+	mkdir -p "${TARG_DIR}" "${ADDON_DIR}" "${TMP_ROOT}/opt/etc/init.d" "${TMP_ROOT}/opt/sbin"
 	sed s/new/old/ "${TMP_ROOT}/remote/AdGuardHome/AdGuardHome" >"${AGH_FILE}"
 	chmod 755 "${AGH_FILE}"
 	printf '%s\n' old >"${ADDON_DIR}/AdGuardHome.sh"
-	printf '%s\n' old >/opt/etc/init.d/S99AdGuardHome
-	printf '%s\n' old >/opt/etc/init.d/rc.func.AdGuardHome
+	printf '%s\n' old >"${TMP_ROOT}/opt/etc/init.d/S99AdGuardHome"
+	printf '%s\n' old >"${TMP_ROOT}/opt/etc/init.d/rc.func.AdGuardHome"
 	: >"${CALLS_FILE}"
 	# shellcheck disable=SC1090
 	. "${FUNCTIONS_FILE}"
@@ -89,6 +100,12 @@ run_case() (
 		stopped | fresh) RUNNING=0 ;;
 		refresh) SERVICE_REFRESH_ONLY=1 ;;
 		restore*) cp "${TMP_ROOT}/remote/AdGuardHome_test.tar.gz" "${BASE_DIR}/backup_AdGuardHome.tar.gz" ;;
+	esac
+	case "${case_name}" in
+		restore-interactive-*)
+			RUNNING=0
+			rm -rf "${TARG_DIR}"
+			;;
 	esac
 	[ "${case_name}" != fresh ] || rm -f "${AGH_FILE}"
 	# PTXT models terminal messaging without changing the update decision under test.
@@ -125,6 +142,12 @@ run_case() (
 	ai_have_cmd() { which "$1" >/dev/null 2>&1; }
 	# read_input_num chooses the fixture archive's single real timezone member.
 	read_input_num() { CHOSEN=1; }
+	# read_yesno selects the real interactive caller's detected backup.
+	read_yesno() { printf '%s\n' restore-selected >>"${CALLS_FILE}"; }
+	# check_connection models connectivity recovering after restore prefetch fails.
+	check_connection() { printf '%s\n' check-connection >>"${CALLS_FILE}"; }
+	# choose_branch allows an unintended fresh-install fallback to expose itself.
+	choose_branch() { printf '%s\n' choose-branch >>"${CALLS_FILE}"; }
 	# installer_update_reexec keeps re-execution outside this in-process update-ordering fixture.
 	installer_update_reexec() { :; }
 	# file_md5 computes real MD5 values for the fixture artifacts and sidecars.
@@ -162,6 +185,10 @@ run_case() (
 				return 0
 				;;
 			prefetch-fail:S99AdGuardHome | restore-prefetch-fail:S99AdGuardHome) return 1 ;;
+			restore-interactive-prefetch-fail:S99AdGuardHome)
+				RESTORE_PREFETCH_ATTEMPTS="$((RESTORE_PREFETCH_ATTEMPTS + 1))"
+				[ "${RESTORE_PREFETCH_ATTEMPTS}" -gt 3 ] || return 1
+				;;
 			restore-timezone-fetch-fail:tzdata-*.pkg.tar.bz2) return 1 ;;
 			md5:*.sha256sum) return 1 ;;
 		esac
@@ -224,8 +251,8 @@ run_case() (
 	yaml_nvars_file_action() { :; }
 	# install_wan_event_scripts models successful WAN hook setup without installing firmware callbacks.
 	install_wan_event_scripts() { :; }
-	# setup_AdGuardHome excludes interactive setup while retaining real download and publication orchestration.
-	setup_AdGuardHome() { :; }
+	# setup_AdGuardHome records setup without changing private/router configuration.
+	setup_AdGuardHome() { printf '%s\n' "setup:${2:-}" >>"${CALLS_FILE}"; }
 	# agh_complete_startup records successful modeled service recovery after publication.
 	agh_complete_startup() {
 		RUNNING=1
@@ -235,8 +262,8 @@ run_case() (
 	finalize_dns_environment() { :; }
 	# finalize_pending_mode_migration models a completed topology transaction without changing preferences.
 	finalize_pending_mode_migration() { :; }
-	# conf_value models absent optional preferences without sourcing private configuration.
-	conf_value() { :; }
+	# conf_value supplies a build only if a fresh-install fallback queries it.
+	conf_value() { [ "$1" != ADGUARD_BRANCH ] || printf '%s\n' release; }
 	# rollback_result_write suppresses persistence of rollback markers outside this private scenario.
 	rollback_result_write() { :; }
 	# rollback_result_notice suppresses rollback terminal notices while state assertions remain active.
@@ -296,12 +323,38 @@ run_case() (
 	fi
 	# Runtime installer does not enable nounset; restore deliberately uses one argument.
 	set +u
+	if [ "${case_name}" = restore-interactive-interrupted ]; then
+		# backup_restore models a restore returning its distinct interruption status.
+		backup_restore() { return 2; }
+	fi
 	case "${case_name}" in
+		restore-interactive-*) inst_AdGuardHome install || status=$? ;;
 		restore*) backup_restore RESTORE || status=$? ;;
 		*) inst_AdGuardHome update release || status=$? ;;
 	esac
 	set -u
 	case "${case_name}" in
+		restore-interactive-*)
+			grep -q '^restore-selected$' "${CALLS_FILE}" || fail "${case_name}: interactive restore was not selected"
+			if grep -q '^check-connection$\|^choose-branch$' "${CALLS_FILE}"; then
+				cat "${CALLS_FILE}" >&2
+				fail "${case_name}: selected restore fell through to fresh installation"
+			fi
+			;;
+	esac
+	case "${case_name}" in
+		restore-interactive-interrupted)
+			[ "${status}" = 2 ] || fail 'interactive restore lost interruption status 2'
+			[ ! -d "${TARG_DIR}" ] || fail 'interrupted interactive restore created an installation'
+			! grep -q '^fetch:\|^setup:' "${CALLS_FILE}" || fail 'interrupted interactive restore continued online work or setup'
+			;;
+		restore-interactive-prefetch-fail)
+			[ "${status}" = 1 ] || fail 'interactive restore lost prefetch failure status'
+			[ "${RESTORE_PREFETCH_ATTEMPTS}" = 3 ] || fail 'interactive restore continued downloads after failed prefetch'
+			[ ! -d "${TARG_DIR}" ] || fail 'failed interactive restore created an installation'
+			! grep -q '^setup:\|^stop$' "${CALLS_FILE}" || fail 'failed interactive restore reached setup or binary replacement'
+			[ "$(cat "${ADDON_DIR}/AdGuardHome.sh")" = old ] || fail 'failed interactive restore changed the existing manager'
+			;;
 		publish-copy-fail | publish-chmod-fail | publish-rename-fail)
 			[ "${status}" -ne 0 ] || fail "${case_name}: failed publication accepted"
 			[ "$(cat "${ADDON_DIR}/AdGuardHome.sh")" = old ] || fail "${case_name}: write failure damaged working manager"
@@ -319,7 +372,7 @@ run_case() (
 				cat "${CALLS_FILE}" >&2
 				fail "${case_name}: update failed when DNS became unavailable after stop"
 			fi
-			! grep -q '^fetch:.*:running=0:mutated=' "${CALLS_FILE}" || case "${case_name}" in stopped | fresh) : ;; *) fail "${case_name}: network fetch while stopped" ;; esac
+			! grep -q '^fetch:.*:running=0:mutated=' "${CALLS_FILE}" || case "${case_name}" in stopped | fresh | restore-interactive-success) : ;; *) fail "${case_name}: network fetch while stopped" ;; esac
 			case "${case_name}" in restore*)
 				! grep -q '^fetch:.*:mutated=1$' "${CALLS_FILE}" || fail 'restore downloaded after target mutation'
 				! grep -q '^opkg:.*:mutated=1$' "${CALLS_FILE}" || fail 'restore installed an online prerequisite after target mutation'
@@ -332,12 +385,12 @@ run_case() (
 				esac
 				;;
 			esac
-			for target in "${ADDON_DIR}/AdGuardHome.sh" /opt/etc/init.d/S99AdGuardHome /opt/etc/init.d/rc.func.AdGuardHome; do
+			for target in "${ADDON_DIR}/AdGuardHome.sh" "${TMP_ROOT}/opt/etc/init.d/S99AdGuardHome" "${TMP_ROOT}/opt/etc/init.d/rc.func.AdGuardHome"; do
 				cmp "${target}" "${TMP_ROOT}/remote/${target##*/}" || fail "${case_name}: staged service file not published"
 			done
 			[ "$(stat -c %a "${ADDON_DIR}/AdGuardHome.sh")" = 755 ] || fail 'manager mode changed'
-			[ "$(stat -c %a /opt/etc/init.d/S99AdGuardHome)" = 755 ] || fail 'init mode changed'
-			[ "$(stat -c %a /opt/etc/init.d/rc.func.AdGuardHome)" = 644 ] || fail 'helper mode changed'
+			[ "$(stat -c %a "${TMP_ROOT}/opt/etc/init.d/S99AdGuardHome")" = 755 ] || fail 'init mode changed'
+			[ "$(stat -c %a "${TMP_ROOT}/opt/etc/init.d/rc.func.AdGuardHome")" = 644 ] || fail 'helper mode changed'
 			;;
 	esac
 	[ ! -d "${BASE_DIR}/.AdGuardHome.services.$$" ] || fail "${case_name}: owned staging leaked"
@@ -432,7 +485,7 @@ EOF_SIGNAL
 	printf '%s\n' "PASS: actual ${signal_mode} prefetch TERM runs armed cleanup before binary replacement"
 }
 
-for scenario in running prefetch-fail sha-mismatch sha-invalid md5-mismatch stopped fresh refresh md5 restore restore-sha-missing restore-prefetch-fail restore-timezone-opkg-fail restore-timezone-fetch-fail publish-copy-fail publish-chmod-fail publish-rename-fail signal-cleanup cleanup-retained; do
+for scenario in running prefetch-fail sha-mismatch sha-invalid md5-mismatch stopped fresh refresh md5 restore restore-sha-missing restore-prefetch-fail restore-timezone-opkg-fail restore-timezone-fetch-fail publish-copy-fail publish-chmod-fail publish-rename-fail signal-cleanup cleanup-retained restore-interactive-prefetch-fail restore-interactive-success restore-interactive-interrupted; do
 	run_case "${scenario}" || exit 1
 done
 run_armed_signal_case fresh

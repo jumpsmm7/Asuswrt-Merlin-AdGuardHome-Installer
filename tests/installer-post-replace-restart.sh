@@ -64,11 +64,14 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	ensure_sha256sum_tool() { :; }
 	# Prefetch is covered separately; force the second publication to fail after replacement.
 	download_file() { return 0; }
+	# Model completed prefetch so this fixture reaches post-replacement publication.
 	adguard_service_bundle_stage() { return 0; }
+	# Fail the second service publication after the old binary has been stopped.
 	adguard_service_publish_file() {
 		PUBLISH_COUNT="$((PUBLISH_COUNT + 1))"
 		[ "${PUBLISH_COUNT}" -ne 2 ]
 	}
+	# Keep modeled staging cleanup independent of the restart assertion.
 	adguard_service_bundle_cleanup() { return 0; }
 	md5_is_valid() { return 1; }
 	sha256_is_valid() { return 1; }

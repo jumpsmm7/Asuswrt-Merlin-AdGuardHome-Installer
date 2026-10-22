@@ -84,9 +84,11 @@ case "${name}" in
 	pidof) [ "$*" = AdGuardHome ] || exit 93; printf '%s\n' '501 502' ;;
 	ps)
 		[ "$*" = -ww ] || exit 93
+		if [ "${SX_FIXTURE:-normal}" = sized ]; then exec "${REAL_DD}" "if=${TEST_ROOT}/sized-ps" bs=1024 2>/dev/null; fi
 		printf '%s\n' '301 root /opt/sbin/AdGuardHome.sh monitor-start SECRET_TOKEN 192.168.50.22' '302 root /opt/AdGuardHome --password SECRET_PASSWORD' ;;
 	netstat)
-		[ "$*" = -nlp ] || exit 93
+		[ "$*" = -nltup ] || exit 93
+		if [ "${SX_FIXTURE:-normal}" = sized ]; then exec "${REAL_DD}" "if=${TEST_ROOT}/sized-netstat" bs=1024 2>/dev/null; fi
 		printf '%s\n' 'tcp 0 0 192.168.50.23:53 0.0.0.0:* LISTEN 501/AdGuardHome' 'udp 0 0 10.20.30.40:553 0.0.0.0:* 601/dnsmasq' 'tcp6 0 0 fd00::10:553 :::* LISTEN 777/private-program' 'udp 0 0 172.16.4.2:5300 0.0.0.0:* 777/SECRET_DOMAIN' ;;
 	*) printf '%s\n' "MUTATION ${name}" >>"${TEST_ROOT}/calls"; exit 93 ;;
 esac
@@ -222,7 +224,7 @@ validate() {
 }
 # Require an exact report field or fixture sentinel.
 expect() {
-	grep -Fx "$2" "$1" >/dev/null || fail "missing expected field $2"
+	grep -Fx "$2" "$1" >/dev/null || fail "missing expected field $2 in ${1##*/}"
 }
 # Aggregate probe audit output outside the collector child file-size limit.
 audit_calls() {
@@ -319,6 +321,87 @@ run overflow overflow.txt
 expect "${TEST_ROOT}/out/overflow.txt" router.model=unknown
 expect "${TEST_ROOT}/out/overflow.txt" collection.failed_probes=4
 no_stage
+
+# Legitimate process/socket/configuration snapshots between 4 and 8 KiB must
+# remain usable. Put selected values at the end so a prefix cannot look complete.
+cp "${TEST_ROOT}/fs/opt/etc/AdGuardHome/.config" "${TEST_ROOT}/sized-config-saved"
+printf '%s\n' '301 root /opt/sbin/AdGuardHome.sh monitor-start SECRET_TOKEN 192.168.50.22' >"${TEST_ROOT}/tail-ps"
+printf '%s\n' 'tcp 0 0 192.168.50.23:53 0.0.0.0:* LISTEN 501/AdGuardHome' 'udp 0 0 10.20.30.40:553 0.0.0.0:* 601/dnsmasq' >"${TEST_ROOT}/tail-netstat"
+printf '%s\n' 'INSTALLER_BRANCH="v2.7.0"' 'ADGUARD_BRANCH="beta"' >"${TEST_ROOT}/tail-config"
+for size in 4096 6144 8191 8192 8193; do
+	for input in ps netstat config; do
+		bytes="$(wc -c <"${TEST_ROOT}/tail-${input}")"
+		awk -v padding="$((size - bytes))" 'BEGIN { while (padding-- > 0) printf "\n" }' >"${TEST_ROOT}/sized-${input}"
+		cat "${TEST_ROOT}/tail-${input}" >>"${TEST_ROOT}/sized-${input}"
+		[ "$(wc -c <"${TEST_ROOT}/sized-${input}")" -eq "${size}" ] || fail 'sized probe fixture has the wrong byte count'
+	done
+	cp "${TEST_ROOT}/sized-config" "${TEST_ROOT}/fs/opt/etc/AdGuardHome/.config"
+	run sized "sized-${size}.txt"
+	if [ "${size}" -lt 8192 ]; then
+		expect "${TEST_ROOT}/out/sized-${size}.txt" process.monitor.count=1
+		expect "${TEST_ROOT}/out/sized-${size}.txt" listener.tcp.53.owner=adguardhome
+		expect "${TEST_ROOT}/out/sized-${size}.txt" listener.udp.553.owner=dnsmasq
+		expect "${TEST_ROOT}/out/sized-${size}.txt" installer.source=v2.7.0
+		expect "${TEST_ROOT}/out/sized-${size}.txt" adguardhome.channel=beta
+		expect "${TEST_ROOT}/out/sized-${size}.txt" collection.failed_probes=0
+	else
+		for field in process.monitor.count listener.tcp.53.owner listener.udp.553.owner installer.source adguardhome.channel; do
+			expect "${TEST_ROOT}/out/sized-${size}.txt" "${field}=unknown"
+		done
+		expect "${TEST_ROOT}/out/sized-${size}.txt" collection.failed_probes=3
+	fi
+done
+mv "${TEST_ROOT}/sized-config-saved" "${TEST_ROOT}/fs/opt/etc/AdGuardHome/.config"
+no_stage
+
+# A writer may ignore SIGXFSZ and return success after a partial write. Execute
+# the real probe and require both its kernel file cap and whole-snapshot refusal.
+cat >"${TEST_ROOT}/bin/probe-cap" <<'MODEL'
+#!/bin/sh
+trap '' XFSZ
+"${REAL_DD}" if=/dev/zero bs=1024 count=128 2>/dev/null
+exit 0
+MODEL
+chmod 700 "${TEST_ROOT}/bin/probe-cap"
+cat >"${TEST_ROOT}/probe-cap-run" <<'RUN'
+#!/bin/sh
+. "${TEST_ROOT}/functions"
+SX_STAGE="${TEST_ROOT}/probe-cap-stage"
+mkdir -p "${SX_STAGE}/work" || exit 1
+SX_CHILD_PID=''
+SX_FAILURES=0
+SX_TIMEOUTS=0
+support_export_clock || exit 1
+SX_DEADLINE="$((SX_NOW + 30))"
+if support_export_probe "${TEST_ROOT}/bin/probe-cap"; then exit 1; fi
+[ "${SX_PROBE_STATUS}" -eq 125 ] && [ "${SX_FAILURES}" -eq 1 ] || exit 1
+# BusyBox ash uses 512-byte blocks; some validation-host shells use 1024.
+case "$(wc -c <"${SX_STAGE}/work/probe")" in 8192 | 16384) ;; *) exit 1 ;; esac
+RUN
+"${TEST_SHELL}" "${TEST_ROOT}/probe-cap-run" || fail 'probe parsed a successful partial write or lost its kernel file cap'
+
+# Model only the renderer to exercise the real publication path and report cap.
+# The ordinary collector/schema assertions above still execute actual rendering.
+cat >"${TEST_ROOT}/report-cap-run" <<'RUN'
+#!/bin/sh
+. "${TEST_ROOT}/functions"
+# Produce exact report sizes without changing the fixed production schema.
+support_export_collect() {
+	"${REAL_DD}" "if=${TEST_ROOT}/sized-report" bs=1024 2>/dev/null
+}
+support_export "$@"
+RUN
+for size in 8193 16384 16385 32769; do
+	awk -v bytes="${size}" 'BEGIN { while (bytes-- > 0) printf "x" }' >"${TEST_ROOT}/sized-report"
+	if "${TEST_SHELL}" "${TEST_ROOT}/report-cap-run" --output "${TEST_ROOT}/out/report-${size}" >"${TEST_ROOT}/stdout" 2>"${TEST_ROOT}/stderr"; then
+		[ "${size}" -le 16384 ] || fail 'oversized report was published'
+		[ "$(wc -c <"${TEST_ROOT}/out/report-${size}")" -eq "${size}" ] || fail 'report was published partially'
+	else
+		[ "${size}" -gt 16384 ] || fail 'report within 16KiB was refused'
+		[ ! -e "${TEST_ROOT}/out/report-${size}" ] || fail 'failed report was published'
+	fi
+	no_stage
+done
 
 # Use actual production rollback contexts/results, grouped into fixed categories.
 # Raw context/result/detail text must never become report data.

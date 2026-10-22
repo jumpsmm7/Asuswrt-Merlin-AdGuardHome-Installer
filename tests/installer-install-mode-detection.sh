@@ -279,7 +279,9 @@ run_install_failure() (
 	}
 	# Service-file staging/publication is verified by installer-update-prefetch.sh.
 	adguard_service_bundle_stage() { return 0; }
+	# Model successful service publication before the install-mode recovery failure.
 	adguard_service_publish_file() { return 0; }
+	# Model successful cleanup without creating a service staging directory.
 	adguard_service_bundle_cleanup() { return 0; }
 	# sha256_is_valid reports that the SHA-256 value is invalid.
 	sha256_is_valid() { return 1; }

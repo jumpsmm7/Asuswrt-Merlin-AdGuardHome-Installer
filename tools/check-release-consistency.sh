@@ -243,6 +243,22 @@ BANNER_VERSION="$(awk -v pattern="${INSTALLER_VERSION_PATTERN}" '
 [ -n "${BANNER_VERSION}" ] || fail 'installer banner version is missing or invalid'
 [ "${AI_VERSION}" = "${BANNER_VERSION}" ] || fail "banner ${BANNER_VERSION:-<missing>} and AI_VERSION ${AI_VERSION:-<missing>} differ"
 
+# Published v2.6.7 installers accept only numeric versions from master. Keep
+# candidates on opt-in refs until their version is stable before promotion.
+case "${AI_VERSION}" in
+	*-rc.*)
+		RELEASE_BRANCH="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
+		MASTER_BOUND_REF=0
+		case "${GITHUB_REF:-}" in
+			refs/heads/master | refs/heads/gh-readonly-queue/master/*) MASTER_BOUND_REF=1 ;;
+		esac
+		if [ "${GITHUB_BASE_REF:-}" = master ] || [ "${MASTER_BOUND_REF}" -eq 1 ] ||
+			[ "${RELEASE_BRANCH}" = refs/heads/master ]; then
+			fail 'release-candidate AI_VERSION cannot be published on master; set a stable version before promotion'
+		fi
+		;;
+esac
+
 RELEASE_VERSION_BASE="${AI_VERSION%-rc.*}"
 STALE_RELEASE_VERSION="${RELEASE_VERSION_BASE%.*}.1"
 STALE_RELEASE_PATTERN="$(printf '%s\n' "${STALE_RELEASE_VERSION}" | sed 's/\./\\./g')"
