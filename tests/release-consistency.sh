@@ -62,6 +62,48 @@ VERSION_PATTERN="$(printf '%s\n' "${CURRENT_VERSION}" | sed 's/\./\\./g')"
 
 RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null || fail 'valid fixture was rejected'
 
+# Stable and opt-in release candidates use the same exact version in both
+# installer identifiers; candidate numbering must not become a stale marker.
+for fixture_version in v0.0.0 v2.7.0 v12.34.56 v99.99.99 v02.7.00 v2.7.0-rc.1 v2.7.0-rc.10 v2.7.0-rc.99 v2.7.1-rc.1; do
+	sed "s/${VERSION_PATTERN}/${fixture_version}/g" installer >"${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh version fixture manifests'
+	RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/candidate-version.out" 2>&1 ||
+		fail "valid installer version ${fixture_version} was rejected"
+done
+for fixture_version in v2.7 v2.7.0.1 2.7.0 V2.7.0 v100.2.3 v2.100.3 v2.7.100 v2.x.0 v2.7.-1 \
+	v2.7.0-rc v2.7.0-rc. v2.7.0-rc.0 v2.7.0-rc.01 v2.7.0-rc.-1 v2.7.0-rc.1.1 \
+	v2.7.0-rc.100 v2.7.0-rc.1junk v2.7.0-RC.1 v2.7.0-beta.1 v2.7.0+build; do
+	sed "s/${VERSION_PATTERN}/${fixture_version}/g" installer >"${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh malformed version manifests'
+	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/candidate-version.out" 2>&1; then
+		fail "malformed installer version ${fixture_version} was accepted"
+	fi
+	grep -q 'AI_VERSION is missing or invalid' "${TMP_ROOT}/candidate-version.out" ||
+		fail "malformed installer version ${fixture_version} was not diagnosed"
+done
+for banner_version in v2.7.0 v2.7.0-rc.2 v2.7.0-rc.1junk; do
+	sed "s/${VERSION_PATTERN}/${banner_version}/g; s/^AI_VERSION=.*/AI_VERSION=\"v2.7.0-rc.1\"/" installer >"${TMP_ROOT}/installer"
+	refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh candidate mismatch manifests'
+	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
+		fail "candidate AI_VERSION with banner ${banner_version} was accepted"
+	fi
+done
+sed "s/${VERSION_PATTERN}/v2.7.0-rc.1/g" installer >"${TMP_ROOT}/installer"
+printf '%s\n' 'AI_VERSION="v2.7.0-rc.1"' >>"${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh duplicate version manifests'
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
+	fail 'duplicate installer AI_VERSION assignments were accepted'
+fi
+sed "s/${VERSION_PATTERN}/v2.7.0-rc.1/g" installer >"${TMP_ROOT}/installer"
+printf '%s\n' '# stale release v2.7.1' >>"${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh candidate stale-marker manifests'
+if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >"${TMP_ROOT}/candidate-stale.out" 2>&1; then
+	fail 'candidate version bypassed the stable stale-release guard'
+fi
+grep -q 'release identifier v2.7.1 remains' "${TMP_ROOT}/candidate-stale.out" || fail 'candidate stale-release marker was not diagnosed'
+cp installer "${TMP_ROOT}/installer"
+refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to restore installer manifests after candidate fixtures'
+
 awk 'BEGIN { OFS="\t" }
 	$1 !~ /^#/ && $2 == "stable" { $2 = "edge" }
 	$1 !~ /^#/ && $2 == "edge" && $1 ~ /_edge_/ { $2 = "stable" }
@@ -114,8 +156,9 @@ refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer m
 if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then
 	fail 'malformed dotted release version was accepted'
 fi
-STALE_VERSION="${CURRENT_VERSION%.*}.1"
-[ "${STALE_VERSION}" != "${CURRENT_VERSION}" ] || STALE_VERSION="${CURRENT_VERSION%.*}.2"
+CURRENT_BASE_VERSION="${CURRENT_VERSION%-rc.*}"
+STALE_VERSION="${CURRENT_BASE_VERSION%.*}.1"
+[ "${STALE_VERSION}" != "${CURRENT_BASE_VERSION}" ] || STALE_VERSION="${CURRENT_BASE_VERSION%.*}.2"
 BOUNDARY_VERSION="${STALE_VERSION}0"
 sed "s/${VERSION_PATTERN}/${BOUNDARY_VERSION}/g" installer >"${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
@@ -124,7 +167,7 @@ RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >
 cp installer "${TMP_ROOT}/installer"
 refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 
-if [ "${STALE_VERSION}" != "${CURRENT_VERSION}" ]; then
+if [ "${CURRENT_BASE_VERSION%.*}.1" != "${CURRENT_BASE_VERSION}" ]; then
 	printf '%s\n' "# stale release ${STALE_VERSION}" >>"${TMP_ROOT}/installer"
 	refresh_manifests "${TMP_ROOT}/installer" || fail "unable to refresh installer manifest"
 	if RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" >/dev/null 2>&1; then

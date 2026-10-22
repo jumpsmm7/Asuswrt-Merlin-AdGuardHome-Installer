@@ -230,6 +230,10 @@ run_check 'Static checksum output validation regression' sh tests/static-checksu
 run_check 'Static archive failure safety regression' sh tests/download-static-failure-safety.sh
 run_check 'Static archive interruption cleanup regression' sh tests/download-static-interruption-cleanup.sh
 run_check 'Installer file failure safety regression' sh tests/installer-file-failure-safety.sh
+run_check 'Installer update prefetch ordering regression' sh tests/installer-update-prefetch.sh
+run_check 'Installer support export privacy regression' sh tests/installer-support-export.sh
+run_check 'Installer support export startup regression' sh tests/installer-support-startup.sh
+run_check 'Installer candidate version identity regression' sh tests/installer-candidate-version.sh
 run_check 'Installer progress output regression' sh tests/installer-progress-output.sh
 run_check 'Installer legacy hook cleanup regression' sh tests/installer-legacy-hook-cleanup.sh
 run_check 'Installer event-script mode regression' sh tests/installer-event-script-modes.sh

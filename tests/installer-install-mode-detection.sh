@@ -261,6 +261,8 @@ run_install_failure() (
 	PTXT() { :; }
 	# ensure_sha256sum_tool ensures the sha256sum tool is available.
 	ensure_sha256sum_tool() { return 0; }
+	# Signal dispatch is exercised separately by installer-update-prefetch.sh.
+	adguard_install_abort_trap_enable() { return 0; }
 	# adguard_remote_archive returns the name of the fixture archive.
 	adguard_remote_archive() { printf '%s\n' 'fixture.tar.gz'; }
 	# adguard_remote_md5 computes the remote MD5 checksum for AdGuard.
@@ -275,6 +277,10 @@ run_install_failure() (
 			"${BASE_DIR}") : >"${BASE_DIR}/fixture.tar.gz" ;;
 		esac
 	}
+	# Service-file staging/publication is verified by installer-update-prefetch.sh.
+	adguard_service_bundle_stage() { return 0; }
+	adguard_service_publish_file() { return 0; }
+	adguard_service_bundle_cleanup() { return 0; }
 	# sha256_is_valid reports that the SHA-256 value is invalid.
 	sha256_is_valid() { return 1; }
 	# md5_is_valid determines whether an MD5 checksum is valid and always reports failure.

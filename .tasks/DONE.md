@@ -2,6 +2,64 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-030: Repair installation readiness and installer source selection
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Reproduce the incomplete JFFS preflight and saved-source reset; correct readiness diagnostics, preserve action-scoped dependency repair, retain explicit/saved source through checks/re-exec, define --no-auto-update for a coherent installer/helper bundle, and clarify early unsupported non-interactive fresh-install refusal while preserving interactive compatibility.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** installer; nearest/new readiness/source/CLI regressions; checksums; README; host/native registration
+
+### Implementation checkpoint
+
+Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037) at `bb734a5`. All current host checks, both fresh three-architecture matrices/aggregates (121 scenarios per target, 11 groups) and the retried current Sonar analysis pass with zero unresolved issues. CodeRabbit approves with 5/5 pre-merge checks and 100% purpose coverage across 80 functions; all 15 review threads have evidence-backed resolutions. The critical certifi finding is fixed with verified hashes and a clean complete lock installation. Two OSV jobs still fail for Semgrep's exact vulnerable mcp dependency, so the PR is not all-checks-green or merge-ready. Covered virtual acceptance and physical release qualification remain separate. Earlier source-specific/interrupted evidence stays historical.
+
+### Acceptance criteria
+
+- [x] Failed reads cannot report JFFS OK; ready flags avoid unnecessary writes; dependency failures identify their stage. Explicit/saved refs and self-update policy persist without checksum bypasses or mismatched helpers. Interactive fresh setup remains supported; unsupported flagged setup stops before new ordinary writes/downloads, with existing recovery distinct.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Final source verification (October 21, 2026 America/New_York)
+
+Published source `fcd36c29bf0d1c0512592862efb14abe1e7fc0d0` has 36 completed checks: 35 success, Scorecard neutral and no pending/failing checks. All three package targets and both aggregates accept 121 scenarios per target / 11 groups at digest 8475528d2d909dfe5cf9fab7ddcee5a09ab9a03d48302fed4a7dab21e25c7faf. Both OSV full/new scans, Semgrep, Sonar and canonical host jobs pass. CodeRabbit completes with 5/5 pre-merge checks; all 16 threads resolved. These records supersede earlier checkpoints; physical v2.7.0 qualification stays separate. No release, merge or hardware action is claimed.
+
+---
+
+## TASK-031: Remove dnsmasq rebind and DNSSEC state during AGH takeover
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Filter exact rebind/DNSSEC directives, companions, all trust-anchor/key entries and DNSSEC-only references from each managed main/SDN runtime config. Handle mixed/nested includes through safe runtime views, preserve persistent originals and existing per-file transactions/native regeneration.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
+
+### Implementation checkpoint
+
+The staged takeover filter is published in stacked PR [#1040](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1040), depending on #1037. It removes exact rebind/DNSSEC options and key/anchor entries while preserving persistent sources and unrelated settings. Combined source `c33f23a` passes the full host suite and its push ARM matrix/aggregate (122 scenarios per target, 11 groups); later review changes still require fresh matching validation. Those changes distinguish raw control bytes from quoted-space markers and bulk-copy unchanged line segments, with 20,000-line, partial-write and cleanup regressions. Exact BusyBox applet and eight nearest host checks pass. Empty-directory and option/suffix review claims were checked against actual behavior; mandatory per-source NUL checks remain. The reproduced pre-existing pending-restore backup defect is tracked separately as #1041 under TASK-033. Physical release boundaries remain unchanged.
+
+### Acceptance criteria
+
+- [x] All effective targeted options/keys absent at managed publication, including custom/root-rollover anchors. Includes preserve unrelated settings and valid lifetimes. Repeated/overlapping takeover, native fallback and staging/IPSET/publication failures preserve configuration/recovery invariants.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Final source verification (October 21, 2026 America/New_York)
+
+Published source `10f1dc6a8ac646b5957fd7dd4cdd022ae1478111` has 35 completed successful checks and no pending/failing checks. All three package targets and both aggregates accept 122 scenarios per target / 11 groups at digest 1c70021b05212b0c2632c3bfb9dfaf861bc98a3f7d2ccc3f696a4fb7190e4aec. Both OSV full/new scans, Semgrep, Sonar and canonical host jobs pass. CodeRabbit completes with 5/5 pre-merge checks; all six threads resolved. Pre-existing recovery defect #1041 is tracked separately by TASK-033. These records supersede earlier checkpoints; physical v2.7.0 qualification stays separate. No release, merge or hardware action is claimed.
+
+---
+
 ## TASK-037: Remove the unused vulnerable MCP dependency from CI scanning
 
 **Priority:** P1 | **Tags:** v2.7.0, security, ci
