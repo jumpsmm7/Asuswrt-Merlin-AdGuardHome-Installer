@@ -10619,7 +10619,8 @@ support_export_probe() {
 	}
 	deadline="$((SX_NOW + 2))"
 	(
-		ulimit -f 8 || exit 1
+		# BusyBox measures ulimit -f in 512-byte blocks; allow the full 8192-byte probe bound.
+		ulimit -f 16 || exit 1
 		exec "$@"
 	) >"${SX_STAGE}/work/probe" 2>/dev/null </dev/null &
 	SX_CHILD_PID="$!"
@@ -10825,7 +10826,7 @@ support_export_collect() {
 	fi
 	support_export_emit process.monitor.count integer "${count}"
 	result=unknown
-	if support_export_probe netstat -nlp; then result=complete; fi
+	if support_export_probe netstat -nltup; then result=complete; fi
 	for port in 53 553; do
 		for transport in tcp udp; do
 			owner=unknown
@@ -10970,7 +10971,8 @@ support_export() {
 			case "${mode}" in *t | *T) ;; *) exit 1 ;; esac
 			;;
 		esac
-		ulimit -f 16 || exit 1
+		# BusyBox measures ulimit -f in 512-byte blocks; allow the documented 16 KiB report target.
+		ulimit -f 32 || exit 1
 		support_export_collect >"${SX_STAGE}/publish/${name}" || exit 1
 		# Linking into the held parent directory creates exactly name and
 		# refuses every existing object, including a raced symlink/directory.

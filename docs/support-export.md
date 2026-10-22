@@ -33,8 +33,9 @@ become complete, incomplete, not-attempted or unknown. Recovery details and arti
 contents are excluded from the export.
 
 Each fixed external probe gets at most two monotonic seconds, bounded regular-file
-capture and a file-size limit. Collection shares a thirty-second probe budget;
-report data is below 16 KiB. Temporary directories are created with mode `0700` in
+capture and an 8192-byte file-size limit. Collection shares a thirty-second probe
+budget; report data is below 16 KiB. On BusyBox, the internal file limits use 512-byte
+blocks (16 blocks for probes and 32 blocks for the report). Temporary directories are created with mode `0700` in
 the output directory and removed only when owner, inode and permissions still
 match this invocation. If that identity cannot be verified, the private stage is
 retained with a warning. Probe termination checks kernel PID identity, also cleans

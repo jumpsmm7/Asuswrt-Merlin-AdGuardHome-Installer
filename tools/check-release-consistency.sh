@@ -243,6 +243,18 @@ BANNER_VERSION="$(awk -v pattern="${INSTALLER_VERSION_PATTERN}" '
 [ -n "${BANNER_VERSION}" ] || fail 'installer banner version is missing or invalid'
 [ "${AI_VERSION}" = "${BANNER_VERSION}" ] || fail "banner ${BANNER_VERSION:-<missing>} and AI_VERSION ${AI_VERSION:-<missing>} differ"
 
+# Existing installers fetch master and only understand the legacy stable grammar.
+# Never allow an RC identity to be published on that ref.
+RELEASE_REF="${GITHUB_REF_NAME:-${CI_COMMIT_BRANCH:-}}"
+if [ -z "${RELEASE_REF}" ] && git symbolic-ref --quiet --short HEAD >/dev/null 2>&1; then
+	RELEASE_REF="$(git symbolic-ref --quiet --short HEAD)"
+fi
+if [ "${RELEASE_REF}" = master ]; then
+	case "${AI_VERSION}" in
+		*-rc.*) fail "master-bound AI_VERSION must use the legacy stable X.Y.Z grammar" ;;
+	esac
+fi
+
 RELEASE_VERSION_BASE="${AI_VERSION%-rc.*}"
 STALE_RELEASE_VERSION="${RELEASE_VERSION_BASE%.*}.1"
 STALE_RELEASE_PATTERN="$(printf '%s\n' "${STALE_RELEASE_VERSION}" | sed 's/\./\\./g')"
