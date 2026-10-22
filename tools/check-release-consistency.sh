@@ -251,12 +251,14 @@ case "${AI_VERSION}" in
 		MASTER_BOUND_REF=0
 		case "${GITHUB_REF:-}" in
 			refs/heads/master | refs/heads/gh-readonly-queue/master/*) MASTER_BOUND_REF=1 ;;
+			*) : ;;
 		esac
 		if [ "${GITHUB_BASE_REF:-}" = master ] || [ "${MASTER_BOUND_REF}" -eq 1 ] ||
 			[ "${RELEASE_BRANCH}" = refs/heads/master ]; then
 			fail 'release-candidate AI_VERSION cannot be published on master; set a stable version before promotion'
 		fi
 		;;
+	*) : ;;
 esac
 
 RELEASE_VERSION_BASE="${AI_VERSION%-rc.*}"
