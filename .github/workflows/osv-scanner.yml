@@ -82,7 +82,7 @@ jobs:
         uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         with:
           scan-args: |-
-            --output=results.sarif
+            --output-files=sarif:results.sarif
             --old=old-results.json
             --new=new-results.json
             --gh-annotations=true
@@ -132,7 +132,7 @@ jobs:
         uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         with:
           scan-args: |-
-            --output=results.sarif
+            --output-files=sarif:results.sarif
             --new=results.json
             --gh-annotations=false
             --fail-on-vuln=true
