@@ -16,7 +16,8 @@ permissions:
 jobs:
   posix-syntax:
     name: BusyBox ash syntax
-    runs-on: ubuntu-latest
+    # Keep direct timeout calls on the required GNU coreutils implementation.
+    runs-on: ubuntu-24.04
     timeout-minutes: 165
     steps:
       - name: Checkout
@@ -152,7 +153,8 @@ jobs:
 
   shellcheck:
     name: ShellCheck POSIX ash profile
-    runs-on: ubuntu-latest
+    # Keep direct timeout calls on the required GNU coreutils implementation.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
