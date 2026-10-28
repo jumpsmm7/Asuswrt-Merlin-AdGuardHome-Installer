@@ -4,6 +4,14 @@
 
 set -u
 
+CHECK_PROMOTION=1
+if [ "$#" -eq 1 ] && [ "$1" = --candidate ]; then
+	CHECK_PROMOTION=0
+elif [ "$#" -ne 0 ]; then
+	printf '%s\n' 'Usage: check-release-consistency.sh [--candidate]' >&2
+	exit 2
+fi
+
 FAILED=0
 RELEASE_ROOT="${RELEASE_ROOT:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}"
 
@@ -245,8 +253,10 @@ BANNER_VERSION="$(awk -v pattern="${INSTALLER_VERSION_PATTERN}" '
 
 # Published v2.6.7 installers accept only numeric versions from master. Keep
 # candidates on opt-in refs until their version is stable before promotion.
-case "${AI_VERSION}" in
-	*-rc.*)
+# Candidate quality checks retain every artifact check; the separate default
+# invocation enforces promotion eligibility in the actual target context.
+case "${CHECK_PROMOTION}:${AI_VERSION}" in
+	1:*-rc.*)
 		RELEASE_BRANCH="$(git symbolic-ref --quiet HEAD 2>/dev/null || true)"
 		MASTER_BOUND_REF=0
 		case "${GITHUB_REF:-}" in

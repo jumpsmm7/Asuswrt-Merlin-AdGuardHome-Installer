@@ -20,8 +20,11 @@ refresh_manifests() {
 
 # check_context runs the real checker with an explicit GitHub source/target context.
 check_context() {
-	GITHUB_BASE_REF="$1" GITHUB_REF="$2" \
-		RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh"
+	_context_base="$1"
+	_context_ref="$2"
+	shift 2
+	GITHUB_BASE_REF="${_context_base}" GITHUB_REF="${_context_ref}" \
+		RELEASE_ROOT="${TMP_ROOT}" sh "${TMP_ROOT}/tools/check-release-consistency.sh" "$@"
 }
 
 # check_fixture selects an opt-in source context independently of the caller's CI target.
@@ -152,6 +155,19 @@ if which git >/dev/null 2>&1; then
 	git -C "${TMP_ROOT}" checkout -q feat/release-fixture || fail 'unable to restore opt-in fixture branch'
 fi
 
+# Feature validation must accept a consistent RC even when the stack targets
+# master; the default checker above still refuses its promotion.
+check_context master refs/pull/123/merge --candidate >"${TMP_ROOT}/candidate-context.out" 2>&1 ||
+	fail 'candidate artifact validation was incorrectly treated as master promotion'
+for invalid_argument in --unknown --candidate; do
+	argument_status=0
+	check_context master refs/pull/123/merge --candidate "${invalid_argument}" >"${TMP_ROOT}/candidate-arguments.out" 2>&1 || argument_status=$?
+	[ "${argument_status}" -eq 2 ] || fail 'extra or duplicate candidate arguments were accepted'
+done
+argument_status=0
+check_context master refs/pull/123/merge --unknown >"${TMP_ROOT}/candidate-arguments.out" 2>&1 || argument_status=$?
+[ "${argument_status}" -eq 2 ] || fail 'unknown release checker argument was accepted'
+
 # Use the published v2.6.7 Git blob when available to establish why master
 # cannot advertise an RC to installations using its numeric-only update parser.
 if which git >/dev/null 2>&1 && git cat-file -e 047ce167685f6de8db86519557b865e9f23e98f3:installer 2>/dev/null; then
@@ -182,6 +198,9 @@ for banner_version in v2.7.0 v2.7.0-rc.2 v2.7.0-rc.1junk; do
 	refresh_manifests "${TMP_ROOT}/installer" || fail 'unable to refresh candidate mismatch manifests'
 	if check_fixture >/dev/null 2>&1; then
 		fail "candidate AI_VERSION with banner ${banner_version} was accepted"
+	fi
+	if check_context master refs/pull/123/merge --candidate >/dev/null 2>&1; then
+		fail "candidate artifact validation accepted mismatched banner ${banner_version}"
 	fi
 done
 sed "s/${VERSION_PATTERN}/v2.7.0-rc.1/g" installer >"${TMP_ROOT}/installer"
@@ -311,6 +330,11 @@ if which git >/dev/null 2>&1; then
 	fi
 	grep -q 'changed distributed file has an unchanged stale checksum' "${TMP_ROOT}/stale.out" ||
 		fail 'unchanged stale manifest was not diagnosed'
+	if check_context master refs/pull/123/merge --candidate >"${TMP_ROOT}/candidate-stale.out" 2>&1; then
+		fail 'candidate validation accepted an artifact with stale manifests'
+	fi
+	grep -q 'changed distributed file has an unchanged stale checksum' "${TMP_ROOT}/candidate-stale.out" ||
+		fail 'candidate validation bypassed stale-manifest checks'
 else
 	printf '%s\n' 'SKIP: stale-manifest Git fixture requires git'
 fi

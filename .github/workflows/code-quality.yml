@@ -66,6 +66,20 @@ jobs:
             printf '%s\n' 'If the failure above is from `shfmt`, run `tools/code-quality.sh --fix` locally and commit the formatting changes, or dispatch the `Create shfmt formatting PR` workflow against this branch.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  release-promotion:
+    name: Release promotion readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Enforce release promotion eligibility
+        run: sh tools/check-release-consistency.sh
+
   apply-sonar-parser-cleanup:
     name: Apply Sonar parser cleanup
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

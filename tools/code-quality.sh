@@ -203,7 +203,7 @@ fi
 
 run_check 'md5sum files match installer artifacts' sh tools/check-md5.sh
 run_check 'sha256sum files match installer artifacts' sh tools/check-sha256.sh
-run_check 'Release version and manifest consistency' sh tools/check-release-consistency.sh
+run_check 'Release version and manifest consistency' sh tools/check-release-consistency.sh --candidate
 run_check 'Checksum file format regression' sh tests/checksum-file-format.sh
 run_check 'Release consistency regression' sh tests/release-consistency.sh
 run_check 'Repository shell portability regression' sh tools/check-shell-portability.sh

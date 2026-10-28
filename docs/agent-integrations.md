@@ -113,4 +113,11 @@ The checker validates inventory and shared policy wiring; it does not verify ext
 sh tools/code-quality.sh
 ```
 
+The host suite validates candidate versions, manifests, checksums and behavior,
+including RC previews of a stack targeting master. Promotion eligibility is
+separate: the `Release promotion readiness` job runs
+`sh tools/check-release-consistency.sh` with its default target guard. Its
+`--candidate` mode omits only that promotion decision. Green feature-quality
+checks do not permit publishing an RC on master or waive physical release gates.
+
 For a published candidate, inspect that exact head's checks and follow [ARM virtual validation](../AGENTS.md#arm-virtual-validation) and the [virtual testing guide](virtual-arm-testing.md). Changes to tested inputs require fresh matching armv5, armv7, and armv8 evidence for the selected scope. The `armv5` package target is the older RT-AC68U-class ARMv7 Cortex-A9 software-float guest with VFP and NEON disabled. Host integration checks and historical PR results cannot substitute for those native results. Virtual feature acceptance is scoped to covered contracts; physical release acceptance and its operator evidence remain separate.
