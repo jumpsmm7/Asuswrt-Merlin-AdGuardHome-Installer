@@ -187,8 +187,8 @@ osv_differential_uploads_are_guarded() {
 		in_scan_pr && /^      - name: Upload OSV SARIF artifact$/ { in_step = 1; artifact = 1; code_scanning = 0; next }
 		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ { in_step = 1; artifact = 0; code_scanning = 1; next }
 		in_step && /^      - name:/ { in_step = 0; artifact = 0; code_scanning = 0 }
-		in_step && artifact && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' \}\}$/ { artifact_guard = 1 }
-		in_step && code_scanning && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.available == '\''true'\'' && \(github\.event_name != '\''pull_request'\'' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/ { code_scanning_guard = 1 }
+		in_step && artifact && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.scan_ready == '\''true'\'' \}\}$/ { artifact_guard = 1 }
+		in_step && code_scanning && /^        if: \$\{\{ !cancelled\(\) && steps\.differential-base\.outputs\.scan_ready == '\''true'\'' && \(github\.event_name != '\''pull_request'\'' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) \}\}$/ { code_scanning_guard = 1 }
 		END { if (!artifact_guard || !code_scanning_guard) exit 1 }
 	' "$1"
 }
@@ -657,10 +657,29 @@ grep -Fq "if: github.event_name == 'pull_request' || github.event_name == 'push'
 	fail '.github/workflows/osv-scanner.yml: differential scan must run for pull-request and push events'
 grep -Fq "if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository" '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: full vulnerability scan must exclude fork pull requests'
-grep -Fq "git rev-parse --verify \"\${base_revision}^{commit}\"" '.github/workflows/osv-scanner.yml' ||
-	fail '.github/workflows/osv-scanner.yml: differential scan must verify that its predecessor is reachable'
-grep -Fq 'git checkout --detach "${base_revision}" || exit 1' '.github/workflows/osv-scanner.yml' ||
-	fail '.github/workflows/osv-scanner.yml: differential scan must stop when predecessor checkout fails'
+grep -Fq 'fetch-depth: 2' '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential checkout must fetch only current commit and parent'
+if grep -Fq 'fetch-depth: 0' '.github/workflows/osv-scanner.yml'; then
+	fail '.github/workflows/osv-scanner.yml: differential checkout must not fetch all history and refs'
+fi
+grep -Fq 'sh .github/scripts/osv-differential-base.sh' '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: differential scan must use exact predecessor selection'
+grep -Fq "BASE_REVISION: \${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}" '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: predecessor selection must use immutable event SHAs'
+grep -Fq 'run: git checkout --detach "${BASE_REVISION}"' '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: failed baseline checkout must stop the job'
+awk '
+	/^      - name: Report vulnerabilities without a comparison snapshot$/ { in_report = 1; next }
+	in_report && /^      - name:/ { exit }
+	in_report && $0 == "        if: steps.differential-base.outputs.baseline_available == '\''false'\''" { selected = 1 }
+	in_report && /--new=new-results.json/ { candidate = 1 }
+	in_report && /--old=/ { old = 1 }
+	in_report && /--fail-on-vuln=true/ { enforced = 1 }
+	END { exit !(selected && candidate && enforced && !old) }
+' '.github/workflows/osv-scanner.yml' ||
+	fail '.github/workflows/osv-scanner.yml: unavailable baselines must enforce a full candidate vulnerability report'
+grep -Fq "run_check 'OSV differential checkout regression' sh tests/osv-differential-base.sh" "${LOCAL_QUALITY_RUNNER}" ||
+	fail "${LOCAL_QUALITY_RUNNER}: expected actual Git predecessor selection regression"
 osv_differential_uploads_are_guarded '.github/workflows/osv-scanner.yml' ||
 	fail '.github/workflows/osv-scanner.yml: both differential SARIF uploads must require an available report'
 for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-missing code-scanning-or code-scanning-subsequent; do
@@ -670,7 +689,7 @@ for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-m
 		/^  scan-full:$/ {
 			if (mutation == "code-scanning-subsequent") {
 				print "      - name: Unrelated guarded step"
-				print "        if: ${{ !cancelled() && steps.differential-base.outputs.available == '\''true'\'' && (github.event_name != '\''pull_request'\'' || github.event.pull_request.head.repo.full_name == github.repository) }}"
+				print "        if: ${{ !cancelled() && steps.differential-base.outputs.scan_ready == '\''true'\'' && (github.event_name != '\''pull_request'\'' || github.event.pull_request.head.repo.full_name == github.repository) }}"
 				print "        run: true"
 			}
 			in_scan_pr = 0; in_step = 0; artifact = 0; code_scanning = 0
@@ -679,7 +698,7 @@ for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-m
 		in_scan_pr && /^      - name: Upload OSV results to code scanning$/ {
 			if (mutation == "artifact-subsequent") {
 				print "      - name: Unrelated guarded step"
-				print "        if: ${{ !cancelled() && steps.differential-base.outputs.available == '\''true'\'' }}"
+				print "        if: ${{ !cancelled() && steps.differential-base.outputs.scan_ready == '\''true'\'' }}"
 				print "        run: true"
 			}
 			in_step = 1; artifact = 0; code_scanning = 1; print; next
@@ -687,13 +706,13 @@ for mutation in artifact-missing artifact-or artifact-subsequent code-scanning-m
 		in_step && /^      - name:/ { in_step = 0; artifact = 0; code_scanning = 0 }
 		in_step && artifact && /^        if:/ && (mutation == "artifact-missing" || mutation == "artifact-subsequent") { print "        if: ${{ !cancelled() }}"; artifact = 0; next }
 		in_step && artifact && /^        if:/ && mutation == "artifact-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); artifact = 0; print; next }
-		in_step && code_scanning && /^        if:/ && (mutation == "code-scanning-missing" || mutation == "code-scanning-subsequent") { sub(/steps\.differential-base\.outputs\.available == '\''true'\'' && /, ""); code_scanning = 0 }
+		in_step && code_scanning && /^        if:/ && (mutation == "code-scanning-missing" || mutation == "code-scanning-subsequent") { sub(/steps\.differential-base\.outputs\.scan_ready == '\''true'\'' && /, ""); code_scanning = 0 }
 		in_step && code_scanning && /^        if:/ && mutation == "code-scanning-or" { sub(/ && steps\.differential-base/, " || steps.differential-base"); code_scanning = 0; print; next }
 		{ print }
 	' '.github/workflows/osv-scanner.yml' >"${mutated_workflow}" || fail "could not create ${mutation} OSV guard fixture"
 	case "${mutation}" in
 		artifact-or | code-scanning-or)
-			grep -Fq "if: \${{ !cancelled() || steps.differential-base.outputs.available == 'true'" "${mutated_workflow}" ||
+			grep -Fq "if: \${{ !cancelled() || steps.differential-base.outputs.scan_ready == 'true'" "${mutated_workflow}" ||
 				fail ".github/workflows/osv-scanner.yml: ${mutation} fixture did not weaken the availability conjunction"
 			;;
 		code-scanning-subsequent)

@@ -28,3 +28,12 @@ tests that enforcement fails on the positive downloader fixture. Preserve these
 checks, artifact verification and the existing policy/SARIF job names when updating
 the scanner. These are validation-host tools; router runtime dependencies and the
 shared repository MCP client catalog are unchanged.
+
+The OSV differential job checks out the candidate and its immediate parents,
+then selects the exact pull-request base SHA or push predecessor SHA. A missing
+comparison snapshot receives a full candidate report instead of skipping
+vulnerability enforcement. Both reporting paths retain `--fail-on-vuln=true`;
+artifact and code-scanning uploads require successful snapshot selection. No
+all-branch, tag or full-history fetch is required for this comparison. The host
+regression `sh tests/osv-differential-base.sh` exercises actual isolated Git
+repositories, including force-push, new-branch, root and missing-base cases.
