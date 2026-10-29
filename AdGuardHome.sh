@@ -1334,13 +1334,13 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_directory_order matches readdir in 2.80 and strcmp in 2.81+.
 	# Probe only when a conf-dir actually requires its ordering contract.
 	dnsmasq_takeover_directory_order() {
-		local VERSION
+		local version
 		[ -z "${DNSMASQ_DIRECTORY_ORDER}" ] || return 0
-		VERSION="$(dnsmasq --version 2>/dev/null | awk 'NR == 1 && $1 == "Dnsmasq" && $2 == "version" { print $3 }')" || return 1
-		case "${VERSION}" in
+		version="$(dnsmasq --version 2>/dev/null | awk 'NR == 1 && $1 == "Dnsmasq" && $2 == "version" { print $3 }')" || return 1
+		case "${version}" in
 			2.80 | 2.80[!0-9]*) DNSMASQ_DIRECTORY_ORDER="native" ;;
 			*)
-				if printf '%s\n' "${VERSION}" | awk -F. '
+				if printf '%s\n' "${version}" | awk -F. '
 					$1 == 2 && $2 ~ /^[0-9]+([^0-9].*)?$/ && ($2 + 0) >= 81 { good=1 }
 					END { exit(good ? 0 : 1) }'; then
 					DNSMASQ_DIRECTORY_ORDER="sorted"
@@ -1354,27 +1354,27 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_expand_file inspects static absolute config includes. Relative,
 	# stdin, dynamic conf-script and control-character include paths fail closed.
 	dnsmasq_takeover_expand_file() {
-		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS entry NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS SOURCE_BYTES TEXT_BYTES
-		SOURCE="$1"
-		DEPTH="$2"
-		IDENTITY="${3:-${SOURCE}}"
-		case "${SOURCE}" in /*) ;; *) return 1 ;; esac
-		case "${SOURCE}" in *[[:cntrl:]]*) return 1 ;; esac
-		[ -f "${SOURCE}" ] && [ ! -L "${SOURCE}" ] && [ -r "${SOURCE}" ] || return 1
+		local source identity depth records line value directory filters entry name suffix allow deny want_allow list previous source_bytes text_bytes
+		source="$1"
+		depth="$2"
+		identity="${3:-${source}}"
+		case "${source}" in /*) ;; *) return 1 ;; esac
+		case "${source}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
+		[ -f "${source}" ] && [ ! -L "${source}" ] && [ -r "${source}" ] || return 1
 		# dnsmasq reads each device/inode once, including hardlinks and cycles.
-		while IFS= read -r PREVIOUS; do
+		while IFS= read -r previous; do
 			# BusyBox 1.25.1 ash supports the inode/device identity test.
 			# shellcheck disable=SC3013
-			[ "${IDENTITY}" -ef "${PREVIOUS}" ] && return 0
+			[ "${identity}" -ef "${previous}" ] && return 0
 		done <"${SEEN}"
-		[ "${DEPTH}" -le 32 ] || return 1
+		[ "${depth}" -le 32 ] || return 1
 		# Reject binary input before AWK and shell disagree about NUL boundaries.
-		SOURCE_BYTES="$(wc -c <"${SOURCE}")" || return 1
-		TEXT_BYTES="$(tr -d '\000' <"${SOURCE}" | wc -c)" || return 1
-		[ "${SOURCE_BYTES}" -eq "${TEXT_BYTES}" ] 2>/dev/null || return 1
-		printf '%s\n' "${IDENTITY}" >>"${SEEN}" || return 1
-		RECORDS="${PREFIX}.records.${DEPTH}"
-		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${DEPTH}." awk '
+		source_bytes="$(wc -c <"${source}")" || return 1
+		text_bytes="$(tr -d '\000' <"${source}" | wc -c)" || return 1
+		[ "${source_bytes}" -eq "${text_bytes}" ] 2>/dev/null || return 1
+		printf '%s\n' "${identity}" >>"${SEEN}" || return 1
+		records="${PREFIX}.records.${depth}"
+		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${depth}." awk '
 			# Copy consecutive unchanged lines together, keeping shell records bounded by includes.
 			function flush_segment() {
 				if (segment != "") {
@@ -1450,59 +1450,60 @@ dnsmasq_takeover_filter() (
 				print $0 > segment
 			}
 			END { flush_segment(); if (invalid) exit 1 }
-		' "${SOURCE}" >"${RECORDS}" || return 1
-		while IFS= read -r LINE; do
-			VALUE="${LINE#?}"
-			case "${LINE}" in
+		' "${source}" >"${records}" || return 1
+		while IFS= read -r line; do
+			value="${line#?}"
+			case "${line}" in
 				S*)
-					cat "${VALUE}" >>"${OUTPUT}" && rm -f "${VALUE}" || return 1
+					cat "${value}" >>"${OUTPUT}" && rm -f "${value}" || return 1
 					;;
-				F*) dnsmasq_takeover_expand_file "${VALUE}" "$((DEPTH + 1))" || return 1 ;;
+				F*) dnsmasq_takeover_expand_file "${value}" "$((depth + 1))" || return 1 ;;
 				D*)
-					DIRECTORY="${VALUE%%,*}"
-					FILTERS=""
-					[ "${VALUE}" = "${DIRECTORY}" ] || FILTERS="${VALUE#*,}"
-					case "${DIRECTORY}" in /*) ;; *) return 1 ;; esac
-					[ -d "${DIRECTORY}" ] && [ ! -L "${DIRECTORY}" ] && [ -r "${DIRECTORY}" ] || return 1
+					directory="${value%%,*}"
+					filters=""
+					[ "${value}" = "${directory}" ] || filters="${value#*,}"
+					case "${directory}" in /*) ;; *) return 1 ;; esac
+					[ -d "${directory}" ] && [ ! -L "${directory}" ] && [ -r "${directory}" ] || return 1
 					# Validate filenames before passing a newline-delimited find list.
-					for entry in "${DIRECTORY}"/* "${DIRECTORY}"/.[!.]* "${DIRECTORY}"/..?*; do
-						case "${entry}" in *[[:cntrl:]]*) return 1 ;; esac
+					for entry in "${directory}"/* "${directory}"/.[!.]* "${directory}"/..?*; do
+						case "${entry}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
 					done
 					dnsmasq_takeover_directory_order || return 1
-					LIST="${PREFIX}.directory.${DEPTH}"
-					find "${DIRECTORY}" -mindepth 1 -maxdepth 1 >"${LIST}" || return 1
+					list="${PREFIX}.directory.${depth}"
+					find "${directory}" -mindepth 1 -maxdepth 1 >"${list}" || return 1
 					if [ "${DNSMASQ_DIRECTORY_ORDER}" = sorted ]; then
-						LC_ALL=C sort "${LIST}" >"${LIST}.sorted" || return 1
-						mv "${LIST}.sorted" "${LIST}" || return 1
+						LC_ALL=C sort "${list}" >"${list}.sorted" || return 1
+						mv "${list}.sorted" "${list}" || return 1
 					fi
 					while IFS= read -r entry; do
-						NAME="${entry##*/}"
-						case "${NAME}" in .* | *~ | \#*\#) continue ;; esac
-						ALLOW="0"
-						DENY="0"
-						WANT_ALLOW="0"
-						VALUE="${FILTERS}"
-						while [ -n "${VALUE}" ]; do
-							SUFFIX="${VALUE%%,*}"
-							if [ "${VALUE}" = "${SUFFIX}" ]; then VALUE=""; else VALUE="${VALUE#*,}"; fi
-							case "${SUFFIX}" in
+						name="${entry##*/}"
+						case "${name}" in .* | *~ | \#*\#) continue ;; *) : ;; esac
+						allow="0"
+						deny="0"
+						want_allow="0"
+						value="${filters}"
+						while [ -n "${value}" ]; do
+							suffix="${value%%,*}"
+							if [ "${value}" = "${suffix}" ]; then value=""; else value="${value#*,}"; fi
+							case "${suffix}" in
 								'' | '*') continue ;;
 								\**)
-									WANT_ALLOW="1"
-									SUFFIX="${SUFFIX#?}"
-									case "${NAME}" in ?*"${SUFFIX}") ALLOW="1" ;; esac
+									want_allow="1"
+									suffix="${suffix#?}"
+									case "${name}" in ?*"${suffix}") allow="1" ;; *) : ;; esac
 									;;
-								*) case "${NAME}" in ?*"${SUFFIX}") DENY="1" ;; esac ;;
+								*) case "${name}" in ?*"${suffix}") deny="1" ;; *) : ;; esac ;;
 							esac
 						done
-						[ "${DENY}" = 0 ] && { [ "${WANT_ALLOW}" = 0 ] || [ "${ALLOW}" = 1 ]; } || continue
+						[ "${deny}" = 0 ] && { [ "${want_allow}" = 0 ] || [ "${allow}" = 1 ]; } || continue
 						[ ! -L "${entry}" ] && [ -e "${entry}" ] || return 1
 						[ -f "${entry}" ] || continue
-						dnsmasq_takeover_expand_file "${entry}" "$((DEPTH + 1))" || return 1
-					done <"${LIST}"
+						dnsmasq_takeover_expand_file "${entry}" "$((depth + 1))" || return 1
+					done <"${list}"
 					;;
+				*) : ;;
 			esac
-		done <"${RECORDS}"
+		done <"${records}"
 	}
 	dnsmasq_takeover_expand_file "${INPUT}" 0 "${CONFIG_IDENTITY}" || return 1
 	mv "${OUTPUT}" "${INPUT}"
