@@ -1334,13 +1334,13 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_directory_order matches readdir in 2.80 and strcmp in 2.81+.
 	# Probe only when a conf-dir actually requires its ordering contract.
 	dnsmasq_takeover_directory_order() {
-		local VERSION
+		local version
 		[ -z "${DNSMASQ_DIRECTORY_ORDER}" ] || return 0
-		VERSION="$(dnsmasq --version 2>/dev/null | awk 'NR == 1 && $1 == "Dnsmasq" && $2 == "version" { print $3 }')" || return 1
-		case "${VERSION}" in
+		version="$(dnsmasq --version 2>/dev/null | awk 'NR == 1 && $1 == "Dnsmasq" && $2 == "version" { print $3 }')" || return 1
+		case "${version}" in
 			2.80 | 2.80[!0-9]*) DNSMASQ_DIRECTORY_ORDER="native" ;;
 			*)
-				if printf '%s\n' "${VERSION}" | awk -F. '
+				if printf '%s\n' "${version}" | awk -F. '
 					$1 == 2 && $2 ~ /^[0-9]+([^0-9].*)?$/ && ($2 + 0) >= 81 { good=1 }
 					END { exit(good ? 0 : 1) }'; then
 					DNSMASQ_DIRECTORY_ORDER="sorted"
@@ -1354,27 +1354,27 @@ dnsmasq_takeover_filter() (
 	# dnsmasq_takeover_expand_file inspects static absolute config includes. Relative,
 	# stdin, dynamic conf-script and control-character include paths fail closed.
 	dnsmasq_takeover_expand_file() {
-		local SOURCE IDENTITY DEPTH RECORDS LINE VALUE DIRECTORY FILTERS entry NAME SUFFIX ALLOW DENY WANT_ALLOW LIST PREVIOUS SOURCE_BYTES TEXT_BYTES
-		SOURCE="$1"
-		DEPTH="$2"
-		IDENTITY="${3:-${SOURCE}}"
-		case "${SOURCE}" in /*) ;; *) return 1 ;; esac
-		case "${SOURCE}" in *[[:cntrl:]]*) return 1 ;; esac
-		[ -f "${SOURCE}" ] && [ ! -L "${SOURCE}" ] && [ -r "${SOURCE}" ] || return 1
+		local source identity depth records line value directory filters entry name suffix allow deny want_allow list previous source_bytes text_bytes
+		source="$1"
+		depth="$2"
+		identity="${3:-${source}}"
+		case "${source}" in /*) ;; *) return 1 ;; esac
+		case "${source}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
+		[ -f "${source}" ] && [ ! -L "${source}" ] && [ -r "${source}" ] || return 1
 		# dnsmasq reads each device/inode once, including hardlinks and cycles.
-		while IFS= read -r PREVIOUS; do
+		while IFS= read -r previous; do
 			# BusyBox 1.25.1 ash supports the inode/device identity test.
 			# shellcheck disable=SC3013
-			[ "${IDENTITY}" -ef "${PREVIOUS}" ] && return 0
+			[ "${identity}" -ef "${previous}" ] && return 0
 		done <"${SEEN}"
-		[ "${DEPTH}" -le 32 ] || return 1
+		[ "${depth}" -le 32 ] || return 1
 		# Reject binary input before AWK and shell disagree about NUL boundaries.
-		SOURCE_BYTES="$(wc -c <"${SOURCE}")" || return 1
-		TEXT_BYTES="$(tr -d '\000' <"${SOURCE}" | wc -c)" || return 1
-		[ "${SOURCE_BYTES}" -eq "${TEXT_BYTES}" ] 2>/dev/null || return 1
-		printf '%s\n' "${IDENTITY}" >>"${SEEN}" || return 1
-		RECORDS="${PREFIX}.records.${DEPTH}"
-		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${DEPTH}." awk '
+		source_bytes="$(wc -c <"${source}")" || return 1
+		text_bytes="$(tr -d '\000' <"${source}" | wc -c)" || return 1
+		[ "${source_bytes}" -eq "${text_bytes}" ] 2>/dev/null || return 1
+		printf '%s\n' "${identity}" >>"${SEEN}" || return 1
+		records="${PREFIX}.records.${depth}"
+		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${depth}." awk '
 			# Copy consecutive unchanged lines together, keeping shell records bounded by includes.
 			function flush_segment() {
 				if (segment != "") {
@@ -1450,59 +1450,60 @@ dnsmasq_takeover_filter() (
 				print $0 > segment
 			}
 			END { flush_segment(); if (invalid) exit 1 }
-		' "${SOURCE}" >"${RECORDS}" || return 1
-		while IFS= read -r LINE; do
-			VALUE="${LINE#?}"
-			case "${LINE}" in
+		' "${source}" >"${records}" || return 1
+		while IFS= read -r line; do
+			value="${line#?}"
+			case "${line}" in
 				S*)
-					cat "${VALUE}" >>"${OUTPUT}" && rm -f "${VALUE}" || return 1
+					cat "${value}" >>"${OUTPUT}" && rm -f "${value}" || return 1
 					;;
-				F*) dnsmasq_takeover_expand_file "${VALUE}" "$((DEPTH + 1))" || return 1 ;;
+				F*) dnsmasq_takeover_expand_file "${value}" "$((depth + 1))" || return 1 ;;
 				D*)
-					DIRECTORY="${VALUE%%,*}"
-					FILTERS=""
-					[ "${VALUE}" = "${DIRECTORY}" ] || FILTERS="${VALUE#*,}"
-					case "${DIRECTORY}" in /*) ;; *) return 1 ;; esac
-					[ -d "${DIRECTORY}" ] && [ ! -L "${DIRECTORY}" ] && [ -r "${DIRECTORY}" ] || return 1
+					directory="${value%%,*}"
+					filters=""
+					[ "${value}" = "${directory}" ] || filters="${value#*,}"
+					case "${directory}" in /*) ;; *) return 1 ;; esac
+					[ -d "${directory}" ] && [ ! -L "${directory}" ] && [ -r "${directory}" ] || return 1
 					# Validate filenames before passing a newline-delimited find list.
-					for entry in "${DIRECTORY}"/* "${DIRECTORY}"/.[!.]* "${DIRECTORY}"/..?*; do
-						case "${entry}" in *[[:cntrl:]]*) return 1 ;; esac
+					for entry in "${directory}"/* "${directory}"/.[!.]* "${directory}"/..?*; do
+						case "${entry}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
 					done
 					dnsmasq_takeover_directory_order || return 1
-					LIST="${PREFIX}.directory.${DEPTH}"
-					find "${DIRECTORY}" -mindepth 1 -maxdepth 1 >"${LIST}" || return 1
+					list="${PREFIX}.directory.${depth}"
+					find "${directory}" -mindepth 1 -maxdepth 1 >"${list}" || return 1
 					if [ "${DNSMASQ_DIRECTORY_ORDER}" = sorted ]; then
-						LC_ALL=C sort "${LIST}" >"${LIST}.sorted" || return 1
-						mv "${LIST}.sorted" "${LIST}" || return 1
+						LC_ALL=C sort "${list}" >"${list}.sorted" || return 1
+						mv "${list}.sorted" "${list}" || return 1
 					fi
 					while IFS= read -r entry; do
-						NAME="${entry##*/}"
-						case "${NAME}" in .* | *~ | \#*\#) continue ;; esac
-						ALLOW="0"
-						DENY="0"
-						WANT_ALLOW="0"
-						VALUE="${FILTERS}"
-						while [ -n "${VALUE}" ]; do
-							SUFFIX="${VALUE%%,*}"
-							if [ "${VALUE}" = "${SUFFIX}" ]; then VALUE=""; else VALUE="${VALUE#*,}"; fi
-							case "${SUFFIX}" in
+						name="${entry##*/}"
+						case "${name}" in .* | *~ | \#*\#) continue ;; *) : ;; esac
+						allow="0"
+						deny="0"
+						want_allow="0"
+						value="${filters}"
+						while [ -n "${value}" ]; do
+							suffix="${value%%,*}"
+							if [ "${value}" = "${suffix}" ]; then value=""; else value="${value#*,}"; fi
+							case "${suffix}" in
 								'' | '*') continue ;;
 								\**)
-									WANT_ALLOW="1"
-									SUFFIX="${SUFFIX#?}"
-									case "${NAME}" in ?*"${SUFFIX}") ALLOW="1" ;; esac
+									want_allow="1"
+									suffix="${suffix#?}"
+									case "${name}" in ?*"${suffix}") allow="1" ;; *) : ;; esac
 									;;
-								*) case "${NAME}" in ?*"${SUFFIX}") DENY="1" ;; esac ;;
+								*) case "${name}" in ?*"${suffix}") deny="1" ;; *) : ;; esac ;;
 							esac
 						done
-						[ "${DENY}" = 0 ] && { [ "${WANT_ALLOW}" = 0 ] || [ "${ALLOW}" = 1 ]; } || continue
+						[ "${deny}" = 0 ] && { [ "${want_allow}" = 0 ] || [ "${allow}" = 1 ]; } || continue
 						[ ! -L "${entry}" ] && [ -e "${entry}" ] || return 1
 						[ -f "${entry}" ] || continue
-						dnsmasq_takeover_expand_file "${entry}" "$((DEPTH + 1))" || return 1
-					done <"${LIST}"
+						dnsmasq_takeover_expand_file "${entry}" "$((depth + 1))" || return 1
+					done <"${list}"
 					;;
+				*) : ;;
 			esac
-		done <"${RECORDS}"
+		done <"${records}"
 	}
 	dnsmasq_takeover_expand_file "${INPUT}" 0 "${CONFIG_IDENTITY}" || return 1
 	mv "${OUTPUT}" "${INPUT}"
@@ -1729,53 +1730,53 @@ dnsmasq_ipset_state_cleanup_stages() {
 
 # dnsmasq_ipset_boot_id reads exactly one nonempty boot identity record.
 dnsmasq_ipset_boot_id() {
-	local BOOT_EXTRA BOOT_FILE BOOT_VALUE
-	BOOT_FILE="$1"
-	[ -f "${BOOT_FILE}" ] && [ ! -L "${BOOT_FILE}" ] || return 1
+	local boot_extra boot_file boot_value
+	boot_file="$1"
+	[ -f "${boot_file}" ] && [ ! -L "${boot_file}" ] || return 1
 	{
-		IFS= read -r BOOT_VALUE || return 1
-		BOOT_EXTRA=""
-		if IFS= read -r BOOT_EXTRA || [ -n "${BOOT_EXTRA}" ]; then return 1; fi
-	} <"${BOOT_FILE}"
-	case "${BOOT_VALUE}" in "" | *[!A-Za-z0-9-]*) return 1 ;; *) : ;; esac
-	printf '%s\n' "${BOOT_VALUE}"
+		IFS= read -r boot_value || return 1
+		boot_extra=""
+		if IFS= read -r boot_extra || [ -n "${boot_extra}" ]; then return 1; fi
+	} <"${boot_file}"
+	case "${boot_value}" in "" | *[!A-Za-z0-9-]*) return 1 ;; *) : ;; esac
+	printf '%s\n' "${boot_value}"
 }
 
 # dnsmasq_ipset_snapshot_private validates the owner and mode before recovery uses a journal.
 dnsmasq_ipset_snapshot_private() {
-	local CURRENT_UID PATH_METADATA SNAPSHOT_MODE SNAPSHOT_OWNER
+	local current_uid path_metadata snapshot_mode snapshot_owner
 	[ -d "$1" ] && [ ! -L "$1" ] || return 1
-	CURRENT_UID="$(IPSet_Current_UID)" || return 1
-	PATH_METADATA="$(IPSet_Directory_Metadata "$1")" || return 1
-	IFS=' ' read -r SNAPSHOT_OWNER SNAPSHOT_MODE <<EOF
-${PATH_METADATA}
+	current_uid="$(IPSet_Current_UID)" || return 1
+	path_metadata="$(IPSet_Directory_Metadata "$1")" || return 1
+	IFS=' ' read -r snapshot_owner snapshot_mode <<EOF
+${path_metadata}
 EOF
-	[ "${SNAPSHOT_OWNER}" = "${CURRENT_UID}" ] && [ "${SNAPSHOT_MODE}" = rwx------ ]
+	[ "${snapshot_owner}" = "${current_uid}" ] && [ "${snapshot_mode}" = rwx------ ]
 }
 
 # dnsmasq_ipset_snapshot_contents_valid requires complete nonsymlink persistent recovery pairs.
 dnsmasq_ipset_snapshot_contents_valid() {
-	local SNAPSHOT_DIR SNAPSHOT_PART
-	SNAPSHOT_DIR="$1"
-	for SNAPSHOT_PART in ipset yaml; do
-		if [ -f "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ]; then
-			[ ! -e "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] || return 1
+	local snapshot_dir snapshot_part
+	snapshot_dir="$1"
+	for snapshot_part in ipset yaml; do
+		if [ -f "${snapshot_dir}/${snapshot_part}" ] && [ ! -L "${snapshot_dir}/${snapshot_part}" ]; then
+			[ ! -e "${snapshot_dir}/${snapshot_part}.absent" ] && [ ! -L "${snapshot_dir}/${snapshot_part}.absent" ] || return 1
 		else
-			[ ! -e "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] || return 1
-			[ -f "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] || return 1
+			[ ! -e "${snapshot_dir}/${snapshot_part}" ] && [ ! -L "${snapshot_dir}/${snapshot_part}" ] || return 1
+			[ -f "${snapshot_dir}/${snapshot_part}.absent" ] && [ ! -L "${snapshot_dir}/${snapshot_part}.absent" ] || return 1
 		fi
 	done
 }
 
 # dnsmasq_ipset_managed_config accepts only firmware main and numeric SDN config paths.
 dnsmasq_ipset_managed_config() {
-	local SDN_INDEX
+	local sdn_index
 	case "$1" in
 		/etc/dnsmasq.conf) return 0 ;;
 		/etc/dnsmasq-*.conf)
-			SDN_INDEX="${1#/etc/dnsmasq-}"
-			SDN_INDEX="${SDN_INDEX%.conf}"
-			case "${SDN_INDEX}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
+			sdn_index="${1#/etc/dnsmasq-}"
+			sdn_index="${sdn_index%.conf}"
+			case "${sdn_index}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
 			return 0
 			;;
 		*) return 1 ;;
@@ -1784,72 +1785,72 @@ dnsmasq_ipset_managed_config() {
 
 # dnsmasq_ipset_legacy_rebase_allowed requires an exact managed association and a validated prepared postconf context.
 dnsmasq_ipset_legacy_rebase_allowed() {
-	local CONFIG_BACKUP CONFIG_FILE SNAPSHOT_DIR SNAPSHOT_PID
-	SNAPSHOT_DIR="$1"
-	CONFIG_BACKUP="$2"
-	CONFIG_FILE="$3"
+	local config_backup config_file snapshot_dir snapshot_pid
+	snapshot_dir="$1"
+	config_backup="$2"
+	config_file="$3"
 	[ -n "${4:-}" ] && [ "${5:-}" = "${4}.adguard.$$" ] || return 1
 	dnsmasq_ipset_managed_config "$4" || return 1
 	[ -f "$4" ] && [ ! -L "$4" ] && [ -f "$5" ] && [ ! -L "$5" ] || return 1
-	dnsmasq_ipset_managed_config "${CONFIG_FILE}" || return 1
-	if [ -e "${CONFIG_FILE}" ] || [ -L "${CONFIG_FILE}" ]; then
-		[ -f "${CONFIG_FILE}" ] && [ ! -L "${CONFIG_FILE}" ] || return 1
+	dnsmasq_ipset_managed_config "${config_file}" || return 1
+	if [ -e "${config_file}" ] || [ -L "${config_file}" ]; then
+		[ -f "${config_file}" ] && [ ! -L "${config_file}" ] || return 1
 	fi
-	SNAPSHOT_PID="${SNAPSHOT_DIR##*/.AdGuardHome.dnsmasq-ipset.}"
-	case "${SNAPSHOT_PID}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
-	[ "${CONFIG_BACKUP}" = "${CONFIG_FILE}.adguard.${SNAPSHOT_PID}.previous" ] || return 1
-	[ ! -e "${CONFIG_BACKUP}" ] && [ ! -L "${CONFIG_BACKUP}" ] || return 1
-	[ ! -e "${SNAPSHOT_DIR}/dnsmasq" ] && [ ! -L "${SNAPSHOT_DIR}/dnsmasq" ]
+	snapshot_pid="${snapshot_dir##*/.AdGuardHome.dnsmasq-ipset.}"
+	case "${snapshot_pid}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
+	[ "${config_backup}" = "${config_file}.adguard.${snapshot_pid}.previous" ] || return 1
+	[ ! -e "${config_backup}" ] && [ ! -L "${config_backup}" ] || return 1
+	[ ! -e "${snapshot_dir}/dnsmasq" ] && [ ! -L "${snapshot_dir}/dnsmasq" ]
 }
 
 # dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration in an atomically published cleanup-only snapshot.
 dnsmasq_ipset_state_snapshot() {
-	local SNAPSHOT_BOOT SNAPSHOT_DIR SNAPSHOT_STAGE
-	SNAPSHOT_DIR="$1"
-	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
-	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
-	[ ! -e "${SNAPSHOT_STAGE}" ] && [ ! -L "${SNAPSHOT_STAGE}" ] || return 1
-	mkdir -m 700 "${SNAPSHOT_STAGE}" || return 1
+	local snapshot_boot snapshot_dir snapshot_stage
+	snapshot_dir="$1"
+	snapshot_stage="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
+	[ ! -e "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
+	[ ! -e "${snapshot_stage}" ] && [ ! -L "${snapshot_stage}" ] || return 1
+	mkdir -m 700 "${snapshot_stage}" || return 1
 	if [ -e "${IPSET_FILE}" ]; then
-		cp -p "${IPSET_FILE}" "${SNAPSHOT_STAGE}/ipset" || {
-			rm -rf "${SNAPSHOT_STAGE}"
+		cp -p "${IPSET_FILE}" "${snapshot_stage}/ipset" || {
+			rm -rf "${snapshot_stage}"
 			return 1
 		}
 	else
-		: >"${SNAPSHOT_STAGE}/ipset.absent" || {
-			rm -rf "${SNAPSHOT_STAGE}"
+		: >"${snapshot_stage}/ipset.absent" || {
+			rm -rf "${snapshot_stage}"
 			return 1
 		}
 	fi
 	if [ -e "${YAML_FILE}" ]; then
-		cp -p "${YAML_FILE}" "${SNAPSHOT_STAGE}/yaml" || {
-			rm -rf "${SNAPSHOT_STAGE}"
+		cp -p "${YAML_FILE}" "${snapshot_stage}/yaml" || {
+			rm -rf "${snapshot_stage}"
 			return 1
 		}
 	else
-		: >"${SNAPSHOT_STAGE}/yaml.absent" || {
-			rm -rf "${SNAPSHOT_STAGE}"
+		: >"${snapshot_stage}/yaml.absent" || {
+			rm -rf "${snapshot_stage}"
 			return 1
 		}
 	fi
-	SNAPSHOT_BOOT="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || {
-		rm -rf "${SNAPSHOT_STAGE}"
+	snapshot_boot="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || {
+		rm -rf "${snapshot_stage}"
 		return 1
 	}
-	printf '%s\n' "${SNAPSHOT_BOOT}" >"${SNAPSHOT_STAGE}/snapshot.boot" || {
-		rm -rf "${SNAPSHOT_STAGE}"
+	printf '%s\n' "${snapshot_boot}" >"${snapshot_stage}/snapshot.boot" || {
+		rm -rf "${snapshot_stage}"
 		return 1
 	}
-	printf '%s\n' '1:2' >"${SNAPSHOT_STAGE}/snapshot.version" || {
-		rm -rf "${SNAPSHOT_STAGE}"
+	printf '%s\n' '1:2' >"${snapshot_stage}/snapshot.version" || {
+		rm -rf "${snapshot_stage}"
 		return 1
 	}
-	: >"${SNAPSHOT_STAGE}/cleanup.only" || {
-		rm -rf "${SNAPSHOT_STAGE}"
+	: >"${snapshot_stage}/cleanup.only" || {
+		rm -rf "${snapshot_stage}"
 		return 1
 	}
-	mv "${SNAPSHOT_STAGE}" "${SNAPSHOT_DIR}" || {
-		rm -rf "${SNAPSHOT_STAGE}"
+	mv "${snapshot_stage}" "${snapshot_dir}" || {
+		rm -rf "${snapshot_stage}"
 		return 1
 	}
 }
@@ -1928,117 +1929,117 @@ dnsmasq_ipset_state_finalize_cleanup() {
 
 # dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
-	local CONFIG_ASSOCIATION CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_SOURCE CONFIG_RESTORE_STAGE CURRENT_BOOT_ID RECORD_EXTRA SNAPSHOT_BOOT_ID SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION
-	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
-		[ -d "${SNAPSHOT_DIR}" ] || continue
-		dnsmasq_ipset_snapshot_private "${SNAPSHOT_DIR}" || return 1
-		SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
-		case "${SNAPSHOT_NAME}" in
+	local config_association config_backup_recovery config_file_recovery config_restore_source config_restore_stage current_boot_id record_extra snapshot_boot_id snapshot_dir snapshot_name snapshot_version
+	for snapshot_dir in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
+		[ -d "${snapshot_dir}" ] || continue
+		dnsmasq_ipset_snapshot_private "${snapshot_dir}" || return 1
+		snapshot_name="${snapshot_dir##*/}"
+		case "${snapshot_name}" in
 			.AdGuardHome.dnsmasq-ipset.*) ;;
 			*) return 1 ;;
 		esac
-		SNAPSHOT_VERSION=""
-		if [ -e "${SNAPSHOT_DIR}/snapshot.version" ] || [ -L "${SNAPSHOT_DIR}/snapshot.version" ]; then
-			dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
-			SNAPSHOT_VERSION="1:2"
+		snapshot_version=""
+		if [ -e "${snapshot_dir}/snapshot.version" ] || [ -L "${snapshot_dir}/snapshot.version" ]; then
+			dnsmasq_ipset_snapshot_version_valid "${snapshot_dir}/snapshot.version" || return 1
+			snapshot_version="1:2"
 		fi
-		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
-		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
-		[ ! -L "${SNAPSHOT_DIR}/config.rebased" ] || return 1
-		if [ -e "${SNAPSHOT_DIR}/cleanup.only" ] || [ -L "${SNAPSHOT_DIR}/cleanup.only" ]; then
-			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
-			[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
-			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
-			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -e "${SNAPSHOT_DIR}/config.rebased" ] || return 1
-			[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] || { [ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ]; } || return 1
-			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] || { [ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]; } || return 1
-			if [ -e "${SNAPSHOT_DIR}/config.pending" ] &&
-				{ [ -e "${SNAPSHOT_DIR}/cleanup.pending" ] || [ -e "${SNAPSHOT_DIR}/restore.pending" ]; }; then
+		[ ! -L "${snapshot_dir}/config.pending" ] || return 1
+		[ ! -L "${snapshot_dir}/config.restored" ] || return 1
+		[ ! -L "${snapshot_dir}/config.rebased" ] || return 1
+		if [ -e "${snapshot_dir}/cleanup.only" ] || [ -L "${snapshot_dir}/cleanup.only" ]; then
+			[ "${snapshot_version}" = "1:2" ] || return 1
+			[ -f "${snapshot_dir}/cleanup.only" ] && [ ! -L "${snapshot_dir}/cleanup.only" ] || return 1
+			[ ! -e "${snapshot_dir}/config.pending" ] || { [ -f "${snapshot_dir}/config.pending" ] && [ ! -L "${snapshot_dir}/config.pending" ]; } || return 1
+			[ ! -e "${snapshot_dir}/config.restored" ] && [ ! -e "${snapshot_dir}/config.rebased" ] || return 1
+			[ ! -e "${snapshot_dir}/cleanup.pending" ] || { [ -f "${snapshot_dir}/cleanup.pending" ] && [ ! -L "${snapshot_dir}/cleanup.pending" ]; } || return 1
+			[ ! -e "${snapshot_dir}/restore.pending" ] || { [ -f "${snapshot_dir}/restore.pending" ] && [ ! -L "${snapshot_dir}/restore.pending" ]; } || return 1
+			if [ -e "${snapshot_dir}/config.pending" ] &&
+				{ [ -e "${snapshot_dir}/cleanup.pending" ] || [ -e "${snapshot_dir}/restore.pending" ]; }; then
 				return 1
 			fi
-			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.only; then
-				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
-				return 1
-			fi
-			continue
-		fi
-		if [ -e "${SNAPSHOT_DIR}/cleanup.pending" ]; then
-			[ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ] || return 1
-			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-			if ! dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending; then
-				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${SNAPSHOT_DIR}"
+			if ! dnsmasq_ipset_state_finalize_cleanup "${snapshot_dir}" cleanup.only; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${snapshot_dir}"
 				return 1
 			fi
 			continue
 		fi
-		if [ ! -e "${SNAPSHOT_DIR}/restore.pending" ]; then
-			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${SNAPSHOT_DIR}"
+		if [ -e "${snapshot_dir}/cleanup.pending" ]; then
+			[ -f "${snapshot_dir}/cleanup.pending" ] && [ ! -L "${snapshot_dir}/cleanup.pending" ] || return 1
+			[ ! -e "${snapshot_dir}/restore.pending" ] && [ ! -L "${snapshot_dir}/restore.pending" ] || return 1
+			if ! dnsmasq_ipset_state_finalize_cleanup "${snapshot_dir}" cleanup.pending; then
+				agh_log error dnsmasq_params "state=recovery action=cleanup_snapshot result=failed snapshot=${snapshot_dir}"
+				return 1
+			fi
+			continue
+		fi
+		if [ ! -e "${snapshot_dir}/restore.pending" ]; then
+			agh_log error dnsmasq_params "state=recovery action=validate_snapshot result=failed reason=missing_marker snapshot=${snapshot_dir}"
 			return 1
 		fi
-		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-		dnsmasq_ipset_snapshot_contents_valid "${SNAPSHOT_DIR}" || return 1
-		CONFIG_ASSOCIATION=""
-		for CONFIG_RESTORE_SOURCE in config.pending config.restored config.rebased; do
-			if [ -e "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ]; then
-				[ -f "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ] || return 1
-				[ -z "${CONFIG_ASSOCIATION}" ] || return 1
-				CONFIG_ASSOCIATION="${CONFIG_RESTORE_SOURCE}"
+		[ -f "${snapshot_dir}/restore.pending" ] && [ ! -L "${snapshot_dir}/restore.pending" ] || return 1
+		dnsmasq_ipset_snapshot_contents_valid "${snapshot_dir}" || return 1
+		config_association=""
+		for config_restore_source in config.pending config.restored config.rebased; do
+			if [ -e "${snapshot_dir}/${config_restore_source}" ]; then
+				[ -f "${snapshot_dir}/${config_restore_source}" ] && [ ! -L "${snapshot_dir}/${config_restore_source}" ] || return 1
+				[ -z "${config_association}" ] || return 1
+				config_association="${config_restore_source}"
 			fi
 		done
-		[ "${SNAPSHOT_VERSION}" != "1:2" ] || [ -n "${CONFIG_ASSOCIATION}" ] || return 1
-		if [ -n "${CONFIG_ASSOCIATION}" ]; then
+		[ "${snapshot_version}" != "1:2" ] || [ -n "${config_association}" ] || return 1
+		if [ -n "${config_association}" ]; then
 			{
-				IFS= read -r CONFIG_BACKUP_RECOVERY || return 1
-				IFS= read -r CONFIG_FILE_RECOVERY || return 1
-				RECORD_EXTRA=""
-				if IFS= read -r RECORD_EXTRA || [ -n "${RECORD_EXTRA}" ]; then return 1; fi
-			} <"${SNAPSHOT_DIR}/${CONFIG_ASSOCIATION}"
-			case "${CONFIG_BACKUP_RECOVERY}" in /*) ;; *) return 1 ;; esac
-			case "${CONFIG_FILE_RECOVERY}" in /*) ;; *) return 1 ;; esac
-			SNAPSHOT_BOOT_ID=""
-			if [ -e "${SNAPSHOT_DIR}/snapshot.boot" ] || [ -L "${SNAPSHOT_DIR}/snapshot.boot" ]; then
-				SNAPSHOT_BOOT_ID="$(dnsmasq_ipset_boot_id "${SNAPSHOT_DIR}/snapshot.boot")" || return 1
-				CURRENT_BOOT_ID="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || return 1
+				IFS= read -r config_backup_recovery || return 1
+				IFS= read -r config_file_recovery || return 1
+				record_extra=""
+				if IFS= read -r record_extra || [ -n "${record_extra}" ]; then return 1; fi
+			} <"${snapshot_dir}/${config_association}"
+			case "${config_backup_recovery}" in /*) ;; *) return 1 ;; esac
+			case "${config_file_recovery}" in /*) ;; *) return 1 ;; esac
+			snapshot_boot_id=""
+			if [ -e "${snapshot_dir}/snapshot.boot" ] || [ -L "${snapshot_dir}/snapshot.boot" ]; then
+				snapshot_boot_id="$(dnsmasq_ipset_boot_id "${snapshot_dir}/snapshot.boot")" || return 1
+				current_boot_id="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || return 1
 			fi
-			if [ "${CONFIG_ASSOCIATION}" = config.pending ]; then
-				CONFIG_RESTORE_SOURCE="${CONFIG_BACKUP_RECOVERY}"
-				if [ -n "${SNAPSHOT_BOOT_ID}" ] && [ "${SNAPSHOT_BOOT_ID}" != "${CURRENT_BOOT_ID}" ]; then
-					dnsmasq_ipset_managed_config "${CONFIG_FILE_RECOVERY}" || return 1
-					mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.rebased" || return 1
-					CONFIG_ASSOCIATION=config.rebased
-					agh_log warning dnsmasq_params "state=recovery action=preserve_regenerated_dnsmasq reason=boot_changed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR} backup=${CONFIG_BACKUP_RECOVERY}"
-				elif [ ! -e "${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${CONFIG_RESTORE_SOURCE}" ]; then
-					if [ -n "${SNAPSHOT_BOOT_ID}" ]; then
-						CONFIG_RESTORE_SOURCE="${SNAPSHOT_DIR}/dnsmasq"
-					elif dnsmasq_ipset_legacy_rebase_allowed "${SNAPSHOT_DIR}" "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_FILE_RECOVERY}" "${1:-}" "${2:-}"; then
-						mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.rebased" || return 1
-						CONFIG_ASSOCIATION=config.rebased
-						agh_log warning dnsmasq_params "state=recovery action=rebase_legacy_dnsmasq reason=missing_volatile_backup boot=unknown basis=current_runtime_or_absence context=${1:-} config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR} backup=${CONFIG_BACKUP_RECOVERY} original_config_unavailable=1"
+			if [ "${config_association}" = config.pending ]; then
+				config_restore_source="${config_backup_recovery}"
+				if [ -n "${snapshot_boot_id}" ] && [ "${snapshot_boot_id}" != "${current_boot_id}" ]; then
+					dnsmasq_ipset_managed_config "${config_file_recovery}" || return 1
+					mv "${snapshot_dir}/config.pending" "${snapshot_dir}/config.rebased" || return 1
+					config_association=config.rebased
+					agh_log warning dnsmasq_params "state=recovery action=preserve_regenerated_dnsmasq reason=boot_changed config=${config_file_recovery} snapshot=${snapshot_dir} backup=${config_backup_recovery}"
+				elif [ ! -e "${config_restore_source}" ] && [ ! -L "${config_restore_source}" ]; then
+					if [ -n "${snapshot_boot_id}" ]; then
+						config_restore_source="${snapshot_dir}/dnsmasq"
+					elif dnsmasq_ipset_legacy_rebase_allowed "${snapshot_dir}" "${config_backup_recovery}" "${config_file_recovery}" "${1:-}" "${2:-}"; then
+						mv "${snapshot_dir}/config.pending" "${snapshot_dir}/config.rebased" || return 1
+						config_association=config.rebased
+						agh_log warning dnsmasq_params "state=recovery action=rebase_legacy_dnsmasq reason=missing_volatile_backup boot=unknown basis=current_runtime_or_absence context=${1:-} config=${config_file_recovery} snapshot=${snapshot_dir} backup=${config_backup_recovery} original_config_unavailable=1"
 					else
-						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed reason=missing_backup managed_postconf_required=1 config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed reason=missing_backup managed_postconf_required=1 config=${config_file_recovery} snapshot=${snapshot_dir}"
 						return 1
 					fi
 				fi
-				if [ "${CONFIG_ASSOCIATION}" = config.pending ]; then
-					[ -f "${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${CONFIG_RESTORE_SOURCE}" ] || return 1
-					CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
-					cp -p "${CONFIG_RESTORE_SOURCE}" "${CONFIG_RESTORE_STAGE}" || return 1
-					if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
-						rm -f "${CONFIG_RESTORE_STAGE}"
-						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+				if [ "${config_association}" = config.pending ]; then
+					[ -f "${config_restore_source}" ] && [ ! -L "${config_restore_source}" ] || return 1
+					config_restore_stage="${config_file_recovery}.adguard-restore.$$"
+					cp -p "${config_restore_source}" "${config_restore_stage}" || return 1
+					if ! mv "${config_restore_stage}" "${config_file_recovery}"; then
+						rm -f "${config_restore_stage}"
+						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${config_file_recovery} snapshot=${snapshot_dir}"
 						return 1
 					fi
-					mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+					mv "${snapshot_dir}/config.pending" "${snapshot_dir}/config.restored" || return 1
 				fi
 			fi
-			if [ "${CONFIG_ASSOCIATION}" != config.rebased ]; then
-				rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
+			if [ "${config_association}" != config.rebased ]; then
+				rm -f "${config_backup_recovery}" || return 1
 			fi
 		fi
-		if dnsmasq_ipset_state_restore "${SNAPSHOT_DIR}"; then
-			dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending || return 1
+		if dnsmasq_ipset_state_restore "${snapshot_dir}"; then
+			dnsmasq_ipset_state_finalize_cleanup "${snapshot_dir}" cleanup.pending || return 1
 		else
-			agh_log error dnsmasq_params "state=recovery action=restore_ipset result=failed snapshot=${SNAPSHOT_DIR}"
+			agh_log error dnsmasq_params "state=recovery action=restore_ipset result=failed snapshot=${snapshot_dir}"
 			return 1
 		fi
 	done
