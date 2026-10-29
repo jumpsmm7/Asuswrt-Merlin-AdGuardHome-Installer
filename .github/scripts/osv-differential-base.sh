@@ -16,6 +16,7 @@ commit_sha_valid() {
 	[ "${#1}" -eq 40 ] || return 1
 	case "$1" in
 		*[!0-9a-f]*) return 1 ;;
+		*) return 0 ;;
 	esac
 }
 
