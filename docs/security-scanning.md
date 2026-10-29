@@ -28,3 +28,22 @@ tests that enforcement fails on the positive downloader fixture. Preserve these
 checks, artifact verification and the existing policy/SARIF job names when updating
 the scanner. These are validation-host tools; router runtime dependencies and the
 shared repository MCP client catalog are unchanged.
+
+The OSV differential job checks out the candidate and its immediate parents,
+then selects the exact pull-request base SHA or push predecessor SHA. A missing
+comparison snapshot receives a full candidate report instead of skipping
+vulnerability enforcement. Both reporting paths retain `--fail-on-vuln=true`;
+artifact and code-scanning uploads require validated completed scan results. No
+all-branch, tag or full-history fetch is required for this comparison. The host
+regression `sh tests/osv-differential-base.sh` exercises actual isolated Git
+repositories, including force-push, new-branch, root and missing-base cases.
+
+The scanner runs from the pinned v2.3.8 image digest with a read-only repository
+and a private output directory. Scan tools are preserved before changing the
+comparison checkout. The host wrapper captures the numeric exit status and
+error-only diagnostics, then validates the JSON model before publishing a fresh
+result atomically. Exit 1 with complete vulnerability results still reaches the
+reporter; operational failures, partial extraction, missing or malformed JSON
+cannot become clean SARIF. `python3 tests/osv-result-readiness.py` exercises
+these boundaries. Keep the model validator and image version synchronized when
+upgrading OSV. These Docker/Python requirements are confined to validation hosts.

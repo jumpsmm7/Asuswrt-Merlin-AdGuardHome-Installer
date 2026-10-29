@@ -1727,9 +1727,84 @@ dnsmasq_ipset_state_cleanup_stages() {
 	done
 }
 
+# dnsmasq_ipset_boot_id reads exactly one nonempty boot identity record.
+dnsmasq_ipset_boot_id() {
+	local BOOT_EXTRA BOOT_FILE BOOT_VALUE
+	BOOT_FILE="$1"
+	[ -f "${BOOT_FILE}" ] && [ ! -L "${BOOT_FILE}" ] || return 1
+	{
+		IFS= read -r BOOT_VALUE || return 1
+		BOOT_EXTRA=""
+		if IFS= read -r BOOT_EXTRA || [ -n "${BOOT_EXTRA}" ]; then return 1; fi
+	} <"${BOOT_FILE}"
+	case "${BOOT_VALUE}" in "" | *[!A-Za-z0-9-]*) return 1 ;; *) : ;; esac
+	printf '%s\n' "${BOOT_VALUE}"
+}
+
+# dnsmasq_ipset_snapshot_private validates the owner and mode before recovery uses a journal.
+dnsmasq_ipset_snapshot_private() {
+	local CURRENT_UID PATH_METADATA SNAPSHOT_MODE SNAPSHOT_OWNER
+	[ -d "$1" ] && [ ! -L "$1" ] || return 1
+	CURRENT_UID="$(IPSet_Current_UID)" || return 1
+	PATH_METADATA="$(IPSet_Directory_Metadata "$1")" || return 1
+	IFS=' ' read -r SNAPSHOT_OWNER SNAPSHOT_MODE <<EOF
+${PATH_METADATA}
+EOF
+	[ "${SNAPSHOT_OWNER}" = "${CURRENT_UID}" ] && [ "${SNAPSHOT_MODE}" = rwx------ ]
+}
+
+# dnsmasq_ipset_snapshot_contents_valid requires complete nonsymlink persistent recovery pairs.
+dnsmasq_ipset_snapshot_contents_valid() {
+	local SNAPSHOT_DIR SNAPSHOT_PART
+	SNAPSHOT_DIR="$1"
+	for SNAPSHOT_PART in ipset yaml; do
+		if [ -f "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ]; then
+			[ ! -e "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] || return 1
+		else
+			[ ! -e "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}" ] || return 1
+			[ -f "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] && [ ! -L "${SNAPSHOT_DIR}/${SNAPSHOT_PART}.absent" ] || return 1
+		fi
+	done
+}
+
+# dnsmasq_ipset_managed_config accepts only firmware main and numeric SDN config paths.
+dnsmasq_ipset_managed_config() {
+	local SDN_INDEX
+	case "$1" in
+		/etc/dnsmasq.conf) return 0 ;;
+		/etc/dnsmasq-*.conf)
+			SDN_INDEX="${1#/etc/dnsmasq-}"
+			SDN_INDEX="${SDN_INDEX%.conf}"
+			case "${SDN_INDEX}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
+			return 0
+			;;
+		*) return 1 ;;
+	esac
+}
+
+# dnsmasq_ipset_legacy_rebase_allowed requires an exact managed association and a validated prepared postconf context.
+dnsmasq_ipset_legacy_rebase_allowed() {
+	local CONFIG_BACKUP CONFIG_FILE SNAPSHOT_DIR SNAPSHOT_PID
+	SNAPSHOT_DIR="$1"
+	CONFIG_BACKUP="$2"
+	CONFIG_FILE="$3"
+	[ -n "${4:-}" ] && [ "${5:-}" = "${4}.adguard.$$" ] || return 1
+	dnsmasq_ipset_managed_config "$4" || return 1
+	[ -f "$4" ] && [ ! -L "$4" ] && [ -f "$5" ] && [ ! -L "$5" ] || return 1
+	dnsmasq_ipset_managed_config "${CONFIG_FILE}" || return 1
+	if [ -e "${CONFIG_FILE}" ] || [ -L "${CONFIG_FILE}" ]; then
+		[ -f "${CONFIG_FILE}" ] && [ ! -L "${CONFIG_FILE}" ] || return 1
+	fi
+	SNAPSHOT_PID="${SNAPSHOT_DIR##*/.AdGuardHome.dnsmasq-ipset.}"
+	case "${SNAPSHOT_PID}" in "" | *[!0-9]*) return 1 ;; *) : ;; esac
+	[ "${CONFIG_BACKUP}" = "${CONFIG_FILE}.adguard.${SNAPSHOT_PID}.previous" ] || return 1
+	[ ! -e "${CONFIG_BACKUP}" ] && [ ! -L "${CONFIG_BACKUP}" ] || return 1
+	[ ! -e "${SNAPSHOT_DIR}/dnsmasq" ] && [ ! -L "${SNAPSHOT_DIR}/dnsmasq" ]
+}
+
 # dnsmasq_ipset_state_snapshot saves the managed IPSet file and YAML configuration in an atomically published cleanup-only snapshot.
 dnsmasq_ipset_state_snapshot() {
-	local SNAPSHOT_DIR SNAPSHOT_STAGE
+	local SNAPSHOT_BOOT SNAPSHOT_DIR SNAPSHOT_STAGE
 	SNAPSHOT_DIR="$1"
 	SNAPSHOT_STAGE="${WORK_DIR}/.AdGuardHome.dnsmasq-stage.$$"
 	[ ! -e "${SNAPSHOT_DIR}" ] && [ ! -L "${SNAPSHOT_DIR}" ] || return 1
@@ -1757,6 +1832,14 @@ dnsmasq_ipset_state_snapshot() {
 			return 1
 		}
 	fi
+	SNAPSHOT_BOOT="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
+	printf '%s\n' "${SNAPSHOT_BOOT}" >"${SNAPSHOT_STAGE}/snapshot.boot" || {
+		rm -rf "${SNAPSHOT_STAGE}"
+		return 1
+	}
 	printf '%s\n' '1:2' >"${SNAPSHOT_STAGE}/snapshot.version" || {
 		rm -rf "${SNAPSHOT_STAGE}"
 		return 1
@@ -1810,6 +1893,7 @@ dnsmasq_ipset_state_mark_cleanup_only() {
 	dnsmasq_ipset_snapshot_version_valid "${SNAPSHOT_DIR}/snapshot.version" || return 1
 	[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
 	[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+	[ ! -e "${SNAPSHOT_DIR}/config.rebased" ] && [ ! -L "${SNAPSHOT_DIR}/config.rebased" ] || return 1
 	if [ ! -e "${SNAPSHOT_DIR}/cleanup.only" ]; then
 		CLEANUP_ONLY_STAGE="${SNAPSHOT_DIR}/cleanup.only.$$"
 		: >"${CLEANUP_ONLY_STAGE}" || return 1
@@ -1844,10 +1928,10 @@ dnsmasq_ipset_state_finalize_cleanup() {
 
 # dnsmasq_ipset_state_recover_pending restores rollback-pending snapshots and removes cleanup-pending committed snapshots.
 dnsmasq_ipset_state_recover_pending() {
-	local CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_STAGE SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION
+	local CONFIG_ASSOCIATION CONFIG_BACKUP_RECOVERY CONFIG_FILE_RECOVERY CONFIG_RESTORE_SOURCE CONFIG_RESTORE_STAGE CURRENT_BOOT_ID RECORD_EXTRA SNAPSHOT_BOOT_ID SNAPSHOT_DIR SNAPSHOT_NAME SNAPSHOT_VERSION
 	for SNAPSHOT_DIR in "${WORK_DIR}"/.AdGuardHome.dnsmasq-ipset.*; do
 		[ -d "${SNAPSHOT_DIR}" ] || continue
-		[ ! -L "${SNAPSHOT_DIR}" ] || return 1
+		dnsmasq_ipset_snapshot_private "${SNAPSHOT_DIR}" || return 1
 		SNAPSHOT_NAME="${SNAPSHOT_DIR##*/}"
 		case "${SNAPSHOT_NAME}" in
 			.AdGuardHome.dnsmasq-ipset.*) ;;
@@ -1860,11 +1944,12 @@ dnsmasq_ipset_state_recover_pending() {
 		fi
 		[ ! -L "${SNAPSHOT_DIR}/config.pending" ] || return 1
 		[ ! -L "${SNAPSHOT_DIR}/config.restored" ] || return 1
+		[ ! -L "${SNAPSHOT_DIR}/config.rebased" ] || return 1
 		if [ -e "${SNAPSHOT_DIR}/cleanup.only" ] || [ -L "${SNAPSHOT_DIR}/cleanup.only" ]; then
 			[ "${SNAPSHOT_VERSION}" = "1:2" ] || return 1
 			[ -f "${SNAPSHOT_DIR}/cleanup.only" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.only" ] || return 1
 			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
-			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
+			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] && [ ! -e "${SNAPSHOT_DIR}/config.rebased" ] || return 1
 			[ ! -e "${SNAPSHOT_DIR}/cleanup.pending" ] || { [ -f "${SNAPSHOT_DIR}/cleanup.pending" ] && [ ! -L "${SNAPSHOT_DIR}/cleanup.pending" ]; } || return 1
 			[ ! -e "${SNAPSHOT_DIR}/restore.pending" ] || { [ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ]; } || return 1
 			if [ -e "${SNAPSHOT_DIR}/config.pending" ] &&
@@ -1891,49 +1976,64 @@ dnsmasq_ipset_state_recover_pending() {
 			return 1
 		fi
 		[ -f "${SNAPSHOT_DIR}/restore.pending" ] && [ ! -L "${SNAPSHOT_DIR}/restore.pending" ] || return 1
-		if [ "${SNAPSHOT_VERSION}" = "1:2" ] && [ ! -e "${SNAPSHOT_DIR}/config.pending" ] &&
-			[ ! -e "${SNAPSHOT_DIR}/config.restored" ]; then
-			return 1
-		fi
-		if [ -e "${SNAPSHOT_DIR}/config.pending" ] || [ -e "${SNAPSHOT_DIR}/config.restored" ]; then
-			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || { [ -f "${SNAPSHOT_DIR}/config.pending" ] && [ ! -L "${SNAPSHOT_DIR}/config.pending" ]; } || return 1
-			[ ! -e "${SNAPSHOT_DIR}/config.restored" ] || { [ -f "${SNAPSHOT_DIR}/config.restored" ] && [ ! -L "${SNAPSHOT_DIR}/config.restored" ]; } || return 1
-			[ ! -e "${SNAPSHOT_DIR}/config.pending" ] || [ ! -e "${SNAPSHOT_DIR}/config.restored" ] || return 1
-			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
-				{
-					IFS= read -r CONFIG_BACKUP_RECOVERY
-					IFS= read -r CONFIG_FILE_RECOVERY
-				} <"${SNAPSHOT_DIR}/config.pending" || return 1
-			else
-				{
-					IFS= read -r CONFIG_BACKUP_RECOVERY
-					IFS= read -r CONFIG_FILE_RECOVERY
-				} <"${SNAPSHOT_DIR}/config.restored" || return 1
+		dnsmasq_ipset_snapshot_contents_valid "${SNAPSHOT_DIR}" || return 1
+		CONFIG_ASSOCIATION=""
+		for CONFIG_RESTORE_SOURCE in config.pending config.restored config.rebased; do
+			if [ -e "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ]; then
+				[ -f "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${SNAPSHOT_DIR}/${CONFIG_RESTORE_SOURCE}" ] || return 1
+				[ -z "${CONFIG_ASSOCIATION}" ] || return 1
+				CONFIG_ASSOCIATION="${CONFIG_RESTORE_SOURCE}"
 			fi
+		done
+		[ "${SNAPSHOT_VERSION}" != "1:2" ] || [ -n "${CONFIG_ASSOCIATION}" ] || return 1
+		if [ -n "${CONFIG_ASSOCIATION}" ]; then
+			{
+				IFS= read -r CONFIG_BACKUP_RECOVERY || return 1
+				IFS= read -r CONFIG_FILE_RECOVERY || return 1
+				RECORD_EXTRA=""
+				if IFS= read -r RECORD_EXTRA || [ -n "${RECORD_EXTRA}" ]; then return 1; fi
+			} <"${SNAPSHOT_DIR}/${CONFIG_ASSOCIATION}"
 			case "${CONFIG_BACKUP_RECOVERY}" in /*) ;; *) return 1 ;; esac
 			case "${CONFIG_FILE_RECOVERY}" in /*) ;; *) return 1 ;; esac
-			if [ -e "${SNAPSHOT_DIR}/config.pending" ]; then
-				[ -f "${CONFIG_BACKUP_RECOVERY}" ] && [ ! -L "${CONFIG_BACKUP_RECOVERY}" ] || return 1
-				CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
-				cp -p "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_RESTORE_STAGE}" || return 1
-				if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
-					rm -f "${CONFIG_RESTORE_STAGE}"
-					agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
-					return 1
-				fi
-				mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+			SNAPSHOT_BOOT_ID=""
+			if [ -e "${SNAPSHOT_DIR}/snapshot.boot" ] || [ -L "${SNAPSHOT_DIR}/snapshot.boot" ]; then
+				SNAPSHOT_BOOT_ID="$(dnsmasq_ipset_boot_id "${SNAPSHOT_DIR}/snapshot.boot")" || return 1
+				CURRENT_BOOT_ID="$(dnsmasq_ipset_boot_id "${PROC_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}")" || return 1
 			fi
-			rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
-		fi
-		if { [ -f "${SNAPSHOT_DIR}/ipset" ] && [ ! -L "${SNAPSHOT_DIR}/ipset" ]; }; then
-			[ ! -e "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
-		else
-			[ -f "${SNAPSHOT_DIR}/ipset.absent" ] && [ ! -L "${SNAPSHOT_DIR}/ipset.absent" ] || return 1
-		fi
-		if { [ -f "${SNAPSHOT_DIR}/yaml" ] && [ ! -L "${SNAPSHOT_DIR}/yaml" ]; }; then
-			[ ! -e "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
-		else
-			[ -f "${SNAPSHOT_DIR}/yaml.absent" ] && [ ! -L "${SNAPSHOT_DIR}/yaml.absent" ] || return 1
+			if [ "${CONFIG_ASSOCIATION}" = config.pending ]; then
+				CONFIG_RESTORE_SOURCE="${CONFIG_BACKUP_RECOVERY}"
+				if [ -n "${SNAPSHOT_BOOT_ID}" ] && [ "${SNAPSHOT_BOOT_ID}" != "${CURRENT_BOOT_ID}" ]; then
+					dnsmasq_ipset_managed_config "${CONFIG_FILE_RECOVERY}" || return 1
+					mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.rebased" || return 1
+					CONFIG_ASSOCIATION=config.rebased
+					agh_log warning dnsmasq_params "state=recovery action=preserve_regenerated_dnsmasq reason=boot_changed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR} backup=${CONFIG_BACKUP_RECOVERY}"
+				elif [ ! -e "${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${CONFIG_RESTORE_SOURCE}" ]; then
+					if [ -n "${SNAPSHOT_BOOT_ID}" ]; then
+						CONFIG_RESTORE_SOURCE="${SNAPSHOT_DIR}/dnsmasq"
+					elif dnsmasq_ipset_legacy_rebase_allowed "${SNAPSHOT_DIR}" "${CONFIG_BACKUP_RECOVERY}" "${CONFIG_FILE_RECOVERY}" "${1:-}" "${2:-}"; then
+						mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.rebased" || return 1
+						CONFIG_ASSOCIATION=config.rebased
+						agh_log warning dnsmasq_params "state=recovery action=rebase_legacy_dnsmasq reason=missing_volatile_backup boot=unknown basis=current_runtime_or_absence context=${1:-} config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR} backup=${CONFIG_BACKUP_RECOVERY} original_config_unavailable=1"
+					else
+						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed reason=missing_backup managed_postconf_required=1 config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+						return 1
+					fi
+				fi
+				if [ "${CONFIG_ASSOCIATION}" = config.pending ]; then
+					[ -f "${CONFIG_RESTORE_SOURCE}" ] && [ ! -L "${CONFIG_RESTORE_SOURCE}" ] || return 1
+					CONFIG_RESTORE_STAGE="${CONFIG_FILE_RECOVERY}.adguard-restore.$$"
+					cp -p "${CONFIG_RESTORE_SOURCE}" "${CONFIG_RESTORE_STAGE}" || return 1
+					if ! mv "${CONFIG_RESTORE_STAGE}" "${CONFIG_FILE_RECOVERY}"; then
+						rm -f "${CONFIG_RESTORE_STAGE}"
+						agh_log error dnsmasq_params "state=recovery action=restore_dnsmasq result=failed config=${CONFIG_FILE_RECOVERY} snapshot=${SNAPSHOT_DIR}"
+						return 1
+					fi
+					mv "${SNAPSHOT_DIR}/config.pending" "${SNAPSHOT_DIR}/config.restored" || return 1
+				fi
+			fi
+			if [ "${CONFIG_ASSOCIATION}" != config.rebased ]; then
+				rm -f "${CONFIG_BACKUP_RECOVERY}" || return 1
+			fi
 		fi
 		if dnsmasq_ipset_state_restore "${SNAPSHOT_DIR}"; then
 			dnsmasq_ipset_state_finalize_cleanup "${SNAPSHOT_DIR}" cleanup.pending || return 1
@@ -2121,7 +2221,7 @@ dnsmasq_publish_staged_config() (
 	}
 	# dnsmasq_publish_locked snapshots and refreshes IPSet state, publishes the staged dnsmasq configuration, and restores state if refresh or publication fails.
 	dnsmasq_publish_locked() {
-		dnsmasq_ipset_state_recover_pending || {
+		dnsmasq_ipset_state_recover_pending "${CONFIG_FILE}" "${CONFIG_STAGE}" || {
 			TRANSACTION_ACTIVE="0"
 			rm -f "${CONFIG_STAGE}"
 			return 1
@@ -2137,7 +2237,8 @@ dnsmasq_publish_staged_config() (
 			return 1
 		fi
 		SNAPSHOT_READY="1"
-		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}"; then
+		if ! cp -p "${CONFIG_FILE}" "${CONFIG_BACKUP}" ||
+			! cp -p "${CONFIG_BACKUP}" "${IPSET_SNAPSHOT_DIR}/dnsmasq"; then
 			if dnsmasq_ipset_state_mark_cleanup_only "${IPSET_SNAPSHOT_DIR}" &&
 				dnsmasq_ipset_state_finalize_cleanup "${IPSET_SNAPSHOT_DIR}" cleanup.only; then
 				SNAPSHOT_READY="0"

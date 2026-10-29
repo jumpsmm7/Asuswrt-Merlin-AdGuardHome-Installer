@@ -24,6 +24,20 @@ Filtering runs after the existing management, topology and active-AdGuardHome/ha
 
 Publication is atomic for each configuration file; it is not one transaction across all main and SDN instances. Native recovery continues to use firmware regeneration from current persistent preferences and custom sources, restoring the original DNS security settings. There is no long-lived backup of those preferences. Later custom hooks can reintroduce settings after this callback; diagnose that hook rather than overwriting its persistent source.
 
+Pending IPSet rollback journals retain a private persistent copy of the associated
+dnsmasq configuration and the transaction's boot identity. Same-boot recovery can
+use that copy when its volatile backup is gone. After a boot change, recovery
+restores the paired persistent IPSet/YAML state while preserving current runtime
+configuration; it does not replay an earlier boot's `/etc` file.
+
+Older journals have no boot identity. A missing backup is not proof of reboot.
+Only a validated managed publication under the existing lock can rebase such a
+journal onto current main/SDN runtime state or absence. The original association
+is retained in a rebase marker until persistent restoration succeeds, with an
+explicit unknown-boot recovery log. This also prevents a stale SDN journal from
+blocking the main callback before SDN dispatch. Unsafe or incomplete journals
+remain refused, and standalone refresh does not silently discard them.
+
 ## Verification scope
 
 `tests/dnsmasq-security-takeover.sh` exercises directive/key filtering, nested mixed includes, directory semantics and refused input. The dnsmasq LAN-mode and startup-handoff regressions exercise managed main/SDN publication, failure preservation and modeled native regeneration. These fixtures are registered in the shared host suite and virtual ARM inventory. They model firmware inputs; physical hook dispatch and client DNS behavior require candidate-specific router validation under the release plan.

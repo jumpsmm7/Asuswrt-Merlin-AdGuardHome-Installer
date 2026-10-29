@@ -1,5 +1,28 @@
 # In Progress
 
+## TASK-038: Repair reboot recovery and complete stack CI synchronization
+
+**Priority:** P1 | **Tags:** v2.7.0, recovery, ci
+**Dependencies:** TASK-033, TASK-035
+**Authority:** October 29, 2026 maintainer request to resolve merge conflicts, regression pathways and CI issues across stack #1044.
+
+### Plan
+
+- Preserve the reproduced #1045 failure: a persistent IPSet recovery journal references a volatile dnsmasq backup lost at reboot; actual helpers repeatedly refuse recovery and publication under host sh and BusyBox 1.25.1.
+- Retain new recovery backups durably with validated boot identity. Preserve regenerated runtime configuration on a new boot; narrowly rebase legacy journals only at a validated, locked managed publication boundary. Preserve refusal and retry evidence when those conditions are absent.
+- Replace the OSV differential job's full-history/all-ref checkout with bounded exact-commit selection and secure full-scan reporting when no baseline exists. Keep vulnerability failure enforcement and upload permissions intact.
+- Synchronize master archive updates through readiness, DNS and completion with history-preserving merges, then run focused recovery/checkout/workflow checks, canonical host quality and fresh published-head native acceptance.
+
+### Acceptance criteria
+
+- [x] #1045 legacy missing-backup recovery and new-boot durable recovery unblock the covered publication contract; same-boot rollback, unsafe journals, signals and cleanup remain covered by host sh and BusyBox 1.25.1 regressions.
+- [x] Actual local Git fixtures cover PR, push, new branch/root and unavailable predecessor selection without all-history fetching or suppressed vulnerabilities.
+- [x] Complete scanner results are required before full/differential reporting and uploads; missing or partial scans fail while genuine vulnerability results remain reportable.
+- [ ] All three branches include their immediate base; complete current-head checks/reviews and matching three-target native gates are observed after publication.
+- [x] Retain v2.7.0-rc.1 and the default master-promotion restriction. Physical operator acceptance and soak remain NOT RUN.
+
+**Status:** Focused checks and isolated canonical host quality PASS at implementation `03ffa2972abff228d18881a97d9f389184b1fadf` / tree `a40ba2ec821c9ccf645d3bcc47b44c15af2c4003`. Subsequent master archive synchronization and current-head hosted/native verification remain pending; no merge, physical or release claim is made.
+
 ## TASK-036: Record v2.7.0 physical acceptance and soak
 
 **Priority:** P1 | **Tags:** v2.7.0, reliability, validation
