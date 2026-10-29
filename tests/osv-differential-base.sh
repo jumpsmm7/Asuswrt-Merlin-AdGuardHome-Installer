@@ -30,7 +30,7 @@ if grep -Eq 'fetch-depth: 0|refs/heads/\*|refs/tags/\*' "${SCAN_PR_CONFIG}"; the
 fi
 [ -f "${HELPER_PATH}" ] || fail 'predecessor selection helper is missing'
 HELPER_PATH="$(cd "$(dirname "${HELPER_PATH}")" && pwd)/$(basename "${HELPER_PATH}")" || fail 'could not locate helper'
-REAL_GIT="$(command -v git)" || fail 'host Git is required'
+REAL_GIT="$(which git)" || fail 'host Git is required'
 export REAL_GIT
 mkdir "${TEST_ROOT}/bin" || fail 'could not reserve command fixture'
 cat >"${TEST_ROOT}/bin/git" <<'EOF'
