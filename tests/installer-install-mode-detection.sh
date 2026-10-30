@@ -207,7 +207,7 @@ awk '
 grep -Fq 'return "${MIGRATE_STATUS}"' "${TMP_ROOT}/install-path" ||
 	fail 'install orchestration does not preserve migration rollback failure status'
 awk '
-	/inst_AdGuardHome "\$\{1:-update\}" "\$\{ADGUARD_BRANCH\}"/ { update_call = 1; next }
+	/inst_AdGuardHome "\$\{install_action:-update\}" "\$\{ADGUARD_BRANCH\}"/ { update_call = 1; next }
 	update_call && /^[[:space:]]*$/ { next }
 	update_call { exit($0 ~ /^[[:space:]]*return \$\?[[:space:]]*$/ ? 0 : 1) }
 	END { if (!update_call) exit 1 }
