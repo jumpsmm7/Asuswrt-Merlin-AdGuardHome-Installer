@@ -342,6 +342,7 @@ run_check 'Runtime writable-path security regression' run_privileged_regression_
 run_check 'AdGuardHome runtime mode helper regression' sh tests/adguardhome-runtime-mode-helpers.sh
 run_check 'AdGuardHome runtime DNS environment LAN-mode regression' sh tests/adguardhome-dns-env-lan-mode.sh
 run_check 'AdGuardHome dnsmasq LAN-mode regression' sh tests/dnsmasq-lan-mode.sh
+run_check 'AdGuardHome dnsmasq security takeover regression' sh tests/dnsmasq-security-takeover.sh
 run_check 'AdGuardHome IPSET version gate regression' sh tests/ipset-version-gate.sh
 run_check 'AdGuardHome IPSET LAN-mode regression' sh tests/ipset-lan-mode.sh
 run_check 'AdGuardHome empty IPSET data regression' sh tests/ipset-empty-rules.sh

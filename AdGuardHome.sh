@@ -1313,11 +1313,201 @@ dnsmasq_delete_matching() {
 	shift
 	SED_SCRIPT=""
 	for PATTERN in "$@"; do
-		SED_SCRIPT="${SED_SCRIPT}/^${PATTERN}.*$/d;"
+		SED_SCRIPT="${SED_SCRIPT}/^${PATTERN}/d;"
 	done
 	[ -n "${SED_SCRIPT}" ] || return 0
 	sed -i "${SED_SCRIPT}" "${CONFIG}"
 }
+
+# dnsmasq_takeover_filter builds a self-contained runtime view; sources stay intact.
+# The existing config/IPSET transaction owns publication, rollback and restart life.
+dnsmasq_takeover_filter() (
+	INPUT="$1"
+	CONFIG_IDENTITY="$2"
+	PREFIX="${INPUT}.takeover"
+	OUTPUT="${PREFIX}.config"
+	SEEN="${PREFIX}.seen"
+	DNSMASQ_DIRECTORY_ORDER=""
+	trap 'rm -f "${OUTPUT}" "${SEEN}" "${PREFIX}".records.* "${PREFIX}".directory.* "${PREFIX}".segment.*' 0
+	cp -p "${INPUT}" "${OUTPUT}" && : >"${OUTPUT}" && : >"${SEEN}" || return 1
+
+	# dnsmasq_takeover_directory_order matches readdir in 2.80 and strcmp in 2.81+.
+	# Probe only when a conf-dir actually requires its ordering contract.
+	dnsmasq_takeover_directory_order() {
+		local version
+		[ -z "${DNSMASQ_DIRECTORY_ORDER}" ] || return 0
+		version="$(dnsmasq --version 2>/dev/null | awk 'NR == 1 && $1 == "Dnsmasq" && $2 == "version" { print $3 }')" || return 1
+		case "${version}" in
+			2.80 | 2.80[!0-9]*) DNSMASQ_DIRECTORY_ORDER="native" ;;
+			*)
+				if printf '%s\n' "${version}" | awk -F. '
+					$1 == 2 && $2 ~ /^[0-9]+([^0-9].*)?$/ && ($2 + 0) >= 81 { good=1 }
+					END { exit(good ? 0 : 1) }'; then
+					DNSMASQ_DIRECTORY_ORDER="sorted"
+				else
+					return 1
+				fi
+				;;
+		esac
+	}
+
+	# dnsmasq_takeover_expand_file inspects static absolute config includes. Relative,
+	# stdin, dynamic conf-script and control-character include paths fail closed.
+	dnsmasq_takeover_expand_file() {
+		local source identity depth records line value directory filters entry name suffix allow deny want_allow list previous source_bytes text_bytes
+		source="$1"
+		depth="$2"
+		identity="${3:-${source}}"
+		case "${source}" in /*) ;; *) return 1 ;; esac
+		case "${source}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
+		[ -f "${source}" ] && [ ! -L "${source}" ] && [ -r "${source}" ] || return 1
+		# dnsmasq reads each device/inode once, including hardlinks and cycles.
+		while IFS= read -r previous; do
+			# BusyBox 1.25.1 ash supports the inode/device identity test.
+			# shellcheck disable=SC3013
+			[ "${identity}" -ef "${previous}" ] && return 0
+		done <"${SEEN}"
+		[ "${depth}" -le 32 ] || return 1
+		# Reject binary input before AWK and shell disagree about NUL boundaries.
+		source_bytes="$(wc -c <"${source}")" || return 1
+		text_bytes="$(tr -d '\000' <"${source}" | wc -c)" || return 1
+		[ "${source_bytes}" -eq "${text_bytes}" ] 2>/dev/null || return 1
+		printf '%s\n' "${identity}" >>"${SEEN}" || return 1
+		records="${PREFIX}.records.${depth}"
+		DNSMASQ_TAKEOVER_SEGMENT_PREFIX="${PREFIX}.segment.${depth}." awk '
+			# Copy consecutive unchanged lines together, keeping shell records bounded by includes.
+			function flush_segment() {
+				if (segment != "") {
+					if (close(segment) != 0) invalid=1
+					print "S" segment
+					segment=""
+				}
+			}
+			# Normalize option spelling and comments, retaining original output.
+			# Protect quoted commas while recognizing generic RR type fields.
+			function normalized(raw,    text, i, c, quoted, escaped, previous) {
+				text=""; quoted=0; escaped=0; previous=""
+				for (i=1; i<=length(raw); i++) {
+					c=substr(raw, i, 1)
+					if (escaped) {
+						if (c != "\"" && c != "\\") c="\035"
+						escaped=0
+					} else if (quoted && c == "\\") { escaped=1; continue }
+					else if (c == "\"") { quoted=!quoted; continue }
+					else if (!quoted && c == "#" && (i == 1 || previous ~ /[ \t]/)) break
+					else if (!quoted && c ~ /[[:space:]]/) c=" "
+					# Raw RS must not collide with the marker added for a quoted space.
+					if (c == "\036" || (quoted && c ~ /[[:cntrl:]]/)) c="\035"
+					else if (quoted && c == ",") c="\034"
+					else if (quoted && c == " ") c="\036"
+					text=text c; previous=c
+				}
+				if (quoted || escaped) invalid=1
+				return text
+			}
+			BEGIN {
+				segprefix=ENVIRON["DNSMASQ_TAKEOVER_SEGMENT_PREFIX"]
+				split("stop-dns-rebind dnssec dnssec-check-unsigned dnssec-no-timecheck proxy-dnssec dnssec-debug dnssec-timestamp dnssec-limits trust-anchor", names, " ")
+				for (i in names) remove[names[i]]=1
+			}
+			{
+				text=normalized($0)
+				sub(/^[ \t]+/, "", text); sub(/[ \t]+$/, "", text)
+				name=text; sub(/[ \t=].*$/, "", name)
+				rest=substr(text, length(name)+1)
+				if (remove[name] && rest ~ /^([ \t]*=|[ \t]*$)/) next
+				if (name == "conf-script") { invalid=1; next }
+				if (name == "conf-file" || name == "conf-dir" || name == "dns-rr") {
+					if (rest !~ /^[ \t]*=/) { invalid=1; next }
+					sub(/^[ \t]*=[ \t]*/, "", rest); sub(/[ \t]+$/, "", rest)
+					if (name == "dns-rr") {
+						split(rest, fields, ","); rr=fields[2]
+						gsub(/^[ \t]+|[ \t]+$/, "", rr)
+						gsub(/\036/, " ", rr)
+						if (rr ~ /^[0-9]+$/ && (rr+0 == 25 || rr+0 == 43 || rr+0 == 48 || rr+0 == 59 || rr+0 == 60 || rr+0 == 32768 || rr+0 == 32769)) next
+					} else {
+						# Quoted comma/control pathname grammar is intentionally refused.
+						if (rest == "" || rest ~ /[\034\035\r]/ || (name == "conf-file" && index(rest, ","))) { invalid=1; next }
+						if (name == "conf-dir") {
+							count=split(rest, fields, ","); rest=""
+							for (field=1; field<=count; field++) {
+								gsub(/^[ \t]+|[ \t]+$/, "", fields[field])
+								# Avoid name-(...) concatenation being parsed as a call by BusyBox 1.25.
+								if (field > 1) rest=rest ","
+								rest=rest fields[field]
+							}
+						}
+						gsub(/\036/, " ", rest)
+						flush_segment()
+						print (name == "conf-file" ? "F" : "D") rest
+						next
+					}
+				}
+				if (segment == "") {
+					segment_count++
+					segment=segprefix segment_count
+				}
+				print $0 > segment
+			}
+			END { flush_segment(); if (invalid) exit 1 }
+		' "${source}" >"${records}" || return 1
+		while IFS= read -r line; do
+			value="${line#?}"
+			case "${line}" in
+				S*)
+					cat "${value}" >>"${OUTPUT}" && rm -f "${value}" || return 1
+					;;
+				F*) dnsmasq_takeover_expand_file "${value}" "$((depth + 1))" || return 1 ;;
+				D*)
+					directory="${value%%,*}"
+					filters=""
+					[ "${value}" = "${directory}" ] || filters="${value#*,}"
+					case "${directory}" in /*) ;; *) return 1 ;; esac
+					[ -d "${directory}" ] && [ ! -L "${directory}" ] && [ -r "${directory}" ] || return 1
+					# Validate filenames before passing a newline-delimited find list.
+					for entry in "${directory}"/* "${directory}"/.[!.]* "${directory}"/..?*; do
+						case "${entry}" in *[[:cntrl:]]*) return 1 ;; *) : ;; esac
+					done
+					dnsmasq_takeover_directory_order || return 1
+					list="${PREFIX}.directory.${depth}"
+					find "${directory}" -mindepth 1 -maxdepth 1 >"${list}" || return 1
+					if [ "${DNSMASQ_DIRECTORY_ORDER}" = sorted ]; then
+						LC_ALL=C sort "${list}" >"${list}.sorted" || return 1
+						mv "${list}.sorted" "${list}" || return 1
+					fi
+					while IFS= read -r entry; do
+						name="${entry##*/}"
+						case "${name}" in .* | *~ | \#*\#) continue ;; *) : ;; esac
+						allow="0"
+						deny="0"
+						want_allow="0"
+						value="${filters}"
+						while [ -n "${value}" ]; do
+							suffix="${value%%,*}"
+							if [ "${value}" = "${suffix}" ]; then value=""; else value="${value#*,}"; fi
+							case "${suffix}" in
+								'' | '*') continue ;;
+								\**)
+									want_allow="1"
+									suffix="${suffix#?}"
+									case "${name}" in ?*"${suffix}") allow="1" ;; *) : ;; esac
+									;;
+								*) case "${name}" in ?*"${suffix}") deny="1" ;; *) : ;; esac ;;
+							esac
+						done
+						[ "${deny}" = 0 ] && { [ "${want_allow}" = 0 ] || [ "${allow}" = 1 ]; } || continue
+						[ ! -L "${entry}" ] && [ -e "${entry}" ] || return 1
+						[ -f "${entry}" ] || continue
+						dnsmasq_takeover_expand_file "${entry}" "$((depth + 1))" || return 1
+					done <"${list}"
+					;;
+				*) : ;;
+			esac
+		done <"${records}"
+	}
+	dnsmasq_takeover_expand_file "${INPUT}" 0 "${CONFIG_IDENTITY}" || return 1
+	mv "${OUTPUT}" "${INPUT}"
+)
 
 # dns_handoff_is_active verifies that the DNS handoff belongs to a running process with matching ownership and start time.
 dns_handoff_is_active() {
@@ -2097,12 +2287,18 @@ dnsmasq_params() {
 		return 1
 	fi
 	CONFIG="${CONFIG_STAGE}"
+	if ! dnsmasq_takeover_filter "${CONFIG}" "${CONFIG_FILE}"; then
+		rm -f "${CONFIG_STAGE}"
+		agh_log error dnsmasq_params "state=stage action=filter_dns_security result=failed config=${CONFIG_FILE}"
+		return 1
+	fi
 	if ! dnsmasq_delete_matching \
 		"${CONFIG}" \
 		"add-subnet=" \
 		"port=" \
 		"add-mac" \
-		"dhcp-option=${DHCP_IF},6"; then
+		"dhcp-option=${DHCP_IF},6$" \
+		"dhcp-option=${DHCP_IF},6[,[:space:]]"; then
 		rm -f "${CONFIG_STAGE}"
 		return 1
 	fi
