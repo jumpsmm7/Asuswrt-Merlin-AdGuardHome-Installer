@@ -1,10 +1,39 @@
 # In Progress
 
-## TASK-030: Repair installation readiness and installer source selection
+## TASK-038: Repair reboot recovery and complete stack CI synchronization
+
+**Priority:** P1 | **Tags:** v2.7.0, recovery, ci
+**Dependencies:** TASK-033, TASK-035
+**Authority:** October 29, 2026 maintainer request to resolve merge conflicts, regression pathways and CI issues across stack #1044.
+
+### Plan
+
+- Preserve the reproduced #1045 failure: a persistent IPSet recovery journal references a volatile dnsmasq backup lost at reboot; actual helpers repeatedly refuse recovery and publication under host sh and BusyBox 1.25.1.
+- Retain new recovery backups durably with validated boot identity. Preserve regenerated runtime configuration on a new boot; narrowly rebase legacy journals only at a validated, locked managed publication boundary. Preserve refusal and retry evidence when those conditions are absent.
+- Replace the OSV differential job's full-history/all-ref checkout with bounded exact-commit selection and secure full-scan reporting when no baseline exists. Keep vulnerability failure enforcement and upload permissions intact.
+- Restore uninstall compatibility with older managers when no kernel-settings ownership journal exists (#1046); retain required restoration and unsafe-journal refusal when ownership state is present.
+- Resolve the current strict Sonar findings in shared installer, DNS/recovery helpers and the OSV result checker without suppressions or weakened validation.
+- Resolve verified support-export and qualification-record feedback: retain legitimate firmware model IDs while preserving the diagnostic allowlist and identify historical/current evidence precisely.
+- Synchronize master archive updates through readiness, DNS and completion with history-preserving merges, then run focused recovery/checkout/workflow checks, canonical host quality and fresh published-head native acceptance.
+
+### Acceptance criteria
+
+- [x] #1045 legacy missing-backup recovery and new-boot durable recovery unblock the covered publication contract; same-boot rollback, unsafe journals, signals and cleanup remain covered by host sh and BusyBox 1.25.1 regressions.
+- [x] Actual local Git fixtures cover PR, push, new branch/root and unavailable predecessor selection without all-history fetching or suppressed vulnerabilities.
+- [x] Complete scanner results are required before full/differential reporting and uploads; missing or partial scans fail while genuine vulnerability results remain reportable.
+- [ ] #1046 legacy-manager uninstall and unsafe/failed restoration controls pass under host sh, BusyBox 1.25.1 and the registered native fixture.
+- [ ] Strict Sonar analysis and complete host/security/native checks pass for the final implementation.
+- [ ] Support export preserves valid underscore-suffixed model IDs and still rejects malformed, oversized and private/control-character inputs in the covered host/native settings contract.
+- [ ] All three branches include their immediate base; complete current-head checks/reviews and matching three-target native gates are observed after publication.
+- [x] Retain v2.7.0-rc.1 and the default master-promotion restriction. Physical operator acceptance and soak remain NOT RUN.
+
+**Status:** Focused checks and isolated canonical host quality PASS at implementation `03ffa2972abff228d18881a97d9f389184b1fadf` / tree `a40ba2ec821c9ccf645d3bcc47b44c15af2c4003`. Subsequent master archive synchronization and current-head hosted/native verification remain pending; no merge, physical or release claim is made.
+
+## TASK-036: Record v2.7.0 physical acceptance and soak
 
 **Priority:** P1 | **Tags:** v2.7.0, reliability, validation
-**Dependencies:** TASK-029
-**Scope:** Reproduce the incomplete JFFS preflight and saved-source reset; correct readiness diagnostics, preserve action-scoped dependency repair, retain explicit/saved source through checks/re-exec, define --no-auto-update for a coherent installer/helper bundle, and clarify early unsupported non-interactive fresh-install refusal while preserving interactive compatibility.
+**Dependencies:** TASK-035
+**Scope:** Run candidate-specific firmware/client/reboot/isolation/WAN checks and 48-hour ARMv7/AArch64 soak, including older RT-AC68U coverage; record actual models/firmware, candidate hashes, configuration, timestamps/events and sanitized outcomes.
 
 ### Plan
 
@@ -12,44 +41,23 @@
 - Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
 - Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
 
-**Likely surfaces:** installer; nearest/new readiness/source/CLI regressions; checksums; README; host/native registration
-
-### Implementation checkpoint
-
-Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037) at `bb734a5`. All current host checks, both fresh three-architecture matrices/aggregates (121 scenarios per target, 11 groups) and the retried current Sonar analysis pass with zero unresolved issues. CodeRabbit approves with 5/5 pre-merge checks and 100% purpose coverage across 80 functions; all 15 review threads have evidence-backed resolutions. The critical certifi finding is fixed with verified hashes and a clean complete lock installation. Two OSV jobs still fail for Semgrep's exact vulnerable mcp dependency, so the PR is not all-checks-green or merge-ready. Covered virtual acceptance and physical release qualification remain separate. Earlier source-specific/interrupted evidence stays historical.
+**Likely surfaces:** New release checklist; operator evidence; task log
 
 ### Acceptance criteria
 
-- [ ] Failed reads cannot report JFFS OK; ready flags avoid unnecessary writes; dependency failures identify their stage. Explicit/saved refs and self-update policy persist without checksum bypasses or mismatched helpers. Interactive fresh setup remains supported; unsupported flagged setup stops before new ordinary writes/downloads, with existing recovery distinct.
+- [ ] Operator evidence identifies exact deployed candidate and real coverage/duration. Earlier v2.6.7 PASS remains historical PASS. Software feature acceptance stays independently unblocking; whole-release physical approval is separate.
 - [ ] Record actual verification, publication/current-head status and remaining limitations in this ledger.
 
----
+### Physical execution boundary
 
-## TASK-031: Remove dnsmasq rebind and DNSSEC state during AGH takeover
+Prepare the complete candidate-specific checklist and sanitized evidence record now. Actual router runs and the final 48-hour ARMv7/AArch64 soak require operator hardware results and stay unchecked until supplied. Historical v2.6.7 passes are not relabeled.
 
-**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
-**Dependencies:** TASK-029
-**Scope:** Filter exact rebind/DNSSEC directives, companions, all trust-anchor/key entries and DNSSEC-only references from each managed main/SDN runtime config. Handle mixed/nested includes through safe runtime views, preserve persistent originals and existing per-file transactions/native regeneration.
+### Preparation checkpoint (2026-10-22T12:11:21-04:00)
 
-### Plan
+The qualified software source, hashes, operator guide and candidate checklist are recorded. New candidate deployments, actual firmware/operator/start/end identities, full physical checklist and 48-hour ARMv7/AArch64 soak remain NOT RUN / NOT RECORDED for RT-AC68U, RT-AC5300 and GT-BE98PRO. Historical v2.6.7 physical PASS remains historical PASS; passing covered virtual software contracts are independently accepted.
 
-- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
-- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
-- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
-
-**Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
-
-### Implementation checkpoint
-
-The staged takeover filter is published in stacked PR [#1040](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1040), depending on #1037. It removes exact rebind/DNSSEC options and key/anchor entries while preserving persistent sources and unrelated settings. Combined source `c33f23a` passes the full host suite and its push ARM matrix/aggregate (122 scenarios per target, 11 groups); later review changes still require fresh matching validation. Those changes distinguish raw control bytes from quoted-space markers and bulk-copy unchanged line segments, with 20,000-line, partial-write and cleanup regressions. Exact BusyBox applet and eight nearest host checks pass. Empty-directory and option/suffix review claims were checked against actual behavior; mandatory per-source NUL checks remain. The reproduced pre-existing pending-restore backup defect is tracked separately as #1041 under TASK-033. Physical release boundaries remain unchanged.
-
-### Acceptance criteria
-
-- [ ] All effective targeted options/keys absent at managed publication, including custom/root-rollover anchors. Includes preserve unrelated settings and valid lifetimes. Repeated/overlapping takeover, native fallback and staging/IPSET/publication failures preserve configuration/recovery invariants.
-- [ ] Record actual verification, publication/current-head status and remaining limitations in this ledger.
 
 ---
-
 
 ## TASK-018: Validate physical-router recovery and package v2.6.7
 

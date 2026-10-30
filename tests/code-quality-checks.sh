@@ -393,9 +393,19 @@ for t in tests/*.sh; do
 	# This matrix is run with BusyBox ash by shell-validation.yml and composes
 	# component regressions already registered individually below.
 	[ "${t}" = 'tests/service-lifecycle-integration.sh' ] && continue
-	if [ "${t}" = 'tests/virtual-arm-native.sh' ]; then
-		awk -F '\t' '$1 == "native_dns" && $3 == "tests/virtual-arm-native.sh" && $4 == "native" { found++ } END { exit(found == 1 ? 0 : 1) }' \
-			tools/virtual-arm/features.tsv || fail 'native ARM regression is missing from its feature contract'
+	case "${t}" in
+		tests/virtual-arm-native.sh) native_feature=native_dns ;;
+		tests/virtual-arm-storage.sh) native_feature=transactions ;;
+		*) native_feature='' ;;
+	esac
+	if [ -n "${native_feature}" ]; then
+		awk -F '\t' -v feature="${native_feature}" -v script="${t}" '
+			$3 == script {
+				registered++
+				if ($1 == feature && "tests/" $2 ".sh" == script && $4 == "native") valid++
+			}
+			END { exit(registered == 1 && valid == 1 ? 0 : 1) }
+		' tools/virtual-arm/features.tsv || fail "${t} must have exactly one matching native feature contract"
 		grep -Fq 'sh tools/test-virtual-arm.sh' .github/workflows/virtual-arm-feature-tests.yml ||
 			fail 'native ARM regression has no virtual workflow execution'
 		continue

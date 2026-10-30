@@ -52,6 +52,24 @@ review_checker_is_enforced() {
 	' "${_review_workflow}"
 }
 
+# release_promotion_is_enforced requires the independent default checker with
+# history and without conditional execution or suppressed failures.
+release_promotion_is_enforced() {
+	awk '
+		/^  release-promotion:$/ { in_job = 1; saw_job = 1; next }
+		in_job && /^  [a-zA-Z0-9_-]+:$/ { in_job = 0 }
+		in_job && /^    if:/ { exit 1 }
+		in_job && /^        if:/ { exit 1 }
+		in_job && /^[[:space:]]+continue-on-error:[[:space:]]*true([[:space:]]|$)/ { exit 1 }
+		in_job && /^          fetch-depth: [0-9]+$/ {
+			if ($2 != 0 && $2 < 2) exit 1
+			saw_history = 1
+		}
+		in_job && /^        run: sh tools\/check-release-consistency\.sh$/ { saw_checker = 1 }
+		END { if (!saw_job || !saw_history || !saw_checker) exit 1 }
+	' "$1"
+}
+
 # scorecard_required_steps_are_gated verifies that each Scorecard action step carries its own supported-ref gate.
 scorecard_required_steps_are_gated() {
 	awk '
@@ -297,6 +315,32 @@ grep -Fq 'busybox ash tests/dnsmasq-lan-mode.sh' "${SHELL_VALIDATION_WORKFLOW}" 
 # linters or forcing exit 0 can hide a broken regression pathway.
 review_checker_is_enforced "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: shared checker failures must propagate from the review job"
+release_promotion_is_enforced "${WORKFLOW}" ||
+	fail "${WORKFLOW}: promotion must independently enforce the default release checker"
+sed 's@run: sh tools/check-release-consistency.sh$@run: sh tools/check-release-consistency.sh --candidate@' "${WORKFLOW}" >"${TMP_ROOT}/promotion-candidate.yml" ||
+	fail 'could not create candidate-only promotion fixture'
+if release_promotion_is_enforced "${TMP_ROOT}/promotion-candidate.yml"; then
+	fail 'promotion workflow accepted candidate-only validation'
+fi
+awk '{
+	print
+	if ($0 == "  release-promotion:") print "    continue-on-error: true"
+}' "${WORKFLOW}" >"${TMP_ROOT}/promotion-suppressed.yml" || fail 'could not create suppressed promotion fixture'
+if release_promotion_is_enforced "${TMP_ROOT}/promotion-suppressed.yml"; then
+	fail 'promotion workflow accepted suppressed failures'
+fi
+awk '{
+	print
+	if ($0 == "  release-promotion:") print "    if: false"
+}' "${WORKFLOW}" >"${TMP_ROOT}/promotion-conditional.yml" || fail 'could not create conditional promotion fixture'
+if release_promotion_is_enforced "${TMP_ROOT}/promotion-conditional.yml"; then
+	fail 'promotion workflow accepted conditional execution'
+fi
+sed 's/fetch-depth: 2$/fetch-depth: 1/' "${WORKFLOW}" >"${TMP_ROOT}/promotion-shallow.yml" ||
+	fail 'could not create shallow promotion fixture'
+if release_promotion_is_enforced "${TMP_ROOT}/promotion-shallow.yml"; then
+	fail 'promotion workflow accepted missing stale-manifest history'
+fi
 grep -Fq '  entware-mount-disappearance:' "${REVIEW_WORKFLOW}" ||
 	fail "${REVIEW_WORKFLOW}: expected a visible Entware mount disappearance regression job"
 grep -Fq '    name: Entware mount disappearance regression' "${REVIEW_WORKFLOW}" ||
