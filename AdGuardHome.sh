@@ -1744,10 +1744,11 @@ dnsmasq_ipset_boot_id() {
 
 # dnsmasq_ipset_snapshot_private validates the owner and mode before recovery uses a journal.
 dnsmasq_ipset_snapshot_private() {
-	local current_uid path_metadata snapshot_mode snapshot_owner
-	[ -d "$1" ] && [ ! -L "$1" ] || return 1
+	local current_uid path_metadata snapshot_dir snapshot_mode snapshot_owner
+	snapshot_dir="$1"
+	[ -d "${snapshot_dir}" ] && [ ! -L "${snapshot_dir}" ] || return 1
 	current_uid="$(IPSet_Current_UID)" || return 1
-	path_metadata="$(IPSet_Directory_Metadata "$1")" || return 1
+	path_metadata="$(IPSet_Directory_Metadata "${snapshot_dir}")" || return 1
 	IFS=' ' read -r snapshot_owner snapshot_mode <<EOF
 ${path_metadata}
 EOF
@@ -1785,13 +1786,15 @@ dnsmasq_ipset_managed_config() {
 
 # dnsmasq_ipset_legacy_rebase_allowed requires an exact managed association and a validated prepared postconf context.
 dnsmasq_ipset_legacy_rebase_allowed() {
-	local config_backup config_file snapshot_dir snapshot_pid
+	local config_backup config_file current_config current_stage snapshot_dir snapshot_pid
 	snapshot_dir="$1"
 	config_backup="$2"
 	config_file="$3"
-	[ -n "${4:-}" ] && [ "${5:-}" = "${4}.adguard.$$" ] || return 1
-	dnsmasq_ipset_managed_config "$4" || return 1
-	[ -f "$4" ] && [ ! -L "$4" ] && [ -f "$5" ] && [ ! -L "$5" ] || return 1
+	current_config="${4:-}"
+	current_stage="${5:-}"
+	[ -n "${current_config}" ] && [ "${current_stage}" = "${current_config}.adguard.$$" ] || return 1
+	dnsmasq_ipset_managed_config "${current_config}" || return 1
+	[ -f "${current_config}" ] && [ ! -L "${current_config}" ] && [ -f "${current_stage}" ] && [ ! -L "${current_stage}" ] || return 1
 	dnsmasq_ipset_managed_config "${config_file}" || return 1
 	if [ -e "${config_file}" ] || [ -L "${config_file}" ]; then
 		[ -f "${config_file}" ] && [ ! -L "${config_file}" ] || return 1

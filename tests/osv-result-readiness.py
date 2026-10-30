@@ -186,6 +186,43 @@ os.execv(os.environ['OSV_REAL_MV'], ['mv', *sys.argv[1:]])
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.arguments.exists())
 
+    def test_validator_accepts_only_the_fixed_local_result_name(self):
+        """Direct validator calls cannot select a foreign path or bypass argument validation."""
+        result_path = self.checkout / "results.json"
+        result_path.write_text(json.dumps(EMPTY))
+        foreign = self.root / "foreign-result.json"
+        foreign.write_text(json.dumps(EMPTY))
+        for arguments in ([], ["../foreign-result.json"], [str(foreign)],
+                          ["results.json", "extra"], ["./results.json"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([sys.executable, str(VALIDATOR), *arguments],
+                                        cwd=self.checkout, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        result = subprocess.run([sys.executable, str(VALIDATOR), "results.json"],
+                                cwd=self.checkout, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(foreign.read_text()), EMPTY)
+
+    def test_validator_requires_a_regular_local_result(self):
+        """The fixed filename still refuses missing files, directories and foreign links."""
+        result_path = self.checkout / "results.json"
+        foreign = self.root / "foreign-result.json"
+        foreign.write_text(json.dumps(EMPTY))
+        for kind in ("missing", "directory", "symlink"):
+            with self.subTest(kind=kind):
+                if kind == "directory":
+                    result_path.mkdir()
+                elif kind == "symlink":
+                    result_path.symlink_to(foreign)
+                result = subprocess.run([sys.executable, str(VALIDATOR), "results.json"],
+                                        cwd=self.checkout, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                if result_path.is_dir():
+                    result_path.rmdir()
+                elif result_path.is_symlink():
+                    result_path.unlink()
+        self.assertEqual(json.loads(foreign.read_text()), EMPTY)
+
     def test_failed_atomic_publication_removes_owned_stage(self):
         """A publication failure leaves no result or staging file that a reporter could consume."""
         self.environment["OSV_MOVE_MODE"] = "failure"

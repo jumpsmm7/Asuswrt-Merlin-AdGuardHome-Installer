@@ -63,8 +63,9 @@ def validate_source(source):
         validate_package(package)
 
 
-def validate(path):
+def validate():
     """Validate the source-scan result model while accepting genuine zero-package scans."""
+    path = Path("results.json")
     require(path.is_file() and not path.is_symlink(), "result must be a regular file")
     with path.open(encoding="utf-8") as result:
         data = json.load(result)
@@ -81,12 +82,13 @@ def validate(path):
 
 def main():
     """Check exactly one freshly generated file and fail before reporting on any defect."""
-    if len(sys.argv) != 2:
-        print("Usage: check-osv-results.py RESULT.json", file=sys.stderr)
+    if len(sys.argv) != 2 or sys.argv[1] != "results.json":
+        print("Usage: check-osv-results.py results.json (from the private scan directory)",
+              file=sys.stderr)
         return 2
     try:
-        validate(Path(sys.argv[1]))
-    except (OSError, UnicodeError, ValueError, TypeError, RecursionError) as error:
+        validate()
+    except (OSError, ValueError, TypeError, RecursionError) as error:
         print(f"Error: invalid OSV scan result: {error}", file=sys.stderr)
         return 1
     print("OSV result JSON is complete and structurally valid.")
