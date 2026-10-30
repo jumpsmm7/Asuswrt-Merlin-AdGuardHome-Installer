@@ -26,6 +26,9 @@ umask 077
 
 AI_VERSION="v2.6.7"
 export AI_VERSION
+readonly INSTALLER_ACTION_RESTORE="RESTORE"
+readonly INSTALLER_ACTION_INSTALL="install"
+readonly INSTALLER_ACTION_UPDATE="update"
 readonly ADGUARD_METADATA_DIR="/tmp/AGH_STATIC_METADATA_$$.d"
 readonly ADGUARD_METADATA_FILE="${ADGUARD_METADATA_DIR}/channels.txt"
 ADGUARD_METADATA_DIR_OWNED=0
@@ -94,6 +97,7 @@ nvram_transaction_begin() {
 	case "${name}" in
 		"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]*) return 1 ;;
 	esac
+	NVRAM_TRANSACTION_BEGIN_STAGE="lock"
 	nvram_transaction_lock_acquire || return 1
 	nvram_transaction_begin_locked "${name}" "$@" && return 0
 	status="$?"
@@ -106,7 +110,9 @@ nvram_transaction_begin_locked() {
 	local exists name key service_action snapshot_dir temp_dir
 	name="$1"
 	shift
+	NVRAM_TRANSACTION_BEGIN_STAGE="prior-recovery"
 	nvram_transaction_finalize_setup_pair recovery || return 1
+	NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-storage"
 	snapshot_dir="${BASE_DIR}/.AdGuardHome.nvram/${name}"
 	temp_dir="${snapshot_dir}.tmp.$$"
 	[ ! -L "${BASE_DIR}/.AdGuardHome.nvram" ] || return 1
@@ -118,6 +124,7 @@ nvram_transaction_begin_locked() {
 				dns-preparation | lan-domain) service_action="restart_dnsmasq" ;;
 				*) service_action="-" ;;
 			esac
+			NVRAM_TRANSACTION_BEGIN_STAGE="prior-recovery"
 			NVRAM_TRANSACTION_DIR="${snapshot_dir}"
 			export NVRAM_TRANSACTION_DIR
 			rollback_result_write "NVRAM transaction" "incomplete prior rollback detected" "restoring snapshot at ${snapshot_dir}"
@@ -130,6 +137,7 @@ nvram_transaction_begin_locked() {
 			rm -rf "${snapshot_dir}" || return 1
 		fi
 	fi
+	NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-storage"
 	rm -rf "${temp_dir}" || return 1
 	mkdir -p "${temp_dir}" || return 1
 	chmod 700 "${BASE_DIR}/.AdGuardHome.nvram" "${temp_dir}" 2>/dev/null || {
@@ -138,6 +146,7 @@ nvram_transaction_begin_locked() {
 	}
 	: >"${temp_dir}/keys" || return 1
 	chmod 600 "${temp_dir}/keys" || return 1
+	NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-inventory"
 	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
 		# Some HND firmware returns a failure status after emitting a usable
 		# inventory. Reject only a failed read that produced no snapshot data.
@@ -146,6 +155,7 @@ nvram_transaction_begin_locked() {
 			return 1
 		fi
 	fi
+	NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-storage"
 	chmod 600 "${temp_dir}/inventory" || {
 		rm -rf "${temp_dir}"
 		return 1
@@ -161,10 +171,12 @@ nvram_transaction_begin_locked() {
 		if /bin/grep -q "^${key}=" "${temp_dir}/inventory"; then
 			exists="1"
 		fi
+		NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-key:${key}"
 		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null && [ "${exists}" = "1" ]; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
+		NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-storage"
 		chmod 600 "${temp_dir}/${key}" || {
 			rm -rf "${temp_dir}"
 			return 1
@@ -481,6 +493,11 @@ nvram_transaction_recover_startup() {
 }
 
 nvram_transaction_read_only_diagnostic_requested() {
+	local argument
+	for argument; do
+		shift
+		[ "${argument}" = "--no-auto-update" ] || set -- "$@" "${argument}"
+	done
 	case "${1:-}" in
 		status) return 0 ;;
 		doctor) [ -z "${2:-}" ] && return 0 ;;
@@ -2741,15 +2758,120 @@ preflight_action_requires_firewall_tools() {
 	return 0
 }
 
-preflight_check_jffs_ready() {
-	local jffs2_format result
-	jffs2_format="$(nvram get jffs2_format 2>/dev/null)" || jffs2_format=""
-	result="OK"
-	PTXT "preflight.jffs.required=yes"
-	PTXT "preflight.jffs.format_pending=${jffs2_format:-missing}"
-	if [ "${jffs2_format}" = "1" ]; then
-		result="FAIL"
+# jffs_read_settings reads only JFFS state. Inventory is needed solely to
+# distinguish legacy absent keys from a failed read of an existing setting.
+jffs_read_settings() {
+	local format_status scripts_status enable_status inventory key value read_status
+	jffs_read_reason=""
+	jffs_enable_key="jffs2_enable"
+	format_status=0
+	scripts_status=0
+	enable_status=0
+	jffs2_format_value="$(/bin/nvram get jffs2_format 2>/dev/null)" || format_status=1
+	jffs2_scripts_value="$(/bin/nvram get jffs2_scripts 2>/dev/null)" || scripts_status=1
+	jffs2_enabled_value="$(/bin/nvram get jffs2_enable 2>/dev/null)" || enable_status=1
+	inventory=""
+	if [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
+		[ -z "${jffs2_format_value}" ] || [ -z "${jffs2_scripts_value}" ] || [ -z "${jffs2_enabled_value}" ]; then
+		# HND may return failure after emitting a usable inventory.
+		inventory="$(/bin/nvram show 2>/dev/null)" || true
+		if ! printf '%s\n' "${inventory}" | grep -q '^[[:alnum:]_][[:alnum:]_]*='; then
+			jffs_read_reason="read-failed:nvram-inventory"
+			return 1
+		fi
 	fi
+	for key in jffs2_format jffs2_scripts jffs2_enable; do
+		case "${key}" in
+			jffs2_format)
+				value="${jffs2_format_value}"
+				read_status="${format_status}"
+				;;
+			jffs2_scripts)
+				value="${jffs2_scripts_value}"
+				read_status="${scripts_status}"
+				;;
+			jffs2_enable)
+				value="${jffs2_enabled_value}"
+				read_status="${enable_status}"
+				;;
+			*) : ;;
+		esac
+		if [ "${read_status}" -ne 0 ] &&
+			{ [ -n "${value}" ] || printf '%s\n' "${inventory}" | grep -q "^${key}="; }; then
+			jffs_read_reason="read-failed:${key}"
+			return 1
+		fi
+		case "${key}:${value}" in
+			jffs2_format:)
+				if printf '%s\n' "${inventory}" | grep -q '^jffs2_format='; then
+					jffs_read_reason="missing-value:jffs2_format"
+					return 1
+				fi
+				;;
+			jffs2_scripts:)
+				if printf '%s\n' "${inventory}" | grep -q '^jffs2_scripts='; then
+					jffs_read_reason="missing-value:jffs2_scripts"
+					return 1
+				fi
+				;;
+			jffs2_enable:) ;;
+			*:0 | *:1) ;;
+			*)
+				jffs_read_reason="invalid-value:${key}"
+				return 1
+				;;
+		esac
+	done
+	if [ -z "${jffs2_enabled_value}" ]; then
+		jffs_enable_key="jffs2_on"
+		read_status=0
+		jffs2_enabled_value="$(/bin/nvram get jffs2_on 2>/dev/null)" || read_status=1
+		if [ "${read_status}" -ne 0 ] &&
+			{ [ -n "${jffs2_enabled_value}" ] || printf '%s\n' "${inventory}" | grep -q '^jffs2_on='; }; then
+			jffs_read_reason="read-failed:jffs2_on"
+			return 1
+		fi
+		case "${jffs2_enabled_value}" in
+			"")
+				if printf '%s\n' "${inventory}" | grep -q '^jffs2_on='; then
+					jffs_read_reason="missing-value:jffs2_on"
+					return 1
+				fi
+				;;
+			0 | 1) ;;
+			*)
+				jffs_read_reason="invalid-value:jffs2_on"
+				return 1
+				;;
+		esac
+	fi
+	return 0
+}
+
+preflight_check_jffs_ready() {
+	local format_state read_ok result
+	result="OK"
+	read_ok=1
+	if ! jffs_read_settings; then
+		result="FAIL"
+		read_ok=0
+	elif [ "${jffs2_format_value}" = "1" ]; then
+		result="FAIL"
+		jffs_read_reason="format-pending"
+	elif [ "${jffs2_scripts_value}" != "1" ] || [ "${jffs2_enabled_value}" != "1" ]; then
+		result="FAIL"
+		jffs_read_reason="enablement-required"
+	fi
+	format_state="${jffs2_format_value:-missing-or-unreadable}"
+	if [ -z "${jffs2_format_value}" ] && [ "${read_ok}" = 1 ]; then
+		format_state="legacy-absent"
+	fi
+	PTXT "preflight.jffs.required=yes"
+	PTXT "preflight.jffs.format_pending=${format_state}"
+	PTXT "preflight.jffs.scripts=${jffs2_scripts_value:-missing}"
+	PTXT "preflight.jffs.enabled=${jffs2_enabled_value:-missing}"
+	PTXT "preflight.jffs.enable_key=${jffs_enable_key}"
+	[ -z "${jffs_read_reason}" ] || PTXT "preflight.jffs.reason=${jffs_read_reason}"
 	PTXT "preflight.jffs.result=${result}"
 	[ "${result}" = "OK" ]
 }
@@ -3100,8 +3222,8 @@ sanitize_branch() {
 	if branch_is_safe "${CANDIDATE}"; then
 		PTXT "${CANDIDATE}"
 	else
-		PTXT "${WARNING} Ignoring unsafe installer branch ${CANDIDATE}, using master instead." >&2
-		PTXT "master"
+		PTXT "${ERROR} Unsupported installer source: ${CANDIDATE}; refusing to select another source." >&2
+		return 1
 	fi
 }
 
@@ -5326,50 +5448,46 @@ check_dns_local() {
 }
 
 check_jffs_enabled() {
-	local JFFS2_FORMAT JFFS2_SCRIPTS JFFS2_ENABLED jffs2_enable jffs2_on
-	JFFS2_FORMAT="$(/bin/nvram get jffs2_format 2>/dev/null)" || JFFS2_FORMAT=""
-	JFFS2_SCRIPTS="$(/bin/nvram get jffs2_scripts 2>/dev/null)" || JFFS2_SCRIPTS=""
-	jffs2_enable="$(/bin/nvram get jffs2_enable 2>/dev/null)" || jffs2_enable=""
-	if [ -z "${jffs2_enable}" ]; then
-		JFFS2_ENABLED="$(/bin/nvram get jffs2_on 2>/dev/null)" || JFFS2_ENABLED=""
-	else
-		JFFS2_ENABLED="${jffs2_enable}"
+	local jffs2_format_value jffs2_scripts_value jffs2_enabled_value jffs_enable_key jffs_read_reason jffs2_enable
+	if ! jffs_read_settings; then
+		PTXT "${ERROR} JFFS readiness failed at ${jffs_read_reason}; review the JFFS settings and retry."
+		return 1
 	fi
-	if [ "${JFFS2_FORMAT}" = "1" ]; then
+	if [ "${jffs2_format_value}" = "1" ]; then
 		PTXT "${ERROR} JFFS partition is scheduled to be reformatted." \
 			"${ERROR} Please reboot to format or disable that setting and try again." \
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	if [ "${JFFS2_FORMAT}" = "0" ] && [ "${JFFS2_ENABLED}" = "1" ] && [ "${JFFS2_SCRIPTS}" = "1" ]; then
+	if [ "${jffs2_format_value}" = "0" ] && [ "${jffs2_enabled_value}" = "1" ] && [ "${jffs2_scripts_value}" = "1" ]; then
 		PTXT "${INFO} JFFS custom scripts and configs are already enabled."
 		return 0
 	fi
 	if ! nvram_transaction_begin jffs-enable jffs2_format jffs2_scripts jffs2_enable jffs2_on; then
-		PTXT "${ERROR} Unable to read all required JFFS NVRAM settings; no changes were made."
+		PTXT "${ERROR} JFFS transaction failed at ${NVRAM_TRANSACTION_BEGIN_STAGE:-unknown}; review the transaction recovery result before retrying."
 		return 1
 	fi
-	JFFS2_FORMAT="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_format")" || return 1
-	if [ "${JFFS2_FORMAT}" = "1" ]; then
+	jffs2_format_value="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_format")" || return 1
+	if [ "${jffs2_format_value}" = "1" ]; then
 		rm -rf "${NVRAM_TRANSACTION_DIR}"
 		PTXT "${ERROR} JFFS partition is scheduled to be reformatted." \
 			"${ERROR} Please reboot to format or disable that setting and try again." \
 			"${ERROR} Exiting..."
 		exit 1
 	fi
-	JFFS2_SCRIPTS="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_scripts")" || return 1
+	jffs2_scripts_value="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_scripts")" || return 1
 	jffs2_enable="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_enable")" || return 1
 	if [ -z "${jffs2_enable}" ]; then
-		JFFS2_ENABLED="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_on")" || return 1
-		jffs2_on="jffs2_on"
+		jffs2_enabled_value="$(cat "${NVRAM_TRANSACTION_DIR}/jffs2_on")" || return 1
+		jffs_enable_key="jffs2_on"
 	else
-		JFFS2_ENABLED="${jffs2_enable}"
-		jffs2_on="jffs2_enable"
+		jffs2_enabled_value="${jffs2_enable}"
+		jffs_enable_key="jffs2_enable"
 	fi
-	if [ "${JFFS2_ENABLED}" != "1" ] || [ "${JFFS2_SCRIPTS}" != "1" ]; then
+	if [ "${jffs2_enabled_value}" != "1" ] || [ "${jffs2_scripts_value}" != "1" ]; then
 		PTXT "${INFO} JFFS custom scripts and configs are not enabled." \
 			"${INFO} Enabling them now!"
-		nvram_transaction_set "${jffs2_on}" "1" || return 1
+		nvram_transaction_set "${jffs_enable_key}" "1" || return 1
 		nvram_transaction_set jffs2_scripts "1" || return 1
 		if [ ! -f "${NVRAM_TRANSACTION_DIR}/exists.jffs2_format" ]; then
 			nvram_transaction_set jffs2_format "0" || return 1
@@ -5387,6 +5505,10 @@ check_jffs_enabled() {
 
 check_version() {
 	local RMNSTALL LINSTALL MD5SUM_L MD5SUM_R MD5SUM_EXPECTED REMOTE_INSTALLER REMOTE_INSTALLER_MD5 REMOTE_INSTALLER_URL REMOTE_INSTALLER_MD5_URL REMOTE_CACHE_TOKEN ADGUARD_BRANCH ADGUARD_VER ADGUARD_WEB_URL REMOTE_ADGUARD_VER varcnt
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
+		PTXT "${INFO} Installer version ${AI_VERSION}; automatic installer-component checks are disabled by --no-auto-update."
+		return 0
+	fi
 	if [ -f "${TARG_DIR}/installer" ] && [ -f "${AGH_FILE}" ] && [ -z "$2" ]; then
 		if [ -n "$1" ] || { check_connection; }; then
 			REMOTE_INSTALLER="${TARG_DIR}/.installer.remote.$$"
@@ -5434,13 +5556,13 @@ check_version() {
 			if [ "${RMNSTALL}" != "${LINSTALL}" ]; then
 				PTXT "${INFO} New AI_VERSION=v${RMNSTALL} Available!" \
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			elif [ "${MD5SUM_R}" = "${MD5SUM_L}" ]; then
 				PTXT "${INFO} AI_VERSION=v${LINSTALL}"
 			else
 				PTXT "${INFO} AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			fi
 			if [ "${REMOTE_ADGUARD_VER}" != "${ADGUARD_VER}" ] || [ "${ADGUARD_BRANCH}" = "edge" ]; then
 				case "${ADGUARD_BRANCH}" in
@@ -5459,7 +5581,7 @@ check_version() {
 						fi
 						;;
 				esac
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			else
 				case "${ADGUARD_BRANCH}" in
 					release)
@@ -6575,7 +6697,12 @@ install_adguard_archive() {
 }
 
 backup_restore() {
+	local backup_action
+	backup_action="${1:-}"
 	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
+		installer_bundle_update_allowed || return 1
+	fi
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
 	COMMAND_LINK_DIR="${COMMAND_LINK%/*}"
 	if [ "$1" = "BACKUP" ] && [ -d "${TARG_DIR}" ] && [ -f "${AGH_FILE}" ]; then
@@ -6612,7 +6739,7 @@ backup_restore() {
 		end_op_message 1
 		return 1
 	fi
-	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 		ptxt_phase "Restoring AdGuardHome backup."
 		ptxt_step "Restoring AdGuardHome from ${BASE_DIR}/backup_AdGuardHome.tar.gz; please wait."
 		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz" 1; then
@@ -6757,7 +6884,7 @@ backup_restore() {
 		ADGUARD_DEFER_END_OP="0"
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
-	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "RESTORE" ]; then
+	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 		rollback_result_write "backup restore" "rollback unavailable" "backup archive missing"
 		rollback_result_notice
 		PTXT "${ERROR} No Backup found!" \
@@ -7039,9 +7166,12 @@ download_file() {
 
 installer_update_reexec() {
 	local ACTION NEW_MD5 OLD_MD5
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
+		installer_bundle_update_allowed || return 1
+	fi
 	ACTION="$1"
 	OLD_MD5="$2"
-	[ "${ACTION}" = "update" ] || return 0
+	[ "${ACTION}" = "${INSTALLER_ACTION_UPDATE:-update}" ] || return 0
 	[ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && return 0
 	[ -n "${OLD_MD5}" ] || return 0
 	[ -f "${TARG_DIR}/installer" ] || return 0
@@ -7053,7 +7183,7 @@ installer_update_reexec() {
 	AI_REEXECED_INSTALLER="1"
 	# Preserve the process-owned transaction lock across exec.  The PID is
 	# unchanged, and flock mode also inherits descriptor 8 into the new script.
-	export AI_REEXECED_INSTALLER NVRAM_TRANSACTION_LOCK_MODE
+	export AI_REEXECED_INSTALLER NVRAM_TRANSACTION_LOCK_MODE AI_NO_AUTO_UPDATE
 	exec "${TARG_DIR}/installer" "${BRANCH}" "${ACTION}"
 }
 
@@ -7446,7 +7576,12 @@ add_dnsmasq_event_scripts() {
 
 # inst_AdGuardHome orchestrates the action in $1; an optional build channel in $2 enters package installation or service refresh directly instead of branch discovery.
 inst_AdGuardHome() {
+	local install_action
+	install_action="${1-}"
 	local ADGUARD_TAR ARCHIVE_MD5 ARCHIVE_SHA256 COMMITTED_OLD_BINARY EVENT_HOOK_ROLLBACK_FAILED INSTALLER_MD5_OLD MIGRATE_STATUS REMOTE_ADGUARD_ARCHIVE REMOTE_ADGUARD_MD5 REMOTE_ADGUARD_SHA256 REMOTE_ADGUARD_URL REMOTE_ADGUARD_VER RESTART_AFTER_ABORT
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
+		installer_bundle_update_allowed || return 1
+	fi
 	ADGUARD_TAR="AdGuardHome_${ADGUARD_ARCH}.tar.gz"
 	ptxt_phase "Running AdGuardHome ${1:-install} orchestration."
 	if ! ensure_sha256sum_tool; then
@@ -7457,7 +7592,7 @@ inst_AdGuardHome() {
 	local SERVICE_REFRESH_ONLY="${SERVICE_REFRESH_ONLY:-0}"
 	[ -f "${SCRIPT_LOC}" ] && INSTALLER_MD5_OLD="$(file_md5 "${SCRIPT_LOC}" 2>/dev/null)"
 	if [ -z "$2" ]; then
-		if [ "${1:-RESTORE}" != "RESTORE" ]; then
+		if [ "${1:-RESTORE}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 			if [ ! -d "${TARG_DIR}" ] && [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ]; then
 				PTXT "${INFO} Backup is detected."
 				local USE_OLD
@@ -7512,8 +7647,8 @@ inst_AdGuardHome() {
 		fi
 		ptxt_ok "Installer update downloaded and validated."
 		installer_update_reexec "${1:-install}" "${INSTALLER_MD5_OLD}"
-		if [ "${1:-RESTORE}" != "RESTORE" ]; then
-			if [ "${1:-install}" != "update" ]; then
+		if [ "${1:-RESTORE}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
+			if [ "${install_action:-install}" != "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				choose_branch
 				CHOOSE_BRANCH_STATUS=$?
 				if [ "${CHOOSE_BRANCH_STATUS}" -ne 0 ] && [ "${CHOOSE_BRANCH_STATUS}" -ne 3 ]; then
@@ -7571,7 +7706,7 @@ inst_AdGuardHome() {
 					inst_AdGuardHome "${1:-update}" "${ADGUARD_BRANCH}"
 					return $?
 				else
-					if [ "${1:-update}" = "update" ]; then
+					if [ "${install_action:-update}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 						PTXT "${INFO} Refreshing installer-managed service integration."
 						SERVICE_REFRESH_ONLY=1
 						inst_AdGuardHome update "${ADGUARD_BRANCH}"
@@ -7683,7 +7818,7 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "AdGuardHome addon directory is ready."
-	if [ "${1:-update}" = "update" ]; then
+	if [ "${install_action:-update}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 		configure_runtime_defaults upgrade || {
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "$1"
@@ -7844,7 +7979,7 @@ inst_AdGuardHome() {
 			return 1
 			;;
 	esac
-	if [ "${1:-update}" != "update" ]; then
+	if [ "${install_action:-update}" != "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			PTXT "${INFO} Before setting up AdGuardHome, please choose your right timezone!"
@@ -7898,14 +8033,12 @@ inst_AdGuardHome() {
 		end_op_message 1 "$1"
 		return 1
 	fi
-	if [ "${1:-update}" != "RESTORE" ]; then
-		if ! finalize_pending_mode_migration; then
-			all_event_scripts_transaction_rollback || true
-			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
-			end_op_message 1 "$1"
-			return 1
-		fi
+	if [ "${install_action:-update}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ] && ! finalize_pending_mode_migration; then
+		all_event_scripts_transaction_rollback || true
+		PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		end_op_message 1 "${install_action}"
+		return 1
 	fi
 	ADGUARD_INSTALL_COMMIT_PENDING="1"
 	if ! all_event_scripts_transaction_commit; then
@@ -9514,7 +9647,7 @@ uninst_all() {
 	mv "${TARG_DIR}/installer" "${HOME}/installer"
 	rm -rf "${TARG_DIR}" "${ROLLBACK_RESULT_FILE}" "/opt/etc/init.d/S99AdGuardHome" "/opt/etc/init.d/rc.func.AdGuardHome" "/opt/sbin/AdGuardHome" "/opt/bin/bcrypt-tool" "${ADDON_DIR}" "/opt/var/log/AdGuardHome.log"
 	service restart_dnsmasq >/dev/null 2>&1
-	end_op_message 0
+	end_op_message 0 uninstall
 }
 
 # service_event_hook_command is the canonical command-format firmware hook, distinct from manager dispatch calls.
@@ -9724,6 +9857,7 @@ end_op_header() {
 }
 
 end_op_message() {
+	local end_action
 	case "${1:-0}" in
 		1)
 			if [ "${ROLLBACK_RESULT_UPDATED:-0}" != "1" ] && ! rollback_result_needs_attention; then
@@ -9735,6 +9869,7 @@ end_op_message() {
 				rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
 			fi
 			;;
+		*) : ;;
 	esac
 	nvram_transaction_lock_reaper_release_active || {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction reaper before completing the operation."
@@ -9755,6 +9890,7 @@ end_op_message() {
 			0) return 0 ;;
 			1) return 1 ;;
 			2) return 2 ;;
+			*) : ;;
 		esac
 	fi
 	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
@@ -9762,15 +9898,21 @@ end_op_message() {
 			0) return 0 ;;
 			1) return 1 ;;
 			2) return 2 ;;
+			*) : ;;
 		esac
 	fi
 	case "${1:-0}" in
 		0)
-			[ "$2" = "update" ] && exit 0
+			end_action="$2"
+			[ "${end_action}" = "${INSTALLER_ACTION_UPDATE:-update}" ] && exit 0
+			if [ "${2:-}" = uninstall ] && [ "${AI_NO_AUTO_UPDATE:-0}" = 1 ]; then
+				exit 0
+			fi
 			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
 			;;
 		1)
-			if [ "$2" = "update" ]; then
+			end_action="$2"
+			if [ "${end_action}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 				exit 1
 			fi
@@ -9781,6 +9923,7 @@ end_op_message() {
 			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
 			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
+		*) : ;;
 	esac
 	PTXT "====================================================="
 	PTXT " "
@@ -9790,6 +9933,14 @@ end_op_message() {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction lock before restarting the installer."
 		exit 1
 	}
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
+		if [ ! -f "${SCRIPT_LOC}" ]; then
+			PTXT "${ERROR} The current installer is unavailable; refusing a menu relaunch that could lose --no-auto-update."
+			exit 1
+		fi
+		chmod 755 "${SCRIPT_LOC}" >/dev/null 2>&1 || exit 1
+		exec "${SCRIPT_LOC}" --no-auto-update "${BRANCH}"
+	fi
 	if [ -f "${TARG_DIR}/installer" ]; then
 		chmod 755 "${TARG_DIR}/installer" >/dev/null 2>&1
 		exec "${TARG_DIR}/installer" "${BRANCH}"
@@ -9836,16 +9987,27 @@ menu() {
 			;;
 	esac
 	[ -n "${CHOSEN}" ] && trap 'END_OP_SIGNAL=1; clear_screen; end_op_message 2' HUP INT QUIT ABRT TERM
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ]; then
+		case "${CHOSEN}" in
+			1 | install | update | 7 | switchbranch | r | R | restore)
+				installer_bundle_update_allowed || {
+					end_op_message 1
+					return 1
+				}
+				;;
+			*) : ;;
+		esac
+	fi
 	case "${CHOSEN}" in
-		"1" | "install" | "update")
+		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "${INSTALLER_ACTION_UPDATE:-update}")
 			ptxt_phase "Selecting install or update operation."
-			if [ "${CHOSEN}" = "update" ]; then
+			if [ "${CHOSEN}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				ensure_jq_tool || {
 					end_op_message 1
 					return 1
 				}
 				ptxt_step "Starting requested AdGuardHome update."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			else
 				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
@@ -9929,7 +10091,7 @@ menu() {
 					end_op_message 1
 					return 1
 				fi
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			}; else end_op_message 1; fi
 			;;
@@ -10026,6 +10188,7 @@ menu() {
 			sleep 3s
 			clear_screen
 			;;
+		*) : ;;
 	esac
 }
 
@@ -10149,7 +10312,7 @@ read_yesno() {
 
 menu_action_allowed() {
 	case "$1" in
-		"1" | "install" | "update" | "2" | "uninstall")
+		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "${INSTALLER_ACTION_UPDATE:-update}" | "2" | "uninstall")
 			return 0
 			;;
 		[dD] | "doctor" | "status")
@@ -10198,7 +10361,11 @@ startup_action_allows_unknown_install_mode() {
 
 cli_usage() {
 	PTXT "${INFO} Usage:" \
+		"${INFO}   sh installer --no-auto-update [installer-ref] [menu-action]" \
+		"${INFO}     Per-invocation opt-out also accepts a CLI --no-auto-update flag. Bundle-changing install/update/restore refuse before requested work, including --dry-run; AGH-only compatibility is not established." \
+		"${INFO}   sh installer install  (interactive fresh setup)" \
 		"${INFO}   sh installer install [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--allow-dns-nvram]" \
+		"${INFO}     Flagged install requires an existing AdGuardHome environment; --yes does not configure first-run inputs." \
 		"${INFO}   sh installer update [--installer-branch master] [--adguardhome-branch {release|beta|edge}] --yes [--dry-run]" \
 		"${INFO}   sh installer backup --yes" \
 		"${INFO}   sh installer restore --file /path/to/backup_AdGuardHome.tar.gz --yes [--dry-run]" \
@@ -10212,6 +10379,64 @@ cli_usage() {
 		"${INFO}   sh installer performance --profile {balanced|low-memory|fast}" \
 		"${INFO}   sh installer migrate-runtime-defaults [--yes] [--dry-run]" \
 		"${INFO}   sh installer uninstall --yes [--dry-run] [--allow-dns-nvram]"
+}
+
+# Installer and service/helper scripts are one compatible bundle. Until local
+# compatibility can be established, opt-out refuses any operation replacing it.
+installer_bundle_update_allowed() {
+	[ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] || return 0
+	PTXT "${ERROR} --no-auto-update prevents installer and service/helper bundle replacement."
+	PTXT "${ERROR} This operation is refused because compatibility with the existing bundle cannot be established; an AdGuardHome-only update is not supported."
+	return 1
+}
+
+installer_update_policy_from_args() {
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--no-auto-update)
+				AI_NO_AUTO_UPDATE=1
+				export AI_NO_AUTO_UPDATE
+				shift
+				;;
+			--installer-branch | --branch | --adguardhome-branch | --file | --profile | --mode | --hosts | --dns | --require-http | --timeout | --policy)
+				[ "$#" -gt 1 ] || return 0
+				shift 2
+				;;
+			*) shift ;;
+		esac
+	done
+}
+
+# Refuse an explicitly requested bundle operation before ordinary startup writes.
+installer_requested_bundle_update_allowed() {
+	[ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] || return 0
+	case "${1:-}:${2:-}" in
+		amtmupdate:check) return 0 ;;
+		amtmupdate:* | 1:* | install:* | update:* | 7:* | switchbranch:* | r:* | R:* | restore:* | *:1 | *:install | *:update | *:7 | *:switchbranch | *:r | *:R | *:restore)
+			installer_bundle_update_allowed
+			return "$?"
+			;;
+		*) : ;;
+	esac
+	# Keep non-bundle actions available, including recovery of partial installs.
+	case "${1:-}" in
+		2 | uninstall | 3 | changepw | 4 | reconfigure | 5 | setamtmupdate | 6 | setlocalcache | 8 | setipset | 9 | blocklists | unusedblocklists | b | B | backup | d | D | doctor | status | m | M | migrate-runtime-defaults | ipset | netcheck | dns-port-policy | performance) return 0 ;;
+		*) : ;;
+	esac
+	# A fresh default/ref-only menu enters first-run setup before showing choices.
+	if [ ! -f "${AGH_FILE}" ] && [ -z "${2:-}" ]; then
+		installer_bundle_update_allowed
+		return "$?"
+	fi
+	return 0
+}
+
+# Flagged install reuses an existing environment; first-run inputs remain interactive.
+cli_fresh_install_supported() {
+	[ "${1:-}" = "${INSTALLER_ACTION_INSTALL:-install}" ] && [ ! -f "${AGH_FILE}" ] || return 0
+	PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
+	PTXT "${ERROR} Run sh installer install with no flags for interactive setup, or use restore --file with a validated backup."
+	return 1
 }
 
 cli_require_yes() {
@@ -10567,24 +10792,65 @@ cli_migrate_runtime_defaults() {
 }
 
 cli_installer_branch_from_args() {
+	local selected_branch
+	selected_branch=""
 	while [ "$#" -gt 0 ]; do
 		case "$1" in
 			--installer-branch)
-				[ "$#" -gt 1 ] || return 1
+				[ "$#" -gt 1 ] && [ -z "${selected_branch}" ] || return 1
 				branch_is_safe "$2" || return 1
-				PTXT "$2"
-				return 0
+				selected_branch="$2"
+				shift 2
 				;;
 			--branch | --adguardhome-branch | --file | --profile | --mode | --hosts | --dns | --require-http | --timeout | --policy)
 				[ "$#" -gt 1 ] || return 1
 				shift 2
 				;;
-			*)
-				shift
-				;;
+			*) shift ;;
 		esac
 	done
-	return 1
+	PTXT "${selected_branch}"
+}
+
+# resolve_installer_branch establishes one source before preferences or downloads.
+resolve_installer_branch() {
+	BRANCH=""
+	INSTALLER_SOURCE_ORIGIN="explicit"
+	case "${1:-}" in
+		install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
+			BRANCH="$(cli_installer_branch_from_args "$@")" || {
+				PTXT "${ERROR} Invalid or repeated --installer-branch; no installer source was selected." >&2
+				return 1
+			}
+			;;
+		amtmupdate | "") ;;
+		*)
+			if [ -n "${2:-}" ]; then
+				BRANCH="$1"
+			else
+				# Menu availability can depend on state loaded after source selection.
+				case "${1:-}" in
+					[1-9] | [qQbBrRdDmM] | install | update | uninstall | changepw | reconfigure | setamtmupdate | setlocalcache | switchbranch | setipset | blocklists | unusedblocklists | backup | restore | doctor | status | migrate-runtime-defaults) ;;
+					*) BRANCH="$1" ;;
+				esac
+			fi
+			;;
+	esac
+	if [ -z "${BRANCH}" ]; then
+		if [ -e "${CONF_FILE}" ] || [ -L "${CONF_FILE}" ]; then
+			BRANCH="$(conf_value INSTALLER_BRANCH)" || {
+				PTXT "${ERROR} Unable to read installer source from existing configuration ${CONF_FILE}; refusing to select a default source." >&2
+				return 1
+			}
+		fi
+		INSTALLER_SOURCE_ORIGIN="saved"
+	fi
+	if [ -z "${BRANCH}" ]; then
+		BRANCH="master"
+		INSTALLER_SOURCE_ORIGIN="default"
+	fi
+	BRANCH="$(sanitize_branch "${BRANCH}")" || return 1
+	PTXT "${INFO} Installer source: ${BRANCH} (${INSTALLER_SOURCE_ORIGIN}); AdGuardHome channel is selected separately."
 }
 
 cli_write_adguard_branch() {
@@ -10634,6 +10900,11 @@ cli_run() {
 	while [ "$#" -gt 0 ]; do
 		opt="$1"
 		case "${opt}" in
+			--no-auto-update)
+				AI_NO_AUTO_UPDATE=1
+				export AI_NO_AUTO_UPDATE
+				shift
+				;;
 			--yes)
 				[ "${cmd}" != "migrate-runtime-defaults" ] || migrate_args="${migrate_args} --yes"
 				CLI_YES="1"
@@ -10712,6 +10983,10 @@ cli_run() {
 			*) return 2 ;;
 		esac
 	done
+	installer_requested_bundle_update_allowed "${cmd}" || return 1
+	if [ "${CLI_DRY_RUN}" != "1" ]; then
+		cli_fresh_install_supported "${cmd}" || return 1
+	fi
 	if [ -n "${installer_branch}" ]; then
 		branch_is_safe "${installer_branch}" || {
 			PTXT "${ERROR} Unsupported installer branch: ${installer_branch}"
@@ -10732,13 +11007,13 @@ cli_run() {
 			;;
 		update)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
-				cli_dry_run "update"
+				cli_dry_run "${INSTALLER_ACTION_UPDATE:-update}"
 				return 0
 			}
 			cli_require_yes || return 1
 			[ -z "${adguard_branch}" ] || cli_write_adguard_branch "${adguard_branch}" || return 1
 			cli_enable_assume_yes
-			AUTO_UPDATE="update"
+			AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			menu update
 			operation_status=$?
 			[ "${operation_status}" -eq 2 ] && return 1
@@ -10849,15 +11124,10 @@ cli_run() {
 			;;
 		install)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
-				cli_dry_run "install"
+				cli_dry_run "${INSTALLER_ACTION_INSTALL:-install}"
 				return 0
 			}
 			cli_require_yes || return 1
-			if [ ! -f "${AGH_FILE}" ]; then
-				PTXT "${ERROR} Non-interactive install cannot complete fresh first-run setup."
-				PTXT "${ERROR} Run the interactive installer for fresh installs, or use restore --file with an existing backup."
-				return 1
-			fi
 			if [ "${ADGUARD_INSTALL_MODE}" = "wan" ] && [ "${CLI_ALLOW_DNS_NVRAM}" != "1" ]; then
 				PTXT "${ERROR} Refusing install DNS/NVRAM rewrite without --allow-dns-nvram."
 				return 1
@@ -10905,6 +11175,24 @@ if ! nvram_transaction_recover_startup; then
 	fi
 fi
 
+if [ "${1:-}" = "--no-auto-update" ]; then
+	AI_NO_AUTO_UPDATE=1
+	export AI_NO_AUTO_UPDATE
+	shift
+fi
+installer_update_policy_from_args "$@"
+
+# Keep diagnostic suffix flags on the same early, read-only dispatch path.
+case "${1:-}:${2:-}" in
+	preflight:* | doctor:* | status:* | *:doctor | *:status)
+		for DIAGNOSTIC_ARGUMENT; do
+			shift
+			[ "${DIAGNOSTIC_ARGUMENT}" = "--no-auto-update" ] || set -- "$@" "${DIAGNOSTIC_ARGUMENT}"
+		done
+		;;
+	*) : ;;
+esac
+
 if [ "${1:-}" = "preflight" ]; then
 	preflight "${2:-install}"
 	exit "$?"
@@ -10934,6 +11222,8 @@ if [ "${2:-}" = "doctor" ]; then
 	esac
 fi
 
+installer_requested_bundle_update_allowed "$@" || exit 1
+
 case "${1:-}" in
 	install | update | restore | uninstall | ipset)
 		if cli_pre_remote_dry_run "$@"; then
@@ -10950,6 +11240,12 @@ case "${CLI_STATUS}" in
 		exit 2
 		;;
 esac
+
+if [ "${1:-}" = "${INSTALLER_ACTION_INSTALL:-install}" ] && [ "$#" -gt 1 ]; then
+	cli_fresh_install_supported install || exit 1
+fi
+
+resolve_installer_branch "$@" || exit 1
 
 # Resolve the router mode before any installer preference is written.  An
 # existing install may continue in its persisted mode, but all mode migration
@@ -10986,38 +11282,11 @@ if ! conf_has_key BLOCKLIST_ANALYZER_SHA256; then
 fi
 if [ -z "${2:-}" ] && single_arg_menu_action "${1:-}"; then
 	CHOSEN="${1}"
-	BRANCH="$(conf_value INSTALLER_BRANCH)"
-	if [ -n "${BRANCH}" ]; then
-		BRANCH="$(sanitize_branch "${BRANCH}")"
-	else
-		BRANCH="master"
-	fi
 	set -- "${BRANCH}" "${CHOSEN}"
 fi
-case "${1}" in
-	install | update | backup | restore | doctor | ipset | netcheck | dns-port-policy | performance | migrate-runtime-defaults | uninstall)
-		BRANCH="$(cli_installer_branch_from_args "$@" 2>/dev/null)"
-		[ -n "${BRANCH}" ] || BRANCH="$(conf_value INSTALLER_BRANCH)"
-		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
-		;;
-	"amtmupdate")
-		BRANCH="$(conf_value INSTALLER_BRANCH)"
-		[ -n "${BRANCH}" ] && BRANCH="$(sanitize_branch "${BRANCH}")" || BRANCH="master"
-		case "$2" in
-			"")
-				CHOSEN="${1#amtm}"
-				set -- "$BRANCH" "$CHOSEN"
-				;;
-		esac
-		;;
-	"")
-		BRANCH="master"
-		;;
-	*)
-		BRANCH="${1}"
-		;;
-esac
-BRANCH="$(sanitize_branch "${BRANCH}")"
+if [ "${1:-}" = "amtmupdate" ] && [ -z "${2:-}" ]; then
+	set -- "${BRANCH}" update
+fi
 write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 readonly BLOCKLIST_ANALYZER_SHA256
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"

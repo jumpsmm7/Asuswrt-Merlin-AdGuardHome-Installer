@@ -29,67 +29,64 @@ jobs:
       - name: Check out pull request
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
 
-      - name: Check out target branch
+      - name: Prepare pinned scanner and preserve current validation tools
+        id: scan-tools
+        run: sh .github/scripts/run-osv-scan.sh prepare
+
+      - name: Select exact comparison snapshot
         id: differential-base
         env:
-          BASE_REVISION: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
-        run: |
-          base_revision="${BASE_REVISION}"
-          case "${base_revision}" in
-            0000000000000000000000000000000000000000) base_revision="${GITHUB_SHA}^" ;;
-          esac
-          if ! git rev-parse --verify "${base_revision}^{commit}" >/dev/null 2>&1; then
-            git fetch --no-tags origin "${base_revision}" || true
-          fi
-          if git rev-parse --verify "${base_revision}^{commit}" >/dev/null 2>&1; then
-            git checkout --detach "${base_revision}" || exit 1
-            printf '%s\n' 'available=true' >> "${GITHUB_OUTPUT}"
-          else
-            printf '%s\n' '{}' >old-results.json
-            printf '%s\n' 'available=false' >> "${GITHUB_OUTPUT}"
-            printf '%s\n' "Differential OSV scan skipped: predecessor ${base_revision} is unavailable."
-          fi
+          BASE_REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: sh .github/scripts/osv-differential-base.sh
+
+      - name: Check out target branch
+        if: steps.differential-base.outputs.baseline_available == 'true'
+        env:
+          BASE_REVISION: ${{ steps.differential-base.outputs.base_sha }}
+        run: git checkout --detach "${BASE_REVISION}"
 
       - name: Scan existing code
-        if: steps.differential-base.outputs.available == 'true'
-        uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
-        continue-on-error: true
-        with:
-          scan-args: |-
-            --format=json
-            --output=old-results.json
-            -r
-            ./
+        id: scan-existing
+        if: steps.differential-base.outputs.baseline_available == 'true'
+        env:
+          SCAN_TOOLS: ${{ steps.scan-tools.outputs.tool_directory }}
+        run: sh "${SCAN_TOOLS}/run-osv-scan.sh" old-results.json
 
       - name: Check out pull request merge
         run: git checkout -f "${GITHUB_SHA}"
 
       - name: Scan new code
-        uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
-        continue-on-error: true
-        with:
-          scan-args: |-
-            --format=json
-            --output=new-results.json
-            -r
-            ./
+        id: scan-new
+        env:
+          SCAN_TOOLS: ${{ steps.scan-tools.outputs.tool_directory }}
+        run: sh "${SCAN_TOOLS}/run-osv-scan.sh" new-results.json
 
       - name: Report newly introduced vulnerabilities
-        if: steps.differential-base.outputs.available == 'true'
+        if: steps.differential-base.outputs.baseline_available == 'true' && steps.scan-existing.outputs.ready == 'true' && steps.scan-new.outputs.ready == 'true'
         uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         with:
           scan-args: |-
-            --output=results.sarif
+            --output-files=sarif:results.sarif
             --old=old-results.json
             --new=new-results.json
             --gh-annotations=true
             --fail-on-vuln=true
 
+      - name: Report vulnerabilities without a comparison snapshot
+        if: steps.differential-base.outputs.baseline_available == 'false' && steps.scan-new.outputs.ready == 'true'
+        uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
+        with:
+          scan-args: |-
+            --output-files=sarif:results.sarif
+            --new=new-results.json
+            --gh-annotations=true
+            --fail-on-vuln=true
+
       - name: Upload OSV SARIF artifact
-        if: ${{ !cancelled() && steps.differential-base.outputs.available == 'true' }}
+        if: ${{ !cancelled() && steps.scan-new.outputs.ready == 'true' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: OSV Scanner PR SARIF
@@ -97,7 +94,7 @@ jobs:
           retention-days: 5
 
       - name: Upload OSV results to code scanning
-        if: ${{ !cancelled() && steps.differential-base.outputs.available == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.scan-new.outputs.ready == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif
@@ -118,27 +115,28 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare pinned scanner and preserve current validation tools
+        id: scan-tools
+        run: sh .github/scripts/run-osv-scan.sh prepare
+
       - name: Scan repository
-        uses: google/osv-scanner-action/osv-scanner-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
-        continue-on-error: true
-        with:
-          scan-args: |-
-            --format=json
-            --output=results.json
-            -r
-            ./
+        id: scan-full
+        env:
+          SCAN_TOOLS: ${{ steps.scan-tools.outputs.tool_directory }}
+        run: sh "${SCAN_TOOLS}/run-osv-scan.sh" results.json
 
       - name: Report vulnerabilities
+        if: steps.scan-full.outputs.ready == 'true'
         uses: google/osv-scanner-action/osv-reporter-action@8dc09193bb540e09b23da07ad7e30bd33bf87018 # v2.3.8
         with:
           scan-args: |-
-            --output=results.sarif
+            --output-files=sarif:results.sarif
             --new=results.json
             --gh-annotations=false
             --fail-on-vuln=true
 
       - name: Upload OSV SARIF artifact
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scan-full.outputs.ready == 'true' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: OSV Scanner SARIF
@@ -146,7 +144,7 @@ jobs:
           retention-days: 5
 
       - name: Upload OSV results to code scanning
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scan-full.outputs.ready == 'true' }}
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif
