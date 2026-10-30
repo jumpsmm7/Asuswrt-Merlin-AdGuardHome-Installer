@@ -68,7 +68,7 @@ esac
 # At the pinned version, --verbosity=error sends only error-level diagnostics to stderr.
 # Exit 1 can represent vulnerabilities plus an extraction error, so status alone is insufficient.
 [ ! -s "${SCAN_DIR}/stderr.log" ] || fail 'scanner reported an error or incomplete extraction'
-python3 "${SCRIPT_DIR}/check-osv-results.py" "${SCAN_DIR}/results.json" || fail 'scanner did not produce valid results'
+(cd "${SCAN_DIR}" && python3 "${SCRIPT_DIR}/check-osv-results.py" results.json) || fail 'scanner did not produce valid results'
 RESULT_STAGE="$(mktemp "./.${RESULT_FILE}.XXXXXX")" || fail 'could not reserve result publication stage'
 cp "${SCAN_DIR}/results.json" "${RESULT_STAGE}" || fail 'could not stage validated scan result'
 mv -f "${RESULT_STAGE}" "${RESULT_FILE}" || fail 'could not publish validated scan result'
