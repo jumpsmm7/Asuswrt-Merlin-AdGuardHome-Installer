@@ -122,7 +122,7 @@ Copy this event row per actual observation; do not substitute the report date fo
 ## Final disposition
 
 - [x] Candidate identity, versions, all checksums and release notes agree with the tested published implementation source.
-- [x] Covered software assertions, matching native aggregate and current-head checks/reviews have recorded satisfactory results or an explicit permitted disposition; complete operator rows SW-04/05/12/13 remain NOT RUN.
+- [x] Covered software assertions and the matching native aggregate for the historical frozen candidate have recorded satisfactory results; fresh implementation checks/reviews remain pending under TASK-038. Complete operator rows SW-04/05/12/13 remain NOT RUN.
 - [ ] Applicable physical rows and required soak have candidate-specific operator evidence, including actual firmware and older-router coverage.
 - [ ] Failed runs and recovery/retest outcomes are retained; remaining limitations and downgrade compatibility are documented.
 - [ ] Maintainer records the separate release decision and timestamp. No publication is performed by completing this document.

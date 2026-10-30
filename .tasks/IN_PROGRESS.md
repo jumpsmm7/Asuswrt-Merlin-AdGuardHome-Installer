@@ -13,6 +13,7 @@
 - Replace the OSV differential job's full-history/all-ref checkout with bounded exact-commit selection and secure full-scan reporting when no baseline exists. Keep vulnerability failure enforcement and upload permissions intact.
 - Restore uninstall compatibility with older managers when no kernel-settings ownership journal exists (#1046); retain required restoration and unsafe-journal refusal when ownership state is present.
 - Resolve the current strict Sonar findings in shared installer, DNS/recovery helpers and the OSV result checker without suppressions or weakened validation.
+- Resolve verified support-export and qualification-record feedback: retain legitimate firmware model IDs while preserving the diagnostic allowlist and identify historical/current evidence precisely.
 - Synchronize master archive updates through readiness, DNS and completion with history-preserving merges, then run focused recovery/checkout/workflow checks, canonical host quality and fresh published-head native acceptance.
 
 ### Acceptance criteria
@@ -22,6 +23,7 @@
 - [x] Complete scanner results are required before full/differential reporting and uploads; missing or partial scans fail while genuine vulnerability results remain reportable.
 - [ ] #1046 legacy-manager uninstall and unsafe/failed restoration controls pass under host sh, BusyBox 1.25.1 and the registered native fixture.
 - [ ] Strict Sonar analysis and complete host/security/native checks pass for the final implementation.
+- [ ] Support export preserves valid underscore-suffixed model IDs and still rejects malformed, oversized and private/control-character inputs in the covered host/native settings contract.
 - [ ] All three branches include their immediate base; complete current-head checks/reviews and matching three-target native gates are observed after publication.
 - [x] Retain v2.7.0-rc.1 and the default master-promotion restriction. Physical operator acceptance and soak remain NOT RUN.
 

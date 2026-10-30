@@ -28,9 +28,11 @@ AI_VERSION="v2.7.0-rc.1"
 export AI_VERSION
 readonly INSTALLER_ACTION_RESTORE="RESTORE"
 readonly INSTALLER_ACTION_INSTALL="install"
+readonly INSTALLER_ACTION_UPDATE="update"
 readonly INSTALLER_ROLLBACK_COMPLETE="rollback complete"
 readonly INSTALLER_ROLLBACK_PARTIAL="rollback partial"
 readonly INSTALLER_ROLLBACK_FAILED="rollback failed"
+readonly INSTALLER_RESTORE_FAILED="restore-failed"
 readonly INSTALLER_ROLLBACK_UNAVAILABLE="rollback unavailable"
 readonly INSTALLER_BACKUP_RESTORE="backup restore"
 readonly INSTALLER_DNS_TRANSACTION="DNS NVRAM transaction"
@@ -4783,7 +4785,7 @@ blocklist_yaml_replace_abort_on_signal() {
 			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted; restored ${YAML_FILE} from ${backup_file}."
 		else
-			rollback_result_write "${INSTALLER_BLOCKLIST_REPLACEMENT:-blocklist yaml replacement}" "restore-failed" "interrupted; backup ${backup_file}"
+			rollback_result_write "${INSTALLER_BLOCKLIST_REPLACEMENT:-blocklist yaml replacement}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "interrupted; backup ${backup_file}"
 			rollback_result_notice
 			ptxt_fail "Blocklist cleanup interrupted, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
@@ -4887,7 +4889,7 @@ remove_unused_blocklists_from_yaml() {
 		else
 			rm -f "${removed_file}"
 			blocklist_yaml_replace_trap_disable
-			rollback_result_write "${INSTALLER_BLOCKLIST_REPLACEMENT:-blocklist yaml replacement}" "restore-failed" "validation failed; backup ${backup_file}"
+			rollback_result_write "${INSTALLER_BLOCKLIST_REPLACEMENT:-blocklist yaml replacement}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "validation failed; backup ${backup_file}"
 			rollback_result_notice
 			ptxt_fail "Validation failed, and ${YAML_FILE} could not be restored from ${backup_file}."
 		fi
@@ -5595,13 +5597,13 @@ check_version() {
 			if [ "${RMNSTALL}" != "${LINSTALL}" ]; then
 				PTXT "${INFO} New AI_VERSION=v${RMNSTALL} Available!" \
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			elif [ "${MD5SUM_R}" = "${MD5SUM_L}" ]; then
 				PTXT "${INFO} AI_VERSION=v${LINSTALL}"
 			else
 				PTXT "${INFO} AI_VERSION=v${LINSTALL}, but a New Minor Update is Available!" \
 					"${INFO} Run Option 1 of the Installer to upgrade Asuswrt-Merlin-AdGuardHome-Installer."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			fi
 			if [ "${REMOTE_ADGUARD_VER}" != "${ADGUARD_VER}" ] || [ "${ADGUARD_BRANCH}" = "edge" ]; then
 				case "${ADGUARD_BRANCH}" in
@@ -5620,7 +5622,7 @@ check_version() {
 						fi
 						;;
 				esac
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			else
 				case "${ADGUARD_BRANCH}" in
 					release)
@@ -6157,13 +6159,13 @@ adguard_restore_after_failed_replace() {
 	OLD_BINARY="$1"
 	WAS_RUNNING="$2"
 	if [ "$(agh_process_count)" -gt 0 ] && ! agh_stop; then
-		rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "restore-failed" "could not stop AdGuardHome"
+		rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "could not stop AdGuardHome"
 		PTXT "${ERROR} Unable to stop AdGuardHome before restoring the previous binary."
 		return 1
 	fi
 	if [ -f "${OLD_BINARY}" ]; then
 		if ! mv "${OLD_BINARY}" "${AGH_FILE}"; then
-			rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "restore-failed" "${OLD_BINARY}"
+			rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "${OLD_BINARY}"
 			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome binary; it remains at ${OLD_BINARY}."
 			rollback_result_write "binary-replace" "${INSTALLER_ROLLBACK_FAILED:-rollback failed}" "previous binary remains at ${OLD_BINARY}"
@@ -6179,7 +6181,7 @@ adguard_restore_after_failed_replace() {
 			return 1
 		fi
 		if [ "${WAS_RUNNING}" = "1" ]; then
-			rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "restore-failed" "previous binary unavailable"
+			rollback_result_write "${INSTALLER_BINARY_ROLLBACK:-AdGuardHome binary rollback}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "previous binary unavailable"
 			rollback_result_notice
 			PTXT "${ERROR} The previous AdGuardHome binary is unavailable for rollback."
 			rollback_result_write "binary-replace" "${INSTALLER_ROLLBACK_UNAVAILABLE:-rollback unavailable}" "previous binary backup is missing"
@@ -6298,7 +6300,7 @@ adguard_restore_after_failed_directory_restore() {
 	if agh_is_running; then
 		PTXT "${INFO} Stopping AdGuardHome before restoring the previous installation."
 		if ! agh_stop; then
-			rollback_result_write "${INSTALLER_DIRECTORY_ROLLBACK:-AdGuardHome directory rollback}" "restore-failed" "could not stop AdGuardHome"
+			rollback_result_write "${INSTALLER_DIRECTORY_ROLLBACK:-AdGuardHome directory rollback}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "could not stop AdGuardHome"
 			rollback_result_notice
 			PTXT "${ERROR} Unable to safely stop AdGuardHome before restoring the previous installation."
 			rollback_result_write "directory-restore" "${INSTALLER_ROLLBACK_FAILED:-rollback failed}" "could not stop AdGuardHome before restore"
@@ -6313,7 +6315,7 @@ adguard_restore_after_failed_directory_restore() {
 	fi
 	if [ -d "${ROLLBACK_DIR}" ]; then
 		if ! mv "${ROLLBACK_DIR}" "${TARGET_DIR}"; then
-			rollback_result_write "${INSTALLER_DIRECTORY_ROLLBACK:-AdGuardHome directory rollback}" "restore-failed" "${ROLLBACK_DIR}"
+			rollback_result_write "${INSTALLER_DIRECTORY_ROLLBACK:-AdGuardHome directory rollback}" "${INSTALLER_RESTORE_FAILED:-restore-failed}" "${ROLLBACK_DIR}"
 			rollback_result_notice
 			PTXT "${ERROR} Unable to restore the previous AdGuardHome installation; it remains at ${ROLLBACK_DIR}."
 			rollback_result_write "directory-restore" "${INSTALLER_ROLLBACK_FAILED:-rollback failed}" "previous installation remains at ${ROLLBACK_DIR}"
@@ -6741,8 +6743,10 @@ install_adguard_archive() {
 
 # Back up the current installation or restore a verified archive with directory rollback.
 backup_restore() {
+	local backup_action
+	backup_action="${1:-}"
 	local COMMAND_LINK COMMAND_LINK_DIR INSTALL_STATUS MIGRATION_ROLLBACK_STATUS RESTORE_ROLLBACK_DIR RESTORE_STAGE_DIR RESTORE_TARG_DIR WAS_RUNNING
-	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] && [ "${1:-}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
+	if [ "${AI_NO_AUTO_UPDATE:-0}" = "1" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 		installer_bundle_update_allowed || return 1
 	fi
 	COMMAND_LINK="${ADGUARD_COMMAND_LINK_PATH:-/opt/sbin/AdGuardHome}"
@@ -6781,7 +6785,7 @@ backup_restore() {
 		end_op_message 1
 		return 1
 	fi
-	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
+	if [ -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 		ptxt_phase "Restoring AdGuardHome backup."
 		ptxt_step "Restoring AdGuardHome from ${BASE_DIR}/backup_AdGuardHome.tar.gz; please wait."
 		if ! adguard_archive_is_safe "${BASE_DIR}/backup_AdGuardHome.tar.gz" 1; then
@@ -6932,7 +6936,7 @@ backup_restore() {
 		ADGUARD_DEFER_END_OP="0"
 		rm -rf "${RESTORE_ROLLBACK_DIR}"
 		end_op_message 0 "${1:-RESTORE}"
-	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "$1" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
+	elif [ ! -f "${BASE_DIR}/backup_AdGuardHome.tar.gz" ] && [ "${backup_action}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
 		rollback_result_write "${INSTALLER_BACKUP_RESTORE:-backup restore}" "${INSTALLER_ROLLBACK_UNAVAILABLE:-rollback unavailable}" "backup archive missing"
 		rollback_result_notice
 		PTXT "${ERROR} No Backup found!" \
@@ -7219,7 +7223,7 @@ installer_update_reexec() {
 	fi
 	ACTION="$1"
 	OLD_MD5="$2"
-	[ "${ACTION}" = "update" ] || return 0
+	[ "${ACTION}" = "${INSTALLER_ACTION_UPDATE:-update}" ] || return 0
 	[ "${AI_REEXECED_INSTALLER:-0}" = "1" ] && return 0
 	[ -n "${OLD_MD5}" ] || return 0
 	[ -f "${TARG_DIR}/installer" ] || return 0
@@ -7826,7 +7830,7 @@ inst_AdGuardHome() {
 		fi
 		installer_update_reexec "${install_action:-install}" "${INSTALLER_MD5_OLD}"
 		if [ "${install_action:-RESTORE}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
-			if [ "${install_action:-install}" != "update" ]; then
+			if [ "${install_action:-install}" != "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				choose_branch
 				CHOOSE_BRANCH_STATUS=$?
 				if [ "${CHOOSE_BRANCH_STATUS}" -ne 0 ] && [ "${CHOOSE_BRANCH_STATUS}" -ne 3 ]; then
@@ -7884,7 +7888,7 @@ inst_AdGuardHome() {
 					inst_AdGuardHome "${install_action:-update}" "${ADGUARD_BRANCH}"
 					return $?
 				else
-					if [ "${install_action:-update}" = "update" ]; then
+					if [ "${install_action:-update}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 						PTXT "${INFO} Refreshing installer-managed service integration."
 						SERVICE_REFRESH_ONLY=1
 						inst_AdGuardHome update "${ADGUARD_BRANCH}"
@@ -8012,7 +8016,7 @@ inst_AdGuardHome() {
 		return 1
 	fi
 	ptxt_ok "AdGuardHome addon directory is ready."
-	if [ "${install_action:-update}" = "update" ]; then
+	if [ "${install_action:-update}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 		configure_runtime_defaults upgrade || {
 			adguard_restart_after_install_abort "${RESTART_AFTER_ABORT}"
 			end_op_message 1 "${install_action}"
@@ -8174,7 +8178,7 @@ inst_AdGuardHome() {
 			return 1
 			;;
 	esac
-	if [ "${install_action:-update}" != "update" ]; then
+	if [ "${install_action:-update}" != "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 		ptxt_phase "Configuring AdGuardHome first-run settings."
 		if [ ! -f "${ADDON_DIR}/localtime" ]; then
 			if [ "${install_action:-install}" = "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
@@ -8232,14 +8236,12 @@ inst_AdGuardHome() {
 		end_op_message 1 "${install_action}"
 		return 1
 	fi
-	if [ "${install_action:-update}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ]; then
-		if ! finalize_pending_mode_migration; then
-			all_event_scripts_transaction_rollback || true
-			PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
-			adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
-			end_op_message 1 "${install_action}"
-			return 1
-		fi
+	if [ "${install_action:-update}" != "${INSTALLER_ACTION_RESTORE:-RESTORE}" ] && ! finalize_pending_mode_migration; then
+		all_event_scripts_transaction_rollback || true
+		PTXT "${ERROR} Unable to remove completed mode-migration recovery backups."
+		adguard_recover_after_event_hook_abort "${RESTART_AFTER_ABORT}" 1
+		end_op_message 1 "${install_action}"
+		return 1
 	fi
 	ADGUARD_INSTALL_COMMIT_PENDING="1"
 	if ! all_event_scripts_transaction_commit; then
@@ -10058,6 +10060,7 @@ end_op_header() {
 
 # Clean owned staging, preserve operation status, and return or relaunch the menu.
 end_op_message() {
+	local end_action
 	[ "${ADGUARD_SERVICE_STAGE_OWNED:-0}" != "1" ] || adguard_service_bundle_cleanup
 	[ "${ADGUARD_SERVICE_PUBLISH_OWNED:-0}" != "1" ] || adguard_service_publish_cleanup
 	case "${1:-0}" in
@@ -10071,6 +10074,7 @@ end_op_message() {
 				rollback_result_write "operation" "interrupted: no rollback attempted" "operation interrupted before rollback was needed"
 			fi
 			;;
+		*) : ;;
 	esac
 	nvram_transaction_lock_reaper_release_active || {
 		PTXT "${ERROR} Unable to release the installer NVRAM transaction reaper before completing the operation."
@@ -10091,6 +10095,7 @@ end_op_message() {
 			0) return 0 ;;
 			1) return 1 ;;
 			2) return 2 ;;
+			*) : ;;
 		esac
 	fi
 	if [ "${ADGUARD_DEFER_END_OP:-0}" = "1" ]; then
@@ -10098,18 +10103,21 @@ end_op_message() {
 			0) return 0 ;;
 			1) return 1 ;;
 			2) return 2 ;;
+			*) : ;;
 		esac
 	fi
 	case "${1:-0}" in
 		0)
-			[ "$2" = "update" ] && exit 0
+			end_action="$2"
+			[ "${end_action}" = "${INSTALLER_ACTION_UPDATE:-update}" ] && exit 0
 			if [ "${2:-}" = uninstall ] && [ "${AI_NO_AUTO_UPDATE:-0}" = 1 ]; then
 				exit 0
 			fi
 			PTXT "${INFO} Operation completed, returning to Main Menu. You can quit or continue."
 			;;
 		1)
-			if [ "$2" = "update" ]; then
+			end_action="$2"
+			if [ "${end_action}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 				exit 1
 			fi
@@ -10120,6 +10128,7 @@ end_op_message() {
 			PTXT "${INFO} Abnormal operations, returning to Main Menu. You can quit or continue."
 			[ -f "${ROLLBACK_RESULT_FILE}" ] && PTXT "${INFO} Last rollback result: $(rollback_result_summary)"
 			;;
+		*) : ;;
 	esac
 	PTXT "====================================================="
 	PTXT " "
@@ -10195,15 +10204,15 @@ menu() {
 		esac
 	fi
 	case "${CHOSEN}" in
-		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "update")
+		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "${INSTALLER_ACTION_UPDATE:-update}")
 			ptxt_phase "Selecting install or update operation."
-			if [ "${CHOSEN}" = "update" ]; then
+			if [ "${CHOSEN}" = "${INSTALLER_ACTION_UPDATE:-update}" ]; then
 				ensure_jq_tool || {
 					end_op_message 1
 					return 1
 				}
 				ptxt_step "Starting requested AdGuardHome update."
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			else
 				PTXT "${INFO} This operation will install AdGuardHome and related files (<6MB)" \
@@ -10287,7 +10296,7 @@ menu() {
 					end_op_message 1
 					return 1
 				fi
-				AUTO_UPDATE="update"
+				AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 				inst_AdGuardHome "${AUTO_UPDATE:-update}"
 			}; else end_op_message 1; fi
 			;;
@@ -10384,6 +10393,7 @@ menu() {
 			sleep 3s
 			clear_screen
 			;;
+		*) : ;;
 	esac
 }
 
@@ -10507,7 +10517,7 @@ read_yesno() {
 
 menu_action_allowed() {
 	case "$1" in
-		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "update" | "2" | "uninstall")
+		"1" | "${INSTALLER_ACTION_INSTALL:-install}" | "${INSTALLER_ACTION_UPDATE:-update}" | "2" | "uninstall")
 			return 0
 			;;
 		[dD] | "doctor" | "status")
@@ -10693,7 +10703,7 @@ support_export_emit() {
 			value="$(printf '%s\n' "${value}" | awk 'length($0) <= 64 && /^v?[0-9]+[.][0-9]+[.][0-9]+(-([abr][.][0-9]+|rc[.][1-9][0-9]?))?([+][0-9a-f]+)?$/ { print; found=1 } END { if (!found) print "unknown" }')" || value=unknown
 			;;
 		model:*)
-			value="$(printf '%s\n' "${value}" | awk 'length($0) <= 32 && /^(RT|GT|TUF|RP)-[A-Z]+[0-9][0-9A-Z+-]*$|^(ET|XT|XD)[0-9][0-9A-Z+-]*$/ { print; found=1 } END { if (!found) print "unknown" }')" || value=unknown
+			value="$(printf '%s\n' "${value}" | awk 'length($0) <= 32 && /^(RT|GT|TUF|RP)-[A-Z]+[0-9][0-9A-Z_+-]*$|^(ET|XT|XD)[0-9][0-9A-Z_+-]*$/ { print; found=1 } END { if (!found) print "unknown" }')" || value=unknown
 			;;
 		firmware:*)
 			case "${value}" in *[!0-9._-]* | '' | [!0-9]* | *[!0-9]) value=unknown ;; *) : ;; esac
@@ -11667,13 +11677,13 @@ cli_run() {
 			;;
 		update)
 			[ "${CLI_DRY_RUN}" = "1" ] && {
-				cli_dry_run "update"
+				cli_dry_run "${INSTALLER_ACTION_UPDATE:-update}"
 				return 0
 			}
 			cli_require_yes || return 1
 			[ -z "${adguard_branch}" ] || cli_write_adguard_branch "${adguard_branch}" || return 1
 			cli_enable_assume_yes
-			AUTO_UPDATE="update"
+			AUTO_UPDATE="${INSTALLER_ACTION_UPDATE:-update}"
 			menu update
 			operation_status=$?
 			[ "${operation_status}" -eq 2 ] && return 1

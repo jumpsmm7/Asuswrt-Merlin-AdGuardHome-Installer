@@ -69,7 +69,7 @@ case "${name}" in
 			printf '%s\n' 'RT-AC68U' 'injected=SECRET_PASSWORD'; exit 0
 		fi
 		case "$2" in
-			productid) printf '%s\n' RT-AC68U ;;
+			productid) printf '%s\n' "${SX_ROUTER_MODEL:-RT-AC68U}" ;;
 			firmver) printf '%s\n' 3004 ;;
 			buildno) printf '%s\n' 388 ;;
 			extendno) printf '%s\n' 8_4 ;;
@@ -212,7 +212,7 @@ validate() {
 			type=schema[key]
 			if (type=="integer") valid=(value=="unknown" || value ~ /^[0-9]+$/ && length(value)<=12)
 			else if (type=="version") valid=(value=="unknown" || value ~ /^v?[0-9]+[.][0-9]+[.][0-9]+(-([abr][.][0-9]+|rc[.][1-9][0-9]?))?([+][0-9a-f]+)?$/ && length(value)<=64)
-			else if (type=="model") valid=(value=="unknown" || value ~ /^(RT|GT|TUF|RP)-[A-Z]+[0-9][0-9A-Z+-]*$|^(ET|XT|XD)[0-9][0-9A-Z+-]*$/ && length(value)<=32)
+			else if (type=="model") valid=(value=="unknown" || value ~ /^(RT|GT|TUF|RP)-[A-Z]+[0-9][0-9A-Z_+-]*$|^(ET|XT|XD)[0-9][0-9A-Z_+-]*$/ && length(value)<=32)
 			else if (type=="firmware") valid=(value=="unknown" || value ~ /^[0-9][0-9._-]*[0-9]$/ && length(value)<=32 || value ~ /^[0-9]$/)
 			else if (type=="reference") valid=(value ~ /^(master|dev[0-9]?|unknown|custom)$/ || value ~ /^v[0-9]+[.][0-9]+[.][0-9]+(-rc[.][1-9][0-9]?)?$/ && length(value)<=32 || length(value)==40 && value ~ /^[0-9a-fA-F]+$/)
 			else { valid=0; n=split(type, allowed, "|"); for(i=1;i<=n;i++) if (value==allowed[i]) valid=1 }
@@ -276,6 +276,20 @@ find "${TEST_ROOT}/fs" -type f -exec sha256sum '{}' \; | sort >"${TEST_ROOT}/aft
 cmp "${TEST_ROOT}/before" "${TEST_ROOT}/after" >/dev/null || fail 'collection changed router inputs'
 [ ! -e "${TEST_ROOT}/out/SHOULD_NOT_EXIST" ] || fail 'configuration was sourced'
 no_stage
+# Preserve legitimate firmware product IDs without relaxing prefixes or bounds.
+for model in RT-AX86U_PRO RT-AX88U_PRO GT-AX11000_PRO GT-BE98_PRO; do
+	SX_ROUTER_MODEL="${model}" export SX_ROUTER_MODEL
+	run normal "model-${model}.txt"
+	expect "${TEST_ROOT}/out/model-${model}.txt" "router.model=${model}"
+done
+model_case=0
+for model in CUSTOM-AX86U_PRO RT-_AX86U_PRO 'RT-AX86U_PRO;SECRET_TOKEN' RT-AX86U_PROXXXXXXXXXXXXXXXXXXXXX; do
+	model_case="$((model_case + 1))"
+	SX_ROUTER_MODEL="${model}" export SX_ROUTER_MODEL
+	run normal "model-invalid-${model_case}.txt"
+	expect "${TEST_ROOT}/out/model-invalid-${model_case}.txt" router.model=unknown
+done
+unset SX_ROUTER_MODEL
 cp "${TEST_ROOT}/fs/opt/etc/AdGuardHome/.config" "${TEST_ROOT}/config-saved"
 printf '%s\n' 'INSTALLER_BRANCH="v2.7.0SECRET_TOKEN"' 'ADGUARD_BRANCH="beta;SECRET_PASSWORD"' 'TOKEN=SECRET_TOKEN' >"${TEST_ROOT}/fs/opt/etc/AdGuardHome/.config"
 run malicious malicious.txt
