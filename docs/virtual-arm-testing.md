@@ -67,7 +67,7 @@ The target names below preserve the installer's archive routing names. They are 
 | Feature ID | Covered assertions |
 |---|---|
 | hooks | Managed first-line interpreter/mode/idempotence, shared content preservation, aggregate hook rollback and safe doctor diagnosis/repair |
-| transactions | Install/update/interruption state, owned rollback/cleanup, preference continuity and modeled uninstall recovery |
+| transactions | Install/update/interruption state, pre-stop verified bundle staging, owned rollback/cleanup, preference continuity, modeled uninstall recovery and actual isolated full/read-only filesystem refusal |
 | topology | WAN/LAN/AP/Bridge selection, eligible WAN NAT, bind addresses and topology-aware policy |
 | dns | Modeled main/SDN handoff, readiness, managed-owner detection, resolver selection and failure rollback |
 | lifecycle | Start/stop/restart failure propagation, process identity, monitor/native-routing recovery and cancellation/expiry of suite watchdogs |
@@ -76,11 +76,11 @@ The target names below preserve the installer's archive routing names. They are 
 | settings | Scoped YAML/preferences, staged authentication, input validation, runtime defaults and permissions |
 | ipset | Topology/version gates, modeled rule publication/cleanup, setup rollback and preference failures |
 | integrity | Digest/output rejection, secure-download fallback decisions, path/dependency contracts and owned cleanup |
-| native_dns | Native beta/edge/stable binary execution and configuration validation; stable AdGuardHome/dnsmasq lifecycle, real TCP/UDP local/forward/reverse DNS, listener ownership, actual current service helpers, restart, native resolver recovery and refusal of a foreign DNS owner |
+| native_dns | Separate beta/edge/stable AdGuardHome/dnsmasq lifecycles with exact archive/binary hashes; real TCP/UDP local/forward/reverse DNS, listener ownership, actual current service helpers, cache, restart, native resolver recovery and foreign-owner refusal |
 
 The `fixture` class executes the real selected script helpers under the native CPU and shell while modeling dependencies such as `nvram`, firmware service dispatch, topology and socket enumeration where the existing test requires it. A group succeeds only when all named tests pass; the group assertions describe the union of those tests, not a claim that every individual test exercises every assertion.
 
-The `native` class uses actual ARM AdGuardHome/dnsmasq processes and DNS exchanges, with modeled router `nvram`/`service`/`cru` dependencies declared. The default scenario executes the committed beta, edge and stable binaries and validates their configuration on each CPU; service startup/restart/cache/shutdown/conflict coverage uses the stable binary. These results do not credit beta/edge service lifecycle behavior. Real socket/query results establish those virtual Linux service behaviors. They do not establish a physical client's DHCP lease, firmware hook dispatcher, hardware bridge isolation, WAN exposure, reboot persistence or overnight maintenance behavior.
+The `native` class uses actual ARM AdGuardHome/dnsmasq processes and DNS exchanges, with modeled router `nvram`/`service`/`cru` dependencies declared. The DNS scenario runs each committed beta, edge and stable binary through configuration validation and the full startup/restart/cache/shutdown/recovery/conflict lifecycle on each CPU. Each channel gets fresh preferences/YAML/data and explicit BEGIN/COMPLETE records with archive/binary hashes. Acceptance requires all three completed channel lifecycles per architecture; execution-only or partial channel logs do not establish parity. The transactions storage scenario mounts private full/read-only tmpfs filesystems and runs the actual service staging/publication and diagnostic-export helpers, verifying refusal of staging and export on unusable storage; its network transfer is modeled with real file copying. Diagnostic collection and publication faults are exercised separately by the support-export fixture. Its kernel filesystem results do not prove physical USB reliability or hardware memory-pressure behavior. Real socket/query results establish those virtual Linux service behaviors. They do not establish a physical client's DHCP lease, firmware hook dispatcher, hardware bridge isolation, WAN exposure, reboot persistence or overnight maintenance behavior.
 
 ## Evidence and unblocking
 

@@ -2,6 +2,184 @@
 
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
+## TASK-033: Investigate constrained-router maintenance failure gaps
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-030
+**Scope:** Inventory coverage and reproduce missing/delayed Entware/USB, full/read-only storage, download/extraction/write failures, interruptions and resource pressure. Implement only demonstrated corrections, preserving settings/shared hooks/DNS recovery.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** Affected helpers and nearest regressions, determined by reproduction
+
+### Investigation inputs
+
+- [Issue #1039](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/issues/1039) reports helper downloads attempted after AGH stops while router DNS is unavailable. Reproduce the update/download ordering and recovery before selecting a fix; reported router behavior is not yet a new verified result.
+- [Issue #1041](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/issues/1041) records a verified pre-existing recovery gap: failed refresh/publication plus failed IPSet restoration retains a configuration association but deletes its required backup, so the next actual recovery still fails after the fault clears. Finalization-only cleanup failures recover successfully and must not cause blanket backup retention. This is separate from PR #1040's takeover parser.
+
+### Acceptance criteria
+
+- [x] Every correction has a failing reproduction and focused pass; successful paths and recovery remain intact. Distinguish guest failures from modeled firmware/hardware resource evidence; avoid speculative tuning.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Authorized execution order
+
+Reproduce/fix #1041 backup lifetime first; independently reproduce #1039 stop-window fetch failure and correct verified download ordering before wider router testing. Inventory existing mount/storage/interruption coverage and add only demonstrated missing contracts. Root owns integration and task records; workers have exclusive write sets.
+
+### Software completion (2026-10-22T12:11:21-04:00)
+
+Reproduced and fixed #1041's deletion of the backup needed by pending IPSet restoration; actual recovery succeeds after the fault clears, while successful restoration and finalization-only cleanup keep their normal behavior. Corrected #1039's demonstrated post-DNS-stop helper fetch by staging verified required artifacts before stopping/replacing the installation. Restore checksum/timezone readiness precedes mutation, and actual TERM paths run armed owned cleanup. Reproduced selected interactive restore falling through to fresh installation; it now returns the exact restore success/failure/interruption status. Before-fix logs and passing 24-case unprivileged host/exact BusyBox orchestration tests are retained. Fixture paths are private; timezone compression is explicitly modeled while integrity/member/publication logic runs. Actual full/read-only guest filesystems execute with network transfer modeled. Physical USB, delayed firmware mounts and memory-pressure observations remain under TASK-036.
+
+Qualified at published implementation [733bc9568725c9b866dedce71ec535d2f3b8e8e6](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commit/733bc9568725c9b866dedce71ec535d2f3b8e8e6), tree `a1c2bfd5d52dc97ba61b416277c8851dd247b134`, tested content `646eef237ab2f971bcad90ec03c66040bbcd4d4f6c74818d7e0b2fd3b2e3ea76`. The matching full host/native/current-head evidence snapshot is recorded under TASK-035 below.
+
+
+---
+
+## TASK-032: Add an opt-in sanitized diagnostic export
+
+**Priority:** P2 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-030, TASK-031
+**Scope:** Build a bounded allowlisted support report from existing status/doctor/recovery data; exclude secrets, raw NVRAM/configuration, query history and private client/domain/address details. Preserve safe path handling, unavailable-storage behavior and operator-controlled sharing.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** installer; diagnostic regressions; README/help; checksum sidecars
+
+### Acceptance criteria
+
+- [x] Useful sanitized state is retained; secret/path/adverse-storage fixtures pass. Clean-state collection starts no setup and makes no service/NVRAM/firewall changes; interrupted-transaction recovery is separately reported. No automatic upload or required external database.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Software completion (2026-10-22T12:11:21-04:00)
+
+Added opt-in sanitized support export with bounded allowlisted collection, private atomic no-clobber publication, secret/private-data exclusion, safe paths and owned cleanup. Complete-startup fixtures distinguish clean diagnostics from prior recovery. Reproduced BusyBox file-limit units and corrected complete probe/report bounds, explicit report byte validation and TCP/UDP-only collection. Exact-size, privacy, procfs, path, write and signal regressions pass. Actual guest full/read-only refusal is separate from modeled probes. No automatic upload, external database, firmware or physical-router pass is claimed.
+
+Qualified at published implementation [733bc9568725c9b866dedce71ec535d2f3b8e8e6](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commit/733bc9568725c9b866dedce71ec535d2f3b8e8e6), tree `a1c2bfd5d52dc97ba61b416277c8851dd247b134`, tested content `646eef237ab2f971bcad90ec03c66040bbcd4d4f6c74818d7e0b2fd3b2e3ea76`. The matching full host/native/current-head evidence snapshot is recorded under TASK-035 below.
+
+
+---
+
+## TASK-034: Extend supported-channel native lifecycle coverage
+
+**Priority:** P2 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-030, TASK-031
+**Scope:** Extend actual startup/listener/DNS/restart/stop/recovery/conflict checks for beta and edge alongside stable, with per-channel/architecture provenance and bounded runs.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** tests/virtual-arm-native.sh; feature manifest; evidence regressions/docs/workflow only as needed
+
+### Acceptance criteria
+
+- [x] Every claimed lifecycle contract has real matching channel/architecture evidence. Execution/config-only tests are labeled honestly; failures cannot be skipped or converted into parity claims.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Software completion (2026-10-22T12:11:21-04:00)
+
+Separate beta, edge and stable startup, ownership/listener, TCP/UDP forward/local A/PTR/AAAA DNS, restart/cache, shutdown/native recovery and foreign-owner conflict lifecycles complete for all three targets, with nine completion/provenance records. The armv5 package target is RT-AC68U-class older ARMv7 Cortex-A9 software float with VFP/NEON disabled. CPU/process/filesystem/socket behavior runs in the guests; router nvram/service/cru/get_mtlan and firmware dispatch inputs are modeled. Physical firmware/client/channel behavior remains separate.
+
+Qualified at published implementation [733bc9568725c9b866dedce71ec535d2f3b8e8e6](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commit/733bc9568725c9b866dedce71ec535d2f3b8e8e6), tree `a1c2bfd5d52dc97ba61b416277c8851dd247b134`, tested content `646eef237ab2f971bcad90ec03c66040bbcd4d4f6c74818d7e0b2fd3b2e3ea76`. The matching full host/native/current-head evidence snapshot is recorded under TASK-035 below.
+
+
+---
+
+## TASK-035: Qualify the v2.7.0 software release candidate
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-030, TASK-031, TASK-032, TASK-033, TASK-034
+**Scope:** Assemble reviewed changes, update candidate version/checksums/docs and aligned agent guidance, validate fresh and supported legacy migration/update/restore/uninstall/interruption paths, obtain current-candidate host/coverage/native/hosted review evidence.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** Candidate/version/checksum/release docs; shared agent guidance; required regressions
+
+### Acceptance criteria
+
+- [x] Published-head applicable checks and genuine blocking findings resolved. Fresh matching selected contracts across all three package targets; no native/physical scope conflation. Existing Qodo/task/MCP authorities retained; no new mandatory external service.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Software completion (2026-10-22T12:11:21-04:00)
+
+Qualified the covered software contracts of opt-in `v2.7.0-rc.1`. Exact source version grammar, distributed sidecars and archive metadata agree. Master-bound RC rejection covers PRs, pushes, merge queues and local checkouts, preserving stable/opt-in controls. Candidate/operator/checklist records identify unexecuted complete install/upgrade/restore/uninstall sequences and physical/soak boundaries. Existing agent/MCP/task/Qodo authorities remain aligned. Software feature/change qualification does not establish whole-release or hardware acceptance; no merge, tag or release was performed.
+
+Qualified at published implementation [733bc9568725c9b866dedce71ec535d2f3b8e8e6](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commit/733bc9568725c9b866dedce71ec535d2f3b8e8e6), tree `a1c2bfd5d52dc97ba61b416277c8851dd247b134`, tested content `646eef237ab2f971bcad90ec03c66040bbcd4d4f6c74818d7e0b2fd3b2e3ea76`. Frozen isolated canonical `sh tools/code-quality.sh`: PASS, exit 0, 2026-10-22T11:47:56-04:00 to 2026-10-22T11:58:17-04:00 (America/New_York); image `sha256:6661064cb1a4c12abd68aaf66a4d72f3bab7475a20f05696851e031a01e25f0b`, UID 0, dash, ShellCheck 0.9.0, shfmt 3.8.0, Python 3.12.3 and GNU timeout 9.4. Source stayed clean and unchanged; `/workspace/work/v270-validation/completion/frozen-host-3919b2a/quality-result.json` records the exact command and identity. The frozen local host run used owner-only executable permissions inherited from its worktree umask; current-head hosted canonical jobs and native acceptance use the actual Git checkout executable modes recorded by the final content digest. These are separate environment observations for the same Git source tree. [All-feature native run](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/39807919698) and [aggregate acceptance](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/39807919698/job/119934823631) complete at 2026-10-22T12:02:37-04:00 (America/New_York): 127 scenarios / 11 groups per target, 381 total, matching content `646eef237ab2f971bcad90ec03c66040bbcd4d4f6c74818d7e0b2fd3b2e3ea76` and builder `d51320e563c39a2c747f12f209de493df295144b1f26bf3a0d04343059d3fae9`. All nine architecture/channel lifecycles and actual full/read-only guest filesystem assertions pass; firmware command inputs and network transfer remain declared models. [Implementation check data](https://api.github.com/repos/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/commits/733bc9568725c9b866dedce71ec535d2f3b8e8e6/check-runs?per_page=100). At published implementation `733bc9568725c9b866dedce71ec535d2f3b8e8e6` the complete PR host/security/native checks pass, including strict Sonar zero unresolved issues, Semgrep and both OSV scan types. The retried BusyBox job `119931339027` passes after the original timeout; all original logs and five unchanged focused reproduction passes are retained. At the 2026-10-22T12:11:21-04:00 (America/New_York) implementation snapshot all 35 checks completed successfully, with zero pending or failed checks; both native acceptance aggregates pass. The documentation follow-up head receives its own current-head check inspection after publication. Codex focused review completed on `733bc9568725c9b866dedce71ec535d2f3b8e8e6` with no findings at 2026-10-22T11:54:50-04:00 (America/New_York). CodeRabbit review covers that head with five passing pre-merge checks and 86.13% touched-function documentation. Qodo round 1 records three fixed findings and four evidence-backed deferrals in [comment #6344874938](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1042#issuecomment-6344874938). Two subsequent CodeRabbit guide cleanup/download-timeout fixes are included in this record update; exact-thread replies/resolution follow its publication. Coverage is limited to 127 executed selected contracts per target and their named fixture/native assertions. No line/branch coverage percentage or physical-router coverage is asserted.
+
+---
+
+## TASK-030: Repair installation readiness and installer source selection
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Reproduce the incomplete JFFS preflight and saved-source reset; correct readiness diagnostics, preserve action-scoped dependency repair, retain explicit/saved source through checks/re-exec, define --no-auto-update for a coherent installer/helper bundle, and clarify early unsupported non-interactive fresh-install refusal while preserving interactive compatibility.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** installer; nearest/new readiness/source/CLI regressions; checksums; README; host/native registration
+
+### Implementation checkpoint
+
+Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037) at `bb734a5`. All current host checks, both fresh three-architecture matrices/aggregates (121 scenarios per target, 11 groups) and the retried current Sonar analysis pass with zero unresolved issues. CodeRabbit approves with 5/5 pre-merge checks and 100% purpose coverage across 80 functions; all 15 review threads have evidence-backed resolutions. The critical certifi finding is fixed with verified hashes and a clean complete lock installation. Two OSV jobs still fail for Semgrep's exact vulnerable mcp dependency, so the PR is not all-checks-green or merge-ready. Covered virtual acceptance and physical release qualification remain separate. Earlier source-specific/interrupted evidence stays historical.
+
+### Acceptance criteria
+
+- [x] Failed reads cannot report JFFS OK; ready flags avoid unnecessary writes; dependency failures identify their stage. Explicit/saved refs and self-update policy persist without checksum bypasses or mismatched helpers. Interactive fresh setup remains supported; unsupported flagged setup stops before new ordinary writes/downloads, with existing recovery distinct.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Final source verification (October 21, 2026 America/New_York)
+
+Published source `fcd36c29bf0d1c0512592862efb14abe1e7fc0d0` has 36 completed checks: 35 success, Scorecard neutral and no pending/failing checks. All three package targets and both aggregates accept 121 scenarios per target / 11 groups at digest 8475528d2d909dfe5cf9fab7ddcee5a09ab9a03d48302fed4a7dab21e25c7faf. Both OSV full/new scans, Semgrep, Sonar and canonical host jobs pass. CodeRabbit completes with 5/5 pre-merge checks; all 16 threads resolved. These records supersede earlier checkpoints; physical v2.7.0 qualification stays separate. No release, merge or hardware action is claimed.
+
+---
+
+## TASK-031: Remove dnsmasq rebind and DNSSEC state during AGH takeover
+
+**Priority:** P1 | **Tags:** v2.7.0, reliability, validation
+**Dependencies:** TASK-029
+**Scope:** Filter exact rebind/DNSSEC directives, companions, all trust-anchor/key entries and DNSSEC-only references from each managed main/SDN runtime config. Handle mixed/nested includes through safe runtime views, preserve persistent originals and existing per-file transactions/native regeneration.
+
+### Plan
+
+- Read the accepted [v2.7.0 plan](../docs/v2.7.0-plan.md), current diff and nearest lifecycle tests.
+- Implement a small evidence-backed slice in the listed surfaces; split independent corrections into reviewable commits/PRs.
+- Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
+
+**Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
+
+### Implementation checkpoint
+
+The staged takeover filter is published in stacked PR [#1040](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1040), depending on #1037. It removes exact rebind/DNSSEC options and key/anchor entries while preserving persistent sources and unrelated settings. Combined source `c33f23a` passes the full host suite and its push ARM matrix/aggregate (122 scenarios per target, 11 groups); later review changes still require fresh matching validation. Those changes distinguish raw control bytes from quoted-space markers and bulk-copy unchanged line segments, with 20,000-line, partial-write and cleanup regressions. Exact BusyBox applet and eight nearest host checks pass. Empty-directory and option/suffix review claims were checked against actual behavior; mandatory per-source NUL checks remain. The reproduced pre-existing pending-restore backup defect is tracked separately as #1041 under TASK-033. Physical release boundaries remain unchanged.
+
+### Acceptance criteria
+
+- [x] All effective targeted options/keys absent at managed publication, including custom/root-rollover anchors. Includes preserve unrelated settings and valid lifetimes. Repeated/overlapping takeover, native fallback and staging/IPSET/publication failures preserve configuration/recovery invariants.
+- [x] Record actual verification, publication/current-head status and remaining limitations in this ledger.
+
+### Final source verification (October 21, 2026 America/New_York)
+
+Published source `10f1dc6a8ac646b5957fd7dd4cdd022ae1478111` has 35 completed successful checks and no pending/failing checks. All three package targets and both aggregates accept 122 scenarios per target / 11 groups at digest 1c70021b05212b0c2632c3bfb9dfaf861bc98a3f7d2ccc3f696a4fb7190e4aec. Both OSV full/new scans, Semgrep, Sonar and canonical host jobs pass. CodeRabbit completes with 5/5 pre-merge checks; all six threads resolved. Pre-existing recovery defect #1041 is tracked separately by TASK-033. These records supersede earlier checkpoints; physical v2.7.0 qualification stays separate. No release, merge or hardware action is claimed.
+
+---
+
 ## TASK-037: Remove the unused vulnerable MCP dependency from CI scanning
 
 **Priority:** P1 | **Tags:** v2.7.0, security, ci

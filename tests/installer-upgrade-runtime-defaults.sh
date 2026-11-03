@@ -66,6 +66,8 @@ run_update_path() {
 		fi
 
 		adguard_install_abort_trap_disable_preserve_defer() { :; }
+		# Signal dispatch is exercised separately by installer-update-prefetch.sh.
+		adguard_install_abort_trap_enable() { :; }
 		adguard_remote_archive() { printf '%s\n' 'AdGuardHome_test.tar.gz'; }
 		adguard_remote_md5() { :; }
 		adguard_remote_sha256() { :; }
@@ -76,6 +78,15 @@ run_update_path() {
 			case "$3" in
 				*/AdGuardHome_test.tar.gz) return 0 ;;
 			esac
+			return 1
+		}
+		# Prefetch may precede default pinning; publication must follow it.
+		adguard_service_bundle_stage() { return 0; }
+		# Model staging cleanup without adding events to the defaults-ordering trace.
+		adguard_service_bundle_cleanup() { return 0; }
+		# Record publication and fail it to verify defaults precede service replacement.
+		adguard_service_publish_file() {
+			printf '%s\n' "publish:$3:$2" >>"${CALLS_FILE}"
 			return 1
 		}
 		md5_is_valid() { return 1; }
@@ -132,7 +143,7 @@ run_update_path refresh pass
 EXPECTED_REFRESH_PASS="$(printf '%s\n' \
 	'create_dir' \
 	'configure:upgrade' \
-	'download:755:https://example.invalid/AdGuardHome.sh' \
+	'publish:755:AdGuardHome.sh' \
 	'end:1 update')"
 ACTUAL_REFRESH_PASS="$(cat "${CALLS_FILE}")"
 [ "${ACTUAL_REFRESH_PASS}" = "${EXPECTED_REFRESH_PASS}" ] ||
@@ -154,7 +165,7 @@ EXPECTED_PACKAGE_PASS="$(printf '%s\n' \
 	'ln' \
 	'create_dir' \
 	'configure:upgrade' \
-	'download:755:https://example.invalid/AdGuardHome.sh' \
+	'publish:755:AdGuardHome.sh' \
 	'start' \
 	'end:1 update')"
 ACTUAL_PACKAGE_PASS="$(cat "${CALLS_FILE}")"

@@ -272,7 +272,9 @@ RM_FAIL_STATE=0
 
 # Uninstall must restore before removing the installation tree and retain it on failure.
 UNINSTALL_FUNCTION_FILE="${TMP_ROOT}/uninstall-function"
-sed -n '/^adguard_recover_after_uninstall_hook_abort() {$/,/^}$/p; /^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall function extraction failed'
+sed -n '/^adguard_recover_after_uninstall_hook_abort() {$/,/^}$/p; /^uninst_all() {$/,/^}$/p' "${ROOT_DIR}/installer" >"${UNINSTALL_FUNCTION_FILE}.raw" || fail 'uninstall function extraction failed'
+# Model the helper's home destination without changing the validation process HOME.
+sed 's/[$]{HOME}/${UNINSTALL_TEST_HOME}/g' "${UNINSTALL_FUNCTION_FILE}.raw" >"${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall home relocation failed'
 grep -q '^adguard_recover_after_uninstall_hook_abort() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall recovery helper extraction failed'
 grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helper extraction failed'
 # shellcheck disable=SC1090
@@ -282,7 +284,7 @@ grep -q '^uninst_all() {$' "${UNINSTALL_FUNCTION_FILE}" || fail 'uninstall helpe
 run_uninstall_test() (
 	TARG_DIR="${TMP_ROOT}/uninstall-$1"
 	BASE_DIR="${TMP_ROOT}/base-$1"
-	HOME="${TMP_ROOT}/home-$1"
+	UNINSTALL_TEST_HOME="${TMP_ROOT}/home-$1"
 	ADDON_DIR="${TMP_ROOT}/addon-$1"
 	ROLLBACK_RESULT_FILE="${TMP_ROOT}/rollback-$1"
 	EVENTS_FILE="${TMP_ROOT}/events-$1"
@@ -295,12 +297,13 @@ run_uninstall_test() (
 	DOMAIN_ENABLED="${7:-0}"
 	SNAPSHOT_STATUS="${8:-0}"
 	STOP_STATUS="${9:-0}"
-	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${HOME}" "${ADDON_DIR}" "${HOOK_DIR}" ||
+	mkdir -p "${TARG_DIR}" "${BASE_DIR}" "${UNINSTALL_TEST_HOME}" "${ADDON_DIR}" "${HOOK_DIR}" ||
 		fail 'could not create uninstall fixture directories'
 	for hook in dnsmasq init services firewall; do
 		printf '%s\n' "original-${hook}" >"${HOOK_DIR}/${hook}"
 	done
 	printf '%s\n' installer >"${TARG_DIR}/installer"
+	mkdir -m 700 "${TARG_DIR}/proc-sys-state" || fail 'could not create uninstall ownership journal'
 	cat >"${ADDON_DIR}/AdGuardHome.sh" <<'EOF'
 #!/bin/sh
 [ -d "${TARG_DIR}" ] || exit 9
@@ -310,7 +313,6 @@ EOF
 	chmod 755 "${ADDON_DIR}/AdGuardHome.sh"
 	if [ "${HELPER_MODE}" = unusable ]; then
 		chmod 644 "${ADDON_DIR}/AdGuardHome.sh"
-		mkdir "${TARG_DIR}/proc-sys-state"
 	fi
 	export TARG_DIR EVENTS_FILE RESTORE_RESULT
 	INFO=INFO ERROR=ERROR CONFIRM_STATUS=0

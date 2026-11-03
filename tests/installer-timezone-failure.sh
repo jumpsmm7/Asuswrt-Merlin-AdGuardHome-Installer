@@ -32,6 +32,7 @@ sed -n '/^adguard_install_mode_confirmed() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNC
 	fail 'could not extract confirmed install-mode helper'
 grep -q '^adguard_install_mode_confirmed() {$' "${FUNCTIONS_FILE}" ||
 	fail 'confirmed install-mode helper is missing'
+sed -n '/^service_event_hook_command() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract service-event hook command helper'
 sed -n '/^finalize_pending_mode_migration() {$/,/^}/p; /^rollback_pending_mode_migration() {$/,/^}/p' "${SCRIPT_PATH}" >>"${FUNCTIONS_FILE}" ||
 	fail 'could not extract pending mode-migration helpers'
 sed -n '/^install_wan_event_scripts() {$/,/^set_timezone() {$/p' "${SCRIPT_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer functions'
@@ -81,8 +82,16 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	adguard_remote_url() { printf '%s\n' 'https://example.invalid/AdGuardHome_test.tar.gz'; }
 	# ensure_sha256sum_tool provides a no-op checksum-tool stub for the installer test.
 	ensure_sha256sum_tool() { :; }
+	# Signal dispatch is exercised separately by installer-update-prefetch.sh.
+	adguard_install_abort_trap_enable() { :; }
 	# download_file downloads a file.
 	download_file() { return 0; }
+	# Service staging/publication is outside this timezone recovery fixture.
+	adguard_service_bundle_stage() { return 0; }
+	# Model successful service publication before exercising timezone recovery.
+	adguard_service_publish_file() { return 0; }
+	# Model successful staging cleanup while timezone recovery remains under test.
+	adguard_service_bundle_cleanup() { return 0; }
 	# md5_is_valid determines whether an MD5 checksum is valid.
 	md5_is_valid() { return 1; }
 	# sha256_is_valid reports that the SHA-256 checksum is invalid.
