@@ -16,7 +16,7 @@
 #██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     ██╔════╝██╔══██╗          SomeWhereOverTheRainBow        #
 #██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     █████╗  ██████╔╝    Contributors:                        #
 #██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║     ██╔══╝  ██╔══██╗          JackYaz,gspannu,thelonelycoder #
-#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.7.0-rc.1                          #
+#██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗███████╗██║  ██║    v2.7.0                               #
 #╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                                         #
 #################################################################################################################
 
@@ -24,7 +24,7 @@ export LC_ALL=C
 export PATH="/sbin:/bin:/usr/sbin:/usr/bin${PATH:+:$PATH}"
 umask 077
 
-AI_VERSION="v2.7.0-rc.1"
+AI_VERSION="v2.7.0"
 export AI_VERSION
 readonly INSTALLER_ACTION_RESTORE="RESTORE"
 readonly INSTALLER_ACTION_INSTALL="install"
@@ -8300,7 +8300,7 @@ set_timezone() {
 			TZ_ARCH="arm"
 			;;
 	esac
-	TZ_DATA="tzdata-2026e-1-${TZ_ARCH}.pkg.tar.bz2"
+	TZ_DATA="tzdata-2026f-1-${TZ_ARCH}.pkg.tar.bz2"
 	ensure_opkg_package column --force-depends --force-overwrite --force-reinstall || return 1
 	ai_have_cmd sort || {
 		PTXT "${ERROR} Required timezone selection command is unavailable: sort"

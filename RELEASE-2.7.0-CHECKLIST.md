@@ -2,7 +2,7 @@
 
 ## Candidate and decision record
 
-**Opt-in candidate: v2.7.0-rc.1. Historical covered software contracts: PASS at `733bc9568725c9b866dedce71ec535d2f3b8e8e6`; later source/archive changes require fresh qualification under TASK-038. Complete operator sequences, physical acceptance and soak: NOT RUN. Whole-release acceptance: PENDING.**
+**Prepared installer identity: v2.7.0; PR only, with no merge, tag or release publication. Current software qualification: PENDING under TASK-038. Historical RC software contracts: PASS at `733bc9568725c9b866dedce71ec535d2f3b8e8e6`. Complete operator sequences, physical acceptance and soak: NOT RUN. Whole-release acceptance: PENDING.**
 
 This records software qualification of the immutable opt-in development candidate, not a published tag or release. Accepted host/native assertions and unexecuted complete operator sequences are distinguished below; changed tested inputs require matching new evidence. Follow the [accepted scope](docs/v2.7.0-plan.md) and [candidate operator guide](docs/v2.7.0-candidate-testing.md).
 

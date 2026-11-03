@@ -55,7 +55,17 @@ for component in AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 done
 TZ_ARCH="$(uname -m)"
 case "${TZ_ARCH}" in aarch64 | arm64) TZ_ARCH=aarch64 ;; armv7l) TZ_ARCH=arm ;; esac
-TZ_DATA="tzdata-2026e-1-${TZ_ARCH}.pkg.tar.bz2"
+# Keep modeled package publication aligned with the extracted timezone helper.
+TZ_PACKAGE_VERSION="$(awk -F '"' '
+	/^[[:space:]]*TZ_DATA="tzdata-[[:alnum:].-]+-\$\{TZ_ARCH\}\.pkg\.tar\.bz2"$/ {
+		value=$2
+		sub(/^tzdata-/, "", value)
+		sub(/-\$\{TZ_ARCH\}\.pkg\.tar\.bz2$/, "", value)
+		count++
+	}
+	END { if (count != 1) exit 1; print value }
+' "${SCRIPT_PATH}")" || fail 'could not read the extracted timezone package version'
+TZ_DATA="tzdata-${TZ_PACKAGE_VERSION}-${TZ_ARCH}.pkg.tar.bz2"
 mkdir -p "${TMP_ROOT}/remote/timezone/usr/share/zoneinfo/posix" "${TMP_ROOT}/timezone" "${TMP_ROOT}/opt/bin" || fail 'could not create timezone fixture'
 printf '%s\n' 'fixture timezone' >"${TMP_ROOT}/remote/timezone/usr/share/zoneinfo/posix/UTC"
 tar -czf "${TMP_ROOT}/remote/${TZ_DATA}" -C "${TMP_ROOT}/remote/timezone" usr || fail 'could not create timezone archive'

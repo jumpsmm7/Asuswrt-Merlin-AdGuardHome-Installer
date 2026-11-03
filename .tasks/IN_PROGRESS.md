@@ -6,6 +6,8 @@
 **Dependencies:** TASK-033, TASK-035
 **Authority:** October 29, 2026 maintainer request to resolve merge conflicts, regression pathways and CI issues across stack #1044.
 
+**Stable preparation authority:** November 2, 2026 (America/New_York): maintainer approved preparing stable `v2.7.0` in PR #1042 to clear promotion readiness, superseding the earlier RC preference. This does not authorize a merge, tag or release publication.
+
 ### Plan
 
 - Preserve the reproduced #1045 failure: a persistent IPSet recovery journal references a volatile dnsmasq backup lost at reboot; actual helpers repeatedly refuse recovery and publication under host sh and BusyBox 1.25.1.
@@ -25,7 +27,7 @@
 - [ ] Strict Sonar analysis and complete host/security/native checks pass for the final implementation.
 - [ ] Support export preserves valid underscore-suffixed model IDs and still rejects malformed, oversized and private/control-character inputs in the covered host/native settings contract.
 - [ ] All three branches include their immediate base; complete current-head checks/reviews and matching three-target native gates are observed after publication.
-- [x] Retain v2.7.0-rc.1 and the default master-promotion restriction. Physical operator acceptance and soak remain NOT RUN.
+- [x] Prepare stable `v2.7.0` in the PR with matching version/banner and sidecars, preserving the default master-promotion restriction. Physical operator acceptance and soak remain NOT RUN.
 
 **Status:** Focused checks and isolated canonical host quality PASS at implementation `03ffa2972abff228d18881a97d9f389184b1fadf` / tree `a40ba2ec821c9ccf645d3bcc47b44c15af2c4003`. Subsequent master archive synchronization and current-head hosted/native verification remain pending; no merge, physical or release claim is made.
 
