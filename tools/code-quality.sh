@@ -214,6 +214,8 @@ run_check 'Qodo get-rules query and output doc consistency regression' sh tests/
 run_check 'Qodo pr-resolver doc consistency regression' sh tests/qodo-pr-resolver-doc-consistency.sh
 run_check 'Skill frontmatter validation regression' sh tests/skill-frontmatter-validation.sh
 run_check 'CodeRabbit and code-quality workflow config regression' sh tests/coderabbit-and-workflow-config-checks.sh
+run_check 'OSV differential checkout regression' sh tests/osv-differential-base.sh
+run_check 'OSV result readiness regression' python3 tests/osv-result-readiness.py
 run_check 'ShellCheck workflow dialect consistency regression' sh tests/shellcheck-workflow-dialect-consistency.sh
 run_check 'AGENTS.md PATH and package consistency regression' sh tests/agents-md-path-package-consistency.sh
 run_check 'Shared agent integration consistency' python3 tools/check-agent-integrations.py
@@ -252,6 +254,9 @@ run_check 'Installer single-argument action regression' sh tests/installer-singl
 run_check 'Installer preflight action regression' sh tests/installer-preflight-actions.sh
 run_check 'Installer jq dependency regression' sh tests/installer-jq-helper.sh
 run_check 'Installer JFFS failure propagation regression' sh tests/installer-jffs-failure.sh
+run_check 'Installer JFFS readiness diagnosis regression' sh tests/installer-jffs-readiness.sh
+run_check 'Installer source selection policy regression' sh tests/installer-source-policy.sh
+run_check 'Installer component update opt-out regression' sh tests/installer-no-auto-update.sh
 run_check 'Installer install-mode detection regression' sh tests/installer-install-mode-detection.sh
 run_check 'Installer CLI LAN-mode regression' sh tests/installer-cli-lan-mode.sh
 run_check 'Installer CLI IPSET dry-run regression' sh tests/installer-cli-ipset-dry-run.sh

@@ -53,6 +53,7 @@ sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INST
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
+sed -n '/^jffs_read_settings() {$/,/^}$/p' "${INSTALLER_PATH}" | sed 's|/bin/nvram|nvram|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS readiness reader'
 sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" >"${JFFS_FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
 sed -e '$d' -e 's|/bin/nvram|nvram|g' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'

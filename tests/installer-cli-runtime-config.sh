@@ -21,7 +21,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
 
 sed -n \
-	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
+	'/^_quote() {$/,/^}$/p; /^PTXT() {$/,/^}$/p; /^ptxt_ok() {$/,/^}$/p; /^branch_is_safe() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^write_conf() {$/,/^}$/p; /^cli_bool_value() {$/,/^}$/p; /^cli_adguard_branch_is_valid() {$/,/^}$/p; /^cli_simple_value_is_safe() {$/,/^}$/p; /^cli_host_list_is_safe() {$/,/^}$/p; /^cli_write_quoted_conf() {$/,/^}$/p; /^cli_netcheck_config_values() {$/,/^}$/p; /^cli_dns_port_policy() {$/,/^}$/p; /^cli_migrate_runtime_default() {$/,/^}$/p; /^cli_migrate_runtime_defaults() {$/,/^}$/p; /^cli_installer_branch_from_args() {$/,/^}$/p; /^cli_write_adguard_branch() {$/,/^}$/p; /^installer_requested_bundle_update_allowed() {$/,/^}$/p; /^cli_fresh_install_supported() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${SCRIPT_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'CLI helper extraction was empty'
 grep -q '^cli_netcheck_config_values() {$' "${FUNCTIONS_FILE}" || fail 'netcheck config helper missing'

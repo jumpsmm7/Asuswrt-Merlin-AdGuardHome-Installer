@@ -26,7 +26,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 [ -f "${SCRIPT_PATH}" ] || fail "installer script not found: ${SCRIPT_PATH}"
 mkdir -p "${TMP_ROOT}" || fail 'could not create test directory'
-sed -n '/^cli_dry_run() {$/,/^}$/p; /^cli_pre_remote_dry_run() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
+sed -n '/^cli_dry_run() {$/,/^}$/p; /^cli_pre_remote_dry_run() {$/,/^}$/p; /^installer_bundle_update_allowed() {$/,/^}$/p; /^installer_requested_bundle_update_allowed() {$/,/^}$/p; /^cli_fresh_install_supported() {$/,/^}$/p; /^cli_run() {$/,/^}$/p' \
 	"${SCRIPT_PATH}" >"${FUNCTION_FILE}" ||
 	fail 'could not extract cli_run'
 [ -s "${FUNCTION_FILE}" ] || fail 'cli_run extraction was empty'

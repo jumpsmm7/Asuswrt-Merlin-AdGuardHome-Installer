@@ -10,6 +10,8 @@ This project installs, updates, reconfigures, backs up, and removes AdGuardHome 
 
 For a task-oriented operator guide, see the [`Github Wiki Pages`](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki).
 
+Development toward v2.7.0 follows the [release plan](docs/v2.7.0-plan.md) and the shared [.tasks/ ledger](.tasks/). Candidate software checks and physical release acceptance are recorded separately.
+
 ## Table of contents
 
 - [Github Wiki Pages](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/wiki)
@@ -144,6 +146,8 @@ The same installer entry point is used for initial installation, updates, reconf
 
 v2.6.0 adds command-line entry points for users who want repeatable actions without the interactive menu. Existing one-argument menu actions such as `sh installer update`, `sh installer install`, and `sh installer backup` still use the interactive compatibility path. Destructive non-interactive actions require `--yes`; install and uninstall actions that may rewrite DNS/NVRAM also require `--allow-dns-nvram`.
 
+Flagged non-interactive `install` requires an existing configured AdGuardHome environment. `--yes` does not supply the timezone, credentials or DNS settings needed for fresh setup. For a fresh install, run `sh installer` or the interactive compatibility command `sh installer install`. A successful preflight does not mean unattended fresh setup is supported. Previously interrupted transaction recovery can still run before an unsupported request is rejected.
+
 Examples. Commands that reference `/opt/...` require Entware and an installed AdGuardHome environment; the other `sh installer ...` commands can be run from the downloaded installer entry point on the router.
 
 ```sh
@@ -174,13 +178,19 @@ sh installer uninstall --yes --allow-dns-nvram
 sh installer uninstall --dry-run
 ```
 
-`--installer-branch` selects the installer repository branch or tag used to fetch installer-managed artifacts. If it is omitted, the installer uses the saved `INSTALLER_BRANCH` value or falls back to `master`.
+`--installer-branch` selects the installer repository branch or tag used to fetch installer-managed artifacts. Source precedence is an explicit CLI or positional ref, the saved `INSTALLER_BRANCH`, then the reported default `master`. Argument-free menu launches retain the saved source. An unsafe or unavailable selected ref fails rather than silently switching to another source. A failed read of an existing configuration also stops source selection; an explicit ref does not require reading the saved source. Installer source selection is independent of the AdGuardHome binary channel.
 
 `--adguardhome-branch` selects the AdGuardHome binary channel. Supported AdGuardHome branches are `release`, `beta`, and `edge`. The older `--branch` option is retained as an alias for `--adguardhome-branch`; use `--installer-branch` when you need to change the installer branch.
 
+Use the global prefix `sh installer --no-auto-update [installer-ref] [menu-action]` to suppress automatic installer-component checks for one invocation. For example, `sh installer --no-auto-update` opens the menu with the installed bundle, and `sh installer --no-auto-update status` reports status. Non-interactive actions also accept `--no-auto-update` as a flag. It takes precedence over an explicit update request and survives menu relaunch/re-exec within that invocation; it is not saved as an update preference.
+
+With this opt-out, install, update, restore and channel-switch flows that replace the installer/service/helper bundle refuse before beginning that operation, including their dry-run forms. Compatibility for an AdGuardHome-binary-only update with the existing bundle is not yet established. Other supported menu/configuration actions remain available with their normal safeguards and effects. The flag does not bypass artifact verification or change the AdGuardHome channel. Previously required transaction recovery remains separate.
+
 The dry-run paths print what would be done and avoid changing the live install.
 
-The `preflight` command checks router-stock command availability and action-specific prerequisites without changing router state. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, and `/usr/sbin/cru`. Checks for `/usr/sbin/iptables` and `/usr/sbin/ip6tables` apply only when the action requires WAN firewall management; LAN-mode runs report those checks as `SKIP`. Install, reconfigure, update, and restore also require a `jq` executable that can successfully parse JSON. The installer prefers the stock-first PATH result and otherwise installs the Entware fallback with `opkg install jq-full --force-depends --force-overwrite --force-reinstall`. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks.
+The `preflight` command checks router-stock command availability and action-specific prerequisites. Run `sh installer preflight` before a new install, or pass the flow you plan to run: `install`, `reconfigure`, `update`, `restore`, `uninstall`, or `status`. Its output uses `preflight.name=value` lines, includes `preflight.safe_to_paste=yes`, and is intended for issue reports. Preflight does not enable JFFS or install packages; existing interrupted-transaction recovery may precede it. JFFS output reports format state, scripts, effective enable key/value and a failure reason when applicable. Failed or invalid NVRAM reads cannot report readiness as `OK`; already-ready settings avoid an enablement transaction. A JFFS transaction failure identifies the lock, prior-recovery or snapshot stage instead of attributing it to a missing package.
+
+The install/reconfigure/update/restore/uninstall flows check stock `/bin/sh`, `/bin/nvram`, a stock downloader (`/usr/sbin/curl` or `/usr/sbin/wget`), `/sbin/service`, and `/usr/sbin/cru`. Checks for `/usr/sbin/iptables` and `/usr/sbin/ip6tables` apply only when the action requires WAN firewall management; LAN-mode runs report those checks as `SKIP`. Install, reconfigure, update, and restore also require a `jq` executable that can successfully parse JSON. At the relevant action boundary the installer prefers the stock-first PATH result and otherwise installs the Entware fallback with `opkg install jq-full --force-depends --force-overwrite --force-reinstall`. Entware mount and Entware package/tool probes are reported only for flows that need Entware, while `preflight status` skips Entware-dependent checks. Password hashing can repair the Entware `python3` and `python3-bcrypt` packages when Python hashing is unavailable, before trying its fallback provider; timezone selection can repair `column`. These are dependencies of their respective actions, rather than packages installed unconditionally at startup. Their absence does not establish the cause of a JFFS failure.
 
 The `ipset refresh` command checks whether IPSET integration is enabled. Without `--yes`, it does not restart AdGuardHome; with `--yes`, it restarts AdGuardHome so refreshed mappings can take effect.
 
