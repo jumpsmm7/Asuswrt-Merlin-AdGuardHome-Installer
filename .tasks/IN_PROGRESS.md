@@ -16,7 +16,7 @@
 
 ### Implementation checkpoint
 
-Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037). Initial source `709eb2d` passed the complete host suite, Sonar gates and both fresh three-architecture matrices (121 scenarios per target); OSV remains an unwaived dependency blocker. Review follow-up preserves source refs independently of menu availability, supports inventory-verified absent legacy JFFS flags, keeps suffix opt-out diagnostics on the read-only recovery path, returns refused menu actions correctly and terminates a completed opt-out uninstall successfully. Seventeen nearest regressions and three exact BusyBox 1.25.1 fixtures pass; all 80 touched shell-fixture functions have purpose comments. These source changes require fresh published-head validation and review before completion. Interim `36e4fee` coverage and interrupted quality evidence remain historical, not a final pass.
+Readiness/source/CLI corrections are published in PR [#1037](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1037) at `bb734a5`. All current host checks, both fresh three-architecture matrices/aggregates (121 scenarios per target, 11 groups) and the retried current Sonar analysis pass with zero unresolved issues. CodeRabbit approves with 5/5 pre-merge checks and 100% purpose coverage across 80 functions; all 15 review threads have evidence-backed resolutions. The critical certifi finding is fixed with verified hashes and a clean complete lock installation. Two OSV jobs still fail for Semgrep's exact vulnerable mcp dependency, so the PR is not all-checks-green or merge-ready. Covered virtual acceptance and physical release qualification remain separate. Earlier source-specific/interrupted evidence stays historical.
 
 ### Acceptance criteria
 
@@ -38,6 +38,10 @@ Readiness/source/CLI corrections are published in PR [#1037](https://github.com/
 - Verify the focused regression, appropriate host checks and fresh matching native scope before claiming completion. Preserve failure logs and physical boundaries.
 
 **Likely surfaces:** AdGuardHome.sh; focused dnsmasq/include/recovery tests; checksum sidecars; test manifests/docs
+
+### Implementation checkpoint
+
+The staged takeover filter is published in stacked PR [#1040](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/pull/1040), depending on #1037. It removes exact rebind/DNSSEC options and key/anchor entries while preserving persistent sources and unrelated settings. Combined source `c33f23a` passes the full host suite and its push ARM matrix/aggregate (122 scenarios per target, 11 groups); later review changes still require fresh matching validation. Those changes distinguish raw control bytes from quoted-space markers and bulk-copy unchanged line segments, with 20,000-line, partial-write and cleanup regressions. Exact BusyBox applet and eight nearest host checks pass. Empty-directory and option/suffix review claims were checked against actual behavior; mandatory per-source NUL checks remain. The reproduced pre-existing pending-restore backup defect is tracked separately as #1041 under TASK-033. Physical release boundaries remain unchanged.
 
 ### Acceptance criteria
 

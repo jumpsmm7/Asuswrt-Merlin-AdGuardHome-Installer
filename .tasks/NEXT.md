@@ -41,6 +41,11 @@ Baseline: master `7ecacf124658cc1ec23cb6aae62622f2ace9bfd5`. The maintainer appr
 
 **Likely surfaces:** Affected helpers and nearest regressions, determined by reproduction
 
+### Investigation inputs
+
+- [Issue #1039](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/issues/1039) reports helper downloads attempted after AGH stops while router DNS is unavailable. Reproduce the update/download ordering and recovery before selecting a fix; reported router behavior is not yet a new verified result.
+- [Issue #1041](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/issues/1041) records a verified pre-existing recovery gap: failed refresh/publication plus failed IPSet restoration retains a configuration association but deletes its required backup, so the next actual recovery still fails after the fault clears. Finalization-only cleanup failures recover successfully and must not cause blanket backup retention. This is separate from PR #1040's takeover parser.
+
 ### Acceptance criteria
 
 - [ ] Every correction has a failing reproduction and focused pass; successful paths and recovery remain intact. Distinguish guest failures from modeled firmware/hardware resource evidence; avoid speculative tuning.
