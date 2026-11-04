@@ -2,4 +2,4 @@
 # file	channel	upstream_channel	version
 AdGuardHome_stable_linux_arm64.tar.gz	stable	release	version=v0.107.80
 AdGuardHome_beta_linux_arm64.tar.gz	beta	beta	version=v1.0.0-b.1
-AdGuardHome_edge_linux_arm64.tar.gz	edge	edge	version=v1.0.0-a.102+3e0cb52b
+AdGuardHome_edge_linux_arm64.tar.gz	edge	edge	version=v1.0.0-a.104+13a429f0
