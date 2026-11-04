@@ -673,6 +673,8 @@ AGH_STUB
 	# ai_have_cmd always reports that the requested command is unavailable.
 	ai_have_cmd() { return 1; }
 	# nvram returns predefined test values for selected keys and accepts set and commit operations.
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		case "${1:-}:${2:-}" in
 			get:sw_mode) printf '%s\n' '2' ;;
@@ -783,6 +785,8 @@ run_case() {
 	expected_mode="$5"
 
 	ADGUARD_INSTALL_MODE=""
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		case "${1:-}:${2:-}" in
 			get:sw_mode) printf '%s\n' "${sw_value}" ;;

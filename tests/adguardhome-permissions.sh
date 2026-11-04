@@ -3,6 +3,10 @@
 
 set -u
 
+# Model caller command availability separately from stock-path discovery.
+installer_nvram() { nvram "$@"; }
+ai_have_cmd() { which "$1" >/dev/null 2>&1; }
+
 REPO_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agh-permissions.XXXXXX")" || {
 	printf '%s\n' 'FAIL: could not create exclusive permission-test workspace' >&2
@@ -95,7 +99,7 @@ grep -q '^adguardhome_owner_account() {$' "${INSTALLER_FUNCTIONS}" || fail 'inst
 extract_permission_functions "${REPO_DIR}/S99AdGuardHome" "${S99_FUNCTIONS}" \
 	'adguardhome_yaml_ipset_file() {' 'pre_start_adguardhome() {' || fail 'could not extract S99 permission helpers'
 for _functions_file in "${INSTALLER_FUNCTIONS}" "${S99_FUNCTIONS}"; do
-	sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${_functions_file}" >"${_functions_file}.test" || fail 'could not isolate stock account commands'
+	sed 's#/usr/bin/awk#awk#g' "${_functions_file}" >"${_functions_file}.test" || fail 'could not isolate stock account commands'
 	mv "${_functions_file}.test" "${_functions_file}" || fail 'could not update isolated permission helpers'
 done
 

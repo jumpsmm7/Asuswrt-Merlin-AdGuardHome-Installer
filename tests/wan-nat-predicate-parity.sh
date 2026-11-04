@@ -19,7 +19,7 @@ extract_predicate() {
 		active { print }
 		active && $0 == "}" { exit }
 	' "$3" |
-		sed 's|/usr/sbin/iptables|test_iptables|g; s|/bin/nvram|test_nvram|g'
+		sed 's|/usr/sbin/iptables|test_iptables|g; s|installer_nvram |test_nvram |g; s|[(]nvram get |(test_nvram get |g'
 }
 
 extract_predicate wan_iptables_state_active installer_predicate "${INSTALLER_PATH}" >"${TEST_ROOT}/installer" ||

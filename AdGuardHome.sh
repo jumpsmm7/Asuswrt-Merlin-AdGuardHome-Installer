@@ -226,7 +226,7 @@ adguard_wan_iptables_state_active() {
 	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
 	for unit in 0 1; do
 		for key in ifname gw_ifname pppoe_ifname; do
-			ifname="$(/bin/nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			ifname="$(nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
 			case "${ifname}" in
 				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
 			esac

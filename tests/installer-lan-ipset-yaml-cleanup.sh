@@ -3,6 +3,10 @@
 
 set -u
 
+# Model caller command availability separately from stock-path discovery.
+installer_nvram() { nvram "$@"; }
+ai_have_cmd() { which "$1" >/dev/null 2>&1; }
+
 SCRIPT_PATH="${1:-installer}"
 TMP_ROOT="${TMPDIR:-/tmp}/installer-lan-ipset-yaml-cleanup.$$"
 STUB_DIR="${TMP_ROOT}/bin"
@@ -113,7 +117,7 @@ extract_function adguard_migrate_detected_install_mode || fail 'could not extrac
 wan_iptables_state_active() {
 	[ "${WAN_NAT_ACTIVE:-0}" -eq 1 ]
 }
-sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+sed 's#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
 mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated account helper'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'helper extraction was empty'
 

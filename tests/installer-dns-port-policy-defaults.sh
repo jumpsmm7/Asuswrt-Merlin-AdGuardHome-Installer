@@ -13,6 +13,8 @@ PTXT() { :; }
 # ptxt_ok suppresses success messages from the extracted installer helpers.
 ptxt_ok() { :; }
 # nvram returns no firmware values and performs no router mutations.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() { :; }
 # adguard_install_feature_defaults skips unrelated feature defaults to isolate DNS policy persistence.
 adguard_install_feature_defaults() { :; }

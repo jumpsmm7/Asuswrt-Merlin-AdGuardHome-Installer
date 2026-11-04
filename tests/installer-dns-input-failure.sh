@@ -142,6 +142,8 @@ read_yesno() {
 	[ "${CONFIRM_PROMPTS}" -eq "${FAIL_CONFIRM_PROMPT:-0}" ] && return 2
 	return 1
 }
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '0' ;;

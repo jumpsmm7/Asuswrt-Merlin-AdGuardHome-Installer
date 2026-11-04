@@ -91,6 +91,8 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	create_dir() { mkdir -p "$1"; }
 	configure_runtime_defaults() { :; }
 	cleanup_legacy_firewall() { :; }
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() { :; }
 	rm() { :; }
 	ln() { :; }

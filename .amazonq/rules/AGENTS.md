@@ -211,7 +211,7 @@ When no default path has been defined earlier, prefer these known stock paths wh
 * `jq`: `/usr/bin/jq`
 * `openssl`: `/usr/sbin/openssl`
 * `flock` (optional): `/usr/bin/flock`
-* `nvram`: `/bin/nvram`
+* `nvram`: `/bin/nvram` or `/usr/sbin/nvram`; confirm with `which nvram` under the stock PATH and use the resolved executable consistently.
 * `cru`: `/usr/sbin/cru`
 * `service`: `/sbin/service`
 * `iptables`: `/usr/sbin/iptables`

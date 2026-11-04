@@ -32,6 +32,8 @@ trap 'rm -f "${CHECK_LOG}" "${SERVICE_LOG}" "${END_LOG}"' 0 HUP INT TERM
 read_yesno() {
 	return 2
 }
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	[ "$1:${2:-}" = 'get:dns_local_cache' ] && printf '%s\n' '0'
 }

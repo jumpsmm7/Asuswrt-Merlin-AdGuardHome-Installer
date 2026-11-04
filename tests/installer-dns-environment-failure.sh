@@ -48,14 +48,14 @@ sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PA
 printf '%s\n' 'adguard_committed_binary_cleanup_retry() { :; }' >"${FUNCTIONS_FILE}" ||
 	fail 'could not create test functions file'
 sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" |
-	sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
-sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/nvram|nvram|g' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
+	sed -e '$d' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract NVRAM transaction helpers'
+sed -n '/^installer_lan_domain_set() {$/,/^rollback_result_write() {$/p' "${INSTALLER_PATH}" | sed -e '$d' -e 's|/bin/grep|grep|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract LAN-domain transaction helpers'
 sed -n '/^check_dns_environment() {$/,/^check_dns_filter() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNS environment helper'
 sed -n '/^check_dns_filter() {$/,/^save_dns_filter_settings() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter helper'
 sed -n '/^restore_dns_filter_settings() {$/,/^check_ipset() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract DNSFilter restore helper'
-sed -n '/^jffs_read_settings() {$/,/^}$/p' "${INSTALLER_PATH}" | sed 's|/bin/nvram|nvram|g' >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS readiness reader'
+sed -n '/^jffs_read_settings() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract JFFS readiness reader'
 sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" >"${JFFS_FUNCTIONS_FILE}" || fail 'could not extract JFFS helper'
-sed -e '$d' -e 's|/bin/nvram|nvram|g' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
+sed -e '$d' "${JFFS_FUNCTIONS_FILE}" >>"${FUNCTIONS_FILE}" || fail 'could not prepare JFFS helper'
 sed -n '/^on_installer_exit() {$/,/^python_bcrypt_available() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer exit handler'
 sed -n '/^end_op_message() {$/,/^menu() {$/p' "${INSTALLER_PATH}" | sed '$d' >>"${FUNCTIONS_FILE}" || fail 'could not extract installer restart helper'
 sed -n '/^uninst_all() {$/,/^}$/p' "${INSTALLER_PATH}" >>"${FUNCTIONS_FILE}" || fail 'could not extract uninstall helper'
@@ -73,7 +73,7 @@ EOF_SETUP_RESTORE_WRAPPER
 printf '%s\n' 'nvram_transaction_setup_committed() { [ -f "${BASE_DIR}/.AdGuardHome.nvram/setup-committed" ]; }' >>"${FUNCTIONS_FILE}"
 # adguard_committed_binary_cleanup_retry is outside this DNS fixture's scope.
 printf '%s\n' 'adguard_committed_binary_cleanup_retry() { :; }' >>"${FUNCTIONS_FILE}"
-[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 8 ] || fail 'NVRAM transaction helpers do not consistently use /bin/nvram'
+[ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])installer_nvram (show|get|set|unset|commit)([[:space:];]|$)')" -eq 8 ] || fail 'NVRAM transaction helpers do not consistently use installer_nvram'
 [ "$(sed -n '/^nvram_transaction_begin() {$/,/^installer_lan_domain_set() {$/p' "${INSTALLER_PATH}" | /bin/grep -Ec '(^|[[:space:];!])/bin/grep -q ')" -eq 2 ] || fail 'NVRAM transaction helpers do not use /bin/grep for inventory matching'
 LOCK_OWNER_FUNC_BODY="$(sed -n '/^nvram_transaction_lock_owner_current() {$/,/^nvram_transaction_lock_owner_live() {$/p' "${INSTALLER_PATH}")" || fail 'could not extract nvram_transaction_lock_owner_current function'
 [ "$(
@@ -236,6 +236,8 @@ nvram_value() {
 }
 
 # nvram simulates NVRAM operations for regression tests, including configurable read, write, and commit failures.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "$1" in
 		show)

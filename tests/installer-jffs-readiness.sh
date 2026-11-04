@@ -16,7 +16,7 @@ trap 'exit 1' HUP INT TERM
 	sed -n '/^jffs_read_settings() {$/,/^preflight_check_jffs_ready() {$/p' "${INSTALLER_PATH}" | sed '$d'
 	sed -n '/^preflight_check_jffs_ready() {$/,/^preflight_check_router_eligibility() {$/p' "${INSTALLER_PATH}" | sed '$d'
 	sed -n '/^check_jffs_enabled() {$/,/^check_version() {$/p' "${INSTALLER_PATH}" | sed '$d'
-} | sed 's#/bin/nvram#nvram#g' >"${TEST_ROOT}/functions"
+} >"${TEST_ROOT}/functions"
 # Each fixture exposes only the four JFFS keys; no package tooling participates.
 # run_case runs the real JFFS helper against one modeled read or enablement failure.
 run_case() {
@@ -30,6 +30,8 @@ run_case() {
 		PTXT() { printf '%s\n' "$*"; }
 		ERROR=ERROR INFO=INFO
 		# nvram models JFFS key reads and inventory outcomes for the selected readiness case.
+		# installer_nvram forwards calls to this fixture's NVRAM model.
+		installer_nvram() { nvram "$@"; }
 		nvram() {
 			if [ "$1" = show ]; then
 				case "${case_name}" in
@@ -131,8 +133,7 @@ run_case absent-scripts-zero check_jffs_enabled 0 'legacy enablement applied'
 run_case absent-enable check_jffs_enabled 0 'legacy enablement applied'
 run_case absent-enable-zero check_jffs_enabled 0 'legacy enablement applied'
 # Exercise the real transaction begin seam, including filesystem failure.
-sed -n '/^nvram_transaction_begin() {$/,/^}/p; /^nvram_transaction_begin_locked() {$/,/^}/p' "${INSTALLER_PATH}" |
-	sed 's#/bin/nvram#nvram#g' >"${TEST_ROOT}/transaction-functions"
+sed -n '/^nvram_transaction_begin() {$/,/^}/p; /^nvram_transaction_begin_locked() {$/,/^}/p' "${INSTALLER_PATH}" >"${TEST_ROOT}/transaction-functions"
 for stage_case in lock storage inventory key; do
 	(
 		. "${TEST_ROOT}/transaction-functions"
@@ -144,6 +145,8 @@ for stage_case in lock storage inventory key; do
 		# nvram_transaction_finalize_setup_pair models a clean prior recovery state before snapshot capture.
 		nvram_transaction_finalize_setup_pair() { return 0; }
 		# nvram injects inventory or key-read failure while the real snapshot helper runs.
+		# installer_nvram forwards calls to this fixture's NVRAM model.
+		installer_nvram() { nvram "$@"; }
 		nvram() {
 			if [ "$1" = show ]; then
 				[ "${stage_case}" != inventory ] || return 1

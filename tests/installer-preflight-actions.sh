@@ -119,6 +119,7 @@ preflight_action_requires_sha256() { return 0; }
 preflight_action_requires_password_hash() { return 0; }
 preflight_action_requires_timezone_column() { return 0; }
 adguard_install_mode_detect() { ADGUARD_INSTALL_MODE_DETECTION=unknown; }
+preflight_check_nvram() { return 0; }
 preflight_check_path() { return 0; }
 preflight_check_stock_commands() { return 0; }
 preflight_check_entware() { return ${entware_status}; }
@@ -179,6 +180,7 @@ preflight_action_requires_jq() { return 1; }
 preflight_action_requires_password_hash() { return 1; }
 preflight_action_requires_timezone_column() { return 1; }
 . "${FUNCTIONS_FILE}"
+preflight_check_nvram() { return 0; }
 preflight_check_path() { return 0; }
 preflight_check_stock_commands() { return 0; }
 preflight_check_sha256_support() { PTXT 'called.sha256=yes'; return 0; }
@@ -368,6 +370,7 @@ preflight_action_requires_jq() { return 1; }
 preflight_action_requires_sha256() { return 1; }
 preflight_action_requires_password_hash() { return 1; }
 preflight_action_requires_timezone_column() { return 1; }
+preflight_check_nvram() { return 0; }
 preflight_check_path() {
 	case "\$1" in
 		iptables | ip6tables) PTXT "called.\$1=yes" ;;
@@ -431,6 +434,8 @@ run_router_mode_case() {
 	cat >"${stub_file}" <<EOF
 PTXT() { printf '%s\n' "\$*"; }
 ROUTER_MODEL=RT-AC68U
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "\$@"; }
 nvram() {
 	[ "\$1" = "get" ] || return 1
 	case "\$2" in

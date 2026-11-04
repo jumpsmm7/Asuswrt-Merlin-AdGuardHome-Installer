@@ -2074,7 +2074,7 @@ chmod_regular_files_600() {
 }
 
 adguardhome_owner_account() {
-	_agh_account="$(/bin/nvram get http_username 2>/dev/null)" || return 1
+	_agh_account="$(nvram get http_username 2>/dev/null)" || return 1
 	[ -n "${_agh_account}" ] || _agh_account="root"
 	case "${_agh_account}" in
 		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;

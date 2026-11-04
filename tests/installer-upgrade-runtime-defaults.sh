@@ -114,6 +114,8 @@ run_update_path() {
 		cleanup_legacy_firewall() {
 			printf '%s\n' 'cleanup_legacy_firewall' >>"${CALLS_FILE}"
 		}
+		# installer_nvram forwards calls to this fixture's NVRAM model.
+		installer_nvram() { nvram "$@"; }
 		nvram() { :; }
 		rm() { :; }
 		ln() {

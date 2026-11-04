@@ -274,7 +274,7 @@ When changed code requires an absolute router-stock path, review it against thes
 | `jq`        | `/usr/bin/jq`         |
 | `openssl`   | `/usr/sbin/openssl`   |
 | `flock`     | `/usr/bin/flock`      |
-| `nvram`     | `/bin/nvram`          |
+| `nvram`     | `/bin/nvram` or `/usr/sbin/nvram`; resolve with `which nvram` under the stock PATH |
 | `cru`       | `/usr/sbin/cru`       |
 | `service`   | `/sbin/service`       |
 | `iptables`  | `/usr/sbin/iptables`  |
