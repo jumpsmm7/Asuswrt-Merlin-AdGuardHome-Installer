@@ -159,9 +159,12 @@ run_large_case() {
 	case_output="${TEST_ROOT}/large-${case_name}-${entry}.out"
 	(
 		. "${TEST_ROOT}/functions"
+		# printf forces the private executable boundary for every diagnostic.
 		printf() { "${TEST_ROOT}/external-printf" "$@"; }
+		# PTXT captures unformatted installer diagnostics for assertions.
 		PTXT() { printf '%s\n' "$*"; }
 		ERROR=ERROR INFO=INFO
+		# installer_nvram models reads and records any unintended mutation.
 		installer_nvram() {
 			case "$1" in
 				show)
@@ -205,7 +208,7 @@ run_large_case() {
 			esac
 		}
 		if [ "${case_name}" = filter-failed ]; then
-			# Usable output does not excuse failure of the new inventory filter.
+			# awk emits usable markers before simulating a failed inventory filter.
 			awk() {
 				command awk "$@"
 				return 1

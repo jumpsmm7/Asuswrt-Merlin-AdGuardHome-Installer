@@ -1,24 +1,5 @@
 # In Progress
 
-## TASK-040: Stream JFFS NVRAM inventory for issue #1049
-
-**Priority:** P1 | **Tags:** v2.7.0, nvram, jffs
-**Dependency:** TASK-039
-**Authority:** November 4, 2026 (America/New_York) maintainer request to resolve issue #1049.
-**Base:** master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`.
-
-### Plan and acceptance
-
-- [x] Replace the whole-inventory shell capture with a streamed, bounded key-presence summary; preserve legacy absence, present-empty and failed-read distinctions, HND nonzero usable output and fail-closed parser errors.
-- [x] Reproduce actual external-printf argument overflow with a large synthetic inventory; extend the existing JFFS regression with late keys, legacy/HND/error cases, no writes and no unrelated-value disclosure.
-- [x] Keep NVRAM path discovery through `which`, existing transaction/rollback behavior and router dependencies intact; regenerate installer MD5/SHA-256.
-- [ ] Run focused host/BusyBox checks, canonical code quality and fresh native ARM acceptance for the candidate; preserve failed evidence and report source identity and physical-test exclusions.
-- [ ] Publish a reviewable fix against master and record actual current-head review/check results. No router mutation, merge, release or physical-pass claim is authorized.
-
-Root owns runtime code, task records and publication. The regression delegate owns only `tests/installer-jffs-readiness.sh`; the design delegate remains read-only. `status`/`doctor` routing will change only if a current-code defect is reproduced.
-
----
-
 ## TASK-038: Repair reboot recovery and complete stack CI synchronization
 
 **Priority:** P1 | **Tags:** v2.7.0, recovery, ci

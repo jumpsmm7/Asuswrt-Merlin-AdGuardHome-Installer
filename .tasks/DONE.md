@@ -1,5 +1,30 @@
 # Done
 
+## TASK-040: Stream JFFS NVRAM inventory for issue #1049
+
+**Priority:** P1 | **Tags:** v2.7.0, nvram, jffs
+**Dependency:** TASK-039
+**Authority:** November 4, 2026 (America/New_York) maintainer request to resolve issue #1049.
+**Base:** master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`.
+
+### Plan and acceptance
+
+- [x] Replace the whole-inventory shell capture with a streamed, bounded key-presence summary; preserve legacy absence, present-empty and failed-read distinctions, HND nonzero usable output and fail-closed parser errors.
+- [x] Reproduce actual external-printf argument overflow with a large synthetic inventory; extend the existing JFFS regression with late keys, legacy/HND/error cases, no writes and no unrelated-value disclosure.
+- [x] Keep NVRAM path discovery through `which`, existing transaction/rollback behavior and router dependencies intact; regenerate installer MD5/SHA-256.
+- [x] Run focused host/BusyBox checks, canonical code quality and fresh native ARM acceptance for the candidate; preserve failed evidence and report source identity and physical-test exclusions.
+- [x] Publish a reviewable fix against master and record actual current-head review/check results. No router mutation, merge, release or physical-pass claim is authorized.
+
+Root owns runtime code, task records and publication. The regression delegate owns only `tests/installer-jffs-readiness.sh`; the design delegate remains read-only. `status`/`doctor` routing will change only if a current-code defect is reproduced.
+
+---
+
+**Qualified runtime candidate:** PR #1050 head `2bc47c9a57fc7b9e082afcead7d94e60d50c00a9`, matching local frozen `9b8109db8c0fa55c014a49cadbbb0c4745b07ca4` / tree `d4a704c3dd628e03739ba6c3042e3ca26732b197`. All 200 canonical host checks and hosted quality checks passed, including strict Sonar enforcement with zero unresolved issues. CodeRabbit approved; Qodo/Codex/Amazon Q reported no blocking defects. The completed push native matrix accepted all 11 feature groups with 128 scenarios on each architecture and `unblocks: true`, content digest `a367cb02d80492152bc5a1c6773038ac13568e5958cd8cc566b150ab0df3b6fc`. The one-MiB readiness regression passed in every native guest, including older ARMv7 software float.
+
+**Completion record:** Runtime behavior is complete and verified. This record and descriptive test-helper comments form the final revision; fresh final-head hosted/native results remain a publication check and will be recorded in PR #1050 and `/workspace/work/v270-validation/issue1049-current.json`. The TaskPlanner prerequisite update is required by canonical policy after #1048 was merged. No new physical router, flash, reboot, client DHCP/isolation, WAN or soak pass is claimed; no merge or release was performed.
+
+
+
 ## TASK-039: Resolve stock NVRAM locations for issue #1047
 
 **Priority:** P1 | **Tags:** v2.7.0, nvram, preflight
