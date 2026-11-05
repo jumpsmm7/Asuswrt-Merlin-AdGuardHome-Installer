@@ -36,6 +36,8 @@ for ANSWER in yes no; do
 	: >"${LOG}"
 	: >"${END_LOG}"
 
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		[ "$1:${2:-}" = 'get:dns_local_cache' ] && printf '%s\n' '0'
 	}

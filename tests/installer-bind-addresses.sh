@@ -96,6 +96,8 @@ route() {
 }
 
 # nvram retrieves simulated NVRAM values for LAN interface and IP address settings.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_ifname) printf '%s\n' "${LAN_IFNAME:-}" ;;

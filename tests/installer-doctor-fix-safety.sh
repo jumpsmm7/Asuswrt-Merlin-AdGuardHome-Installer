@@ -24,7 +24,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 sed -n \
-	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
+	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^installer_nvram() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^doctor_status() {$/,/^}$/p; /^doctor_fix_msg() {$/,/^}$/p; /^doctor_file_state() {$/,/^}$/p; /^doctor_managed_script_state() {$/,/^}$/p; /^doctor_dns53_state() {$/,/^}$/p; /^doctor_fix_permissions() {$/,/^}$/p; /^doctor_pid_file_is_active() {$/,/^}$/p; /^doctor_run_lock_is_active() {$/,/^}$/p; /^doctor_fix_safe() {$/,/^}$/p; /^doctor_show_nvram_dns() {$/,/^}$/p; /^doctor() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 awk '
 	/^(doctor_check_managed_hooks|managed_hook_[a-z_]+|service_event_hook_command|write_managed_hook|write_manager_script|write_command_script|del_between_magic|del_jffs_script|adguard_ipset_allowed)\(\) \{/ { copying = 1 }
@@ -79,6 +79,12 @@ done
 : >"${LOG_FILE}" || fail 'could not create command log'
 printf '%s\n' "$$" >"${ACTIVE_MARKER}" || fail 'could not create active marker'
 ln -s "${TEST_ROOT}/missing-marker-target" "${DANGLING_MARKER}" || fail 'could not create dangling marker'
+
+# Route NVRAM reads to this private firmware model; real which lookup is tested separately.
+installer_nvram_path() {
+	[ -f "${BIN_DIR}/nvram" ] && [ -x "${BIN_DIR}/nvram" ] || return 1
+	printf '%s\n' "${BIN_DIR}/nvram"
+}
 
 PATH="${BIN_DIR}:/bin:/usr/bin" LOG_FILE="${LOG_FILE}" . "${FUNCTIONS_FILE}"
 

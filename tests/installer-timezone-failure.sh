@@ -112,6 +112,8 @@ chmod 755 "${TMP_ROOT}/target/AdGuardHome" || fail 'could not create test AdGuar
 	# write_conf is a no-op stub used to satisfy installer dependencies during regression testing.
 	write_conf() { :; }
 	# nvram does nothing and returns success.
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() { :; }
 	# nvram_transaction_lock_owned reports ownership of the fixture's active NVRAM transaction.
 	nvram_transaction_lock_owned() { return 0; }

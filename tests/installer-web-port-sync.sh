@@ -79,6 +79,8 @@ ip() {
 }
 
 # nvram prints stubbed router values for supported NVRAM queries.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:lan_ifname) printf '%s\n' "${LAN_IFNAME:-}" ;;

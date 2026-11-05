@@ -221,6 +221,8 @@ if [ "${TEST_CASE}" != writer ]; then
 		esac
 	}
 	# nvram permits only read-only capability inspection.
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		[ "$*" = 'get rc_support' ] || fail "unexpected nvram call: $*"
 		printf '%s\n' "${SDN_SUPPORT}"

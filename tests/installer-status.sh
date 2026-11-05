@@ -16,7 +16,7 @@ mkdir -p "${TEST_ROOT}" "${BIN_DIR}" || fail 'could not create test directory'
 trap 'rm -rf "${TEST_ROOT}"' EXIT HUP INT TERM
 
 sed -n \
-	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^port_is_valid() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_monitor_count() {$/,/^}$/p; /^status_line() {$/,/^}$/p; /^status_dnsmasq_handoff_state() {$/,/^}$/p; /^status_last_startup_result() {$/,/^}$/p; /^status_port53_ownership() {$/,/^}$/p; /^status_webui_address() {$/,/^}$/p; /^status() {$/,/^}$/p' \
+	'/^PTXT() {$/,/^}$/p; /^ai_have_cmd() {$/,/^}$/p; /^installer_nvram() {$/,/^}$/p; /^rollback_result_summary() {$/,/^}$/p; /^runtime_port_is_valid() {$/,/^}$/p; /^port_is_valid() {$/,/^}$/p; /^conf_value() {$/,/^}$/p; /^agh_web_port() {$/,/^}$/p; /^agh_is_running() {$/,/^}$/p; /^agh_dns_bound() {$/,/^}$/p; /^web_port_owned_by_agh() {$/,/^}$/p; /^agh_web_bound() {$/,/^}$/p; /^agh_config_valid() {$/,/^}$/p; /^agh_startup_check() {$/,/^}$/p; /^agh_monitor_count() {$/,/^}$/p; /^status_line() {$/,/^}$/p; /^status_dnsmasq_handoff_state() {$/,/^}$/p; /^status_last_startup_result() {$/,/^}$/p; /^status_port53_ownership() {$/,/^}$/p; /^status_webui_address() {$/,/^}$/p; /^status() {$/,/^}$/p' \
 	"${INSTALLER_PATH}" >"${FUNCTIONS_FILE}" || fail "could not read ${INSTALLER_PATH}"
 [ -s "${FUNCTIONS_FILE}" ] || fail 'status functions were not found'
 grep -q '^status() {$' "${FUNCTIONS_FILE}" || fail 'installer has no status command helper'
@@ -53,6 +53,12 @@ cat >"${BIN_DIR}/nvram" <<'STUB'
 [ "$1" = get ] && [ "$2" = lan_ipaddr ] && printf '%s\n' '192.168.50.1'
 STUB
 chmod 755 "${BIN_DIR}/nvram" || fail 'could not chmod nvram stub'
+
+# Route NVRAM reads to this private firmware model; real which lookup is tested separately.
+installer_nvram_path() {
+	[ -f "${BIN_DIR}/nvram" ] && [ -x "${BIN_DIR}/nvram" ] || return 1
+	printf '%s\n' "${BIN_DIR}/nvram"
+}
 
 PATH="${BIN_DIR}:/bin:/usr/bin" . "${FUNCTIONS_FILE}"
 AI_VERSION='vTEST'
@@ -93,6 +99,11 @@ printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^WebUI address/port: 192.168.50.1:30
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^dnsmasq handoff state: inactive$' || fail 'dnsmasq handoff state missing'
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last startup result: .*AdGuardHome startup completed\.$' || fail 'last startup result missing'
 printf '%s\n' "${STATUS_OUTPUT}" | grep -q '^Last rollback result: none$' || fail 'last rollback result missing'
+
+# Missing YAML WebUI address falls back to the router LAN address through the shared wrapper.
+: >"${YAML_FILE}" || fail 'could not isolate the NVRAM address fallback'
+FALLBACK_ADDRESS="$(PATH="${BIN_DIR}:/bin:/usr/bin" status_webui_address)" || fail 'WebUI fallback failed'
+[ "${FALLBACK_ADDRESS}" = '192.168.50.1:3000' ] || fail 'WebUI fallback did not use the modeled NVRAM LAN address'
 
 # Both runtime and installer status helpers must report dangling handoff markers.
 for status_source in "${INSTALLER_PATH}" AdGuardHome.sh; do

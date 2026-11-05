@@ -40,6 +40,8 @@ conf_value() {
 	esac
 }
 # nvram reads stubbed LAN gateway and IP address values for test scenarios.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "$1:${2:-}" in
 		get:lan_gateway) printf '%s\n' "${TEST_LAN_GATEWAY:-}" ;;

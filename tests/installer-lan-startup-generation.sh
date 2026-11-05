@@ -115,6 +115,8 @@ wan_iptables_state_active() { return 1; }
 # ai_have_cmd always reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram simulates NVRAM reads and writes for installer tests.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "${1:-}:${2:-}" in
 		get:sw_mode) printf '%s\n' "${TEST_SW_MODE}" ;;

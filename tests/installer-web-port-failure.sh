@@ -264,6 +264,8 @@ read_input_dns() {
 # ai_have_cmd reports that the requested command is unavailable.
 ai_have_cmd() { return 1; }
 # nvram mocks NVRAM reads and writes used by installer tests.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;

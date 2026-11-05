@@ -36,6 +36,10 @@ sed -e "s|/opt|${TEST_ROOT}/fs/opt|g" \
 	-e "s|/tmp/AdGuardHome|${TEST_ROOT}/fs/tmp/AdGuardHome|g" \
 	-e "s|/proc/meminfo|${TEST_ROOT}/fs/meminfo|g" \
 	"${TEST_ROOT}/extracted" >"${TEST_ROOT}/functions" || fail 'could not isolate inputs'
+# The collector receives a private executable path; real stock lookup has its own regression.
+cat >>"${TEST_ROOT}/functions" <<'NVRAM_PATH_MODEL'
+installer_nvram_path() { printf '%s\n' "${TEST_ROOT}/bin/nvram"; }
+NVRAM_PATH_MODEL
 mkdir -p "${TEST_ROOT}/bin" "${TEST_ROOT}/fs/opt/etc/AdGuardHome" \
 	"${TEST_ROOT}/fs/opt/bin" "${TEST_ROOT}/fs/jffs/scripts" "${TEST_ROOT}/fs/tmp" "${TEST_ROOT}/out" || exit 1
 REAL_DD="$(which dd)"

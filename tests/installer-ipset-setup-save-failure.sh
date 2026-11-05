@@ -100,6 +100,8 @@ trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
 
 # nvram prints `1` for `get:dns_local_cache` requests and produces no output for other requests.
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() {
 	case "$1:${2:-}" in
 		get:dns_local_cache) printf '%s\n' '1' ;;

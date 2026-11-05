@@ -107,7 +107,7 @@ awk '
 printf '%s\n' 'adguard_committed_binary_cleanup_retry() { return 0; }' >>"${FUNCTIONS_FILE}"
 # These directory-restore fault fixtures assume the separately tested online prefetch succeeded.
 printf '%s\n' 'adguard_restore_prepare_online_dependencies() { return 0; }' >>"${FUNCTIONS_FILE}"
-sed 's#/bin/nvram#nvram#g; s#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
+sed 's#/usr/bin/awk#awk#g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.test" || fail 'could not isolate stock account commands'
 mv "${FUNCTIONS_FILE}.test" "${FUNCTIONS_FILE}" || fail 'could not update isolated installer helpers'
 printf 'ROLLBACK_RESULT_FILE="%s/rollback-result"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
 printf 'BASE_DIR="%s/base"\n' "${TMP_DIR}" >>"${FUNCTIONS_FILE}"
@@ -495,6 +495,8 @@ EOF
 		return 0
 	}
 
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		printf '%s\n' "root"
 	}

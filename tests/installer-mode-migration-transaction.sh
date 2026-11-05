@@ -40,6 +40,8 @@ command_stub() {
 	[ "${FAIL_COMMAND:-}" != "${stub_name}" ] || [ "${FAIL_INVOCATION:-1}" -ne "${stub_count}" ]
 }
 
+# installer_nvram forwards calls to this fixture's NVRAM model.
+installer_nvram() { nvram "$@"; }
 nvram() { command_stub nvram "$@"; }
 service() { command_stub service "$@"; }
 iptables() { command_stub iptables "$@"; }

@@ -101,7 +101,31 @@ readonly INPUT
 # Bootstrap and package helpers
 
 ai_have_cmd() {
+	if [ "$1" = "nvram" ]; then
+		installer_nvram_path >/dev/null 2>&1
+		return "$?"
+	fi
 	which "$1" >/dev/null 2>&1
+}
+
+# Firmware places nvram in either stock location. Resolve with which under a
+# stock-only PATH so persistent operations never fall through to Entware.
+installer_nvram_path() {
+	local nvram_binary
+	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin command which nvram 2>/dev/null)" || return 1
+	case "${nvram_binary}" in
+		/bin/nvram | /usr/sbin/nvram)
+			[ -f "${nvram_binary}" ] && [ -x "${nvram_binary}" ] || return 1
+			;;
+		*) return 1 ;;
+	esac
+	printf '%s\n' "${nvram_binary}"
+}
+
+installer_nvram() {
+	local nvram_binary
+	nvram_binary="$(installer_nvram_path)" || return 127
+	"${nvram_binary}" "$@"
 }
 
 # Installer-managed NVRAM transactions.  Each key is read once into a private
@@ -164,7 +188,7 @@ nvram_transaction_begin_locked() {
 	: >"${temp_dir}/keys" || return 1
 	chmod 600 "${temp_dir}/keys" || return 1
 	NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-inventory"
-	if ! /bin/nvram show >"${temp_dir}/inventory" 2>/dev/null; then
+	if ! installer_nvram show >"${temp_dir}/inventory" 2>/dev/null; then
 		# Some HND firmware returns a failure status after emitting a usable
 		# inventory. Reject only a failed read that produced no snapshot data.
 		if [ ! -s "${temp_dir}/inventory" ]; then
@@ -189,7 +213,7 @@ nvram_transaction_begin_locked() {
 			exists="1"
 		fi
 		NVRAM_TRANSACTION_BEGIN_STAGE="snapshot-key:${key}"
-		if ! /bin/nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null && [ "${exists}" = "1" ]; then
+		if ! installer_nvram get "${key}" >"${temp_dir}/${key}" 2>/dev/null && [ "${exists}" = "1" ]; then
 			rm -rf "${temp_dir}"
 			return 1
 		fi
@@ -1547,7 +1571,7 @@ nvram_transaction_restore() {
 		return 0
 	fi
 	inventory_file="${snapshot_dir}/restore-inventory.$$"
-	if ! /bin/nvram show >"${inventory_file}" 2>/dev/null; then
+	if ! installer_nvram show >"${inventory_file}" 2>/dev/null; then
 		if [ ! -s "${inventory_file}" ]; then
 			rm -f "${inventory_file}" 2>/dev/null || true
 			rollback_result_write "NVRAM transaction" "${INSTALLER_ROLLBACK_PARTIAL:-rollback partial}" "snapshot preserved at ${snapshot_dir}"
@@ -1581,7 +1605,7 @@ nvram_transaction_restore() {
 					continue
 					;;
 			esac
-			current="$(/bin/nvram get "${key}" 2>/dev/null)" || {
+			current="$(installer_nvram get "${key}" 2>/dev/null)" || {
 				failed="1"
 				continue
 			}
@@ -1592,13 +1616,13 @@ nvram_transaction_restore() {
 			continue
 		}
 		if [ -f "${snapshot_dir}/exists.${key}" ]; then
-			/bin/nvram set "${key}=${old}" || failed="1"
+			installer_nvram set "${key}=${old}" || failed="1"
 		else
-			/bin/nvram unset "${key}" || failed="1"
+			installer_nvram unset "${key}" || failed="1"
 		fi
 	done <"${snapshot_dir}/keys"
 	rm -f "${inventory_file}" || failed="1"
-	/bin/nvram commit || failed="1"
+	installer_nvram commit || failed="1"
 	nvram_transaction_restart_services "${service_action}" || failed="1"
 	if [ "${failed}" = "0" ]; then
 		if [ "${keep_snapshot}" != "1" ]; then
@@ -1662,12 +1686,12 @@ nvram_transaction_apply() {
 			nvram_transaction_restore "${service_action}" || true
 			return 1
 		}
-		if ! /bin/nvram set "${key}=${new}"; then
+		if ! installer_nvram set "${key}=${new}"; then
 			nvram_transaction_restore "${service_action}" || true
 			return 1
 		fi
 	done <"${snapshot_dir}/keys"
-	if ! /bin/nvram commit; then
+	if ! installer_nvram commit; then
 		nvram_transaction_restore "${service_action}" || true
 		return 1
 	fi
@@ -2414,7 +2438,7 @@ adguard_install_feature_defaults() {
 				disabled) ;;
 				*) write_conf ADGUARD_DNSMASQ_MODE "\"auto\"" || return 1 ;;
 			esac
-			lan_gateway="$(nvram get lan_gateway 2>/dev/null)" || lan_gateway=""
+			lan_gateway="$(installer_nvram get lan_gateway 2>/dev/null)" || lan_gateway=""
 			case "${lan_gateway}" in
 				"" | 0.0.0.0) ;;
 				*)
@@ -2573,7 +2597,7 @@ ipv4_is_private() {
 
 adguard_install_mode_detect() {
 	local lan_ipaddr sw_mode
-	sw_mode="$(nvram get sw_mode 2>/dev/null)" || sw_mode=""
+	sw_mode="$(installer_nvram get sw_mode 2>/dev/null)" || sw_mode=""
 	ADGUARD_INSTALL_MODE_DETECTION="unknown"
 	ADGUARD_INSTALL_MODE_RAW="${sw_mode}"
 	ADGUARD_INSTALL_MODE_SW_MODE="${sw_mode}"
@@ -2583,7 +2607,7 @@ adguard_install_mode_detect() {
 			ADGUARD_INSTALL_MODE="wan"
 			;;
 		2 | 3 | 4)
-			lan_ipaddr="$(nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
+			lan_ipaddr="$(installer_nvram get lan_ipaddr 2>/dev/null)" || lan_ipaddr=""
 			if ! ipv4_is_usable_unicast "${lan_ipaddr}"; then
 				ADGUARD_INSTALL_MODE_RAW="sw_mode=${sw_mode}, lan_ipaddr=${lan_ipaddr:-unreadable}"
 				PTXT "${WARN:-WARNING:} Router install mode is unknown/unreadable (${ADGUARD_INSTALL_MODE_RAW}); retaining any persisted install mode."
@@ -2787,14 +2811,14 @@ jffs_read_settings() {
 	format_status=0
 	scripts_status=0
 	enable_status=0
-	jffs2_format_value="$(/bin/nvram get jffs2_format 2>/dev/null)" || format_status=1
-	jffs2_scripts_value="$(/bin/nvram get jffs2_scripts 2>/dev/null)" || scripts_status=1
-	jffs2_enabled_value="$(/bin/nvram get jffs2_enable 2>/dev/null)" || enable_status=1
+	jffs2_format_value="$(installer_nvram get jffs2_format 2>/dev/null)" || format_status=1
+	jffs2_scripts_value="$(installer_nvram get jffs2_scripts 2>/dev/null)" || scripts_status=1
+	jffs2_enabled_value="$(installer_nvram get jffs2_enable 2>/dev/null)" || enable_status=1
 	inventory=""
 	if [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
 		[ -z "${jffs2_format_value}" ] || [ -z "${jffs2_scripts_value}" ] || [ -z "${jffs2_enabled_value}" ]; then
 		# HND may return failure after emitting a usable inventory.
-		inventory="$(/bin/nvram show 2>/dev/null)" || true
+		inventory="$(installer_nvram show 2>/dev/null)" || true
 		if ! printf '%s\n' "${inventory}" | grep -q '^[[:alnum:]_][[:alnum:]_]*='; then
 			jffs_read_reason="read-failed:nvram-inventory"
 			return 1
@@ -2845,7 +2869,7 @@ jffs_read_settings() {
 	if [ -z "${jffs2_enabled_value}" ]; then
 		jffs_enable_key="jffs2_on"
 		read_status=0
-		jffs2_enabled_value="$(/bin/nvram get jffs2_on 2>/dev/null)" || read_status=1
+		jffs2_enabled_value="$(installer_nvram get jffs2_on 2>/dev/null)" || read_status=1
 		if [ "${read_status}" -ne 0 ] &&
 			{ [ -n "${jffs2_enabled_value}" ] || printf '%s\n' "${inventory}" | grep -q '^jffs2_on='; }; then
 			jffs_read_reason="read-failed:jffs2_on"
@@ -2901,8 +2925,8 @@ preflight_check_router_eligibility() {
 	result="OK"
 	PTXT "preflight.router.required=yes"
 	if [ -z "${ROUTER_MODEL:-}" ]; then
-		odmpid="$(nvram get odmpid 2>/dev/null)" || odmpid=""
-		[ -z "${odmpid}" ] && model="$(nvram get productid 2>/dev/null)" || model="${odmpid}"
+		odmpid="$(installer_nvram get odmpid 2>/dev/null)" || odmpid=""
+		[ -z "${odmpid}" ] && model="$(installer_nvram get productid 2>/dev/null)" || model="${odmpid}"
 	else
 		model="${ROUTER_MODEL}"
 	fi
@@ -2996,6 +3020,17 @@ preflight_check_command() {
 	PTXT "preflight.stock.${command_name}.required=yes"
 	PTXT "preflight.stock.${command_name}.which=${which_path:-missing}"
 	PTXT "preflight.stock.${command_name}.result=${result}"
+	[ "${result}" = "OK" ]
+}
+
+preflight_check_nvram() {
+	local nvram_binary result
+	result="FAIL"
+	nvram_binary="$(installer_nvram_path)" || nvram_binary=""
+	[ -z "${nvram_binary}" ] || result="OK"
+	PTXT "preflight.nvram.required=/bin/nvram or /usr/sbin/nvram"
+	PTXT "preflight.nvram.which=${nvram_binary:-missing}"
+	PTXT "preflight.nvram.result=${result}"
 	[ "${result}" = "OK" ]
 }
 
@@ -3148,7 +3183,7 @@ preflight() {
 	adguard_install_mode_detect >/dev/null 2>&1
 	PREFLIGHT_INSTALL_MODE_DETECTED="1"
 	preflight_check_path "sh" "/bin/sh" || failed="1"
-	preflight_check_path "nvram" "/bin/nvram" || failed="1"
+	preflight_check_nvram || failed="1"
 	if preflight_action_requires_downloader "${action}"; then
 		preflight_check_downloader || failed="1"
 	else
@@ -3688,7 +3723,7 @@ doctor_check_managed_hooks() {
 		if [ "${dnsmasq_mode}" = enabled ] || [ -e /jffs/scripts/dnsmasq.postconf ] || [ -L /jffs/scripts/dnsmasq.postconf ]; then
 			doctor_managed_script_state /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' "${fix}" || true
 		fi
-		case " $(nvram get rc_support 2>/dev/null) " in
+		case " $(installer_nvram get rc_support 2>/dev/null) " in
 			*' mtlancfg '*)
 				if [ "${dnsmasq_mode}" = enabled ] || [ -e /jffs/scripts/dnsmasq-sdn.postconf ] || [ -L /jffs/scripts/dnsmasq-sdn.postconf ]; then
 					doctor_managed_script_state /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' "${fix}" || true
@@ -3842,7 +3877,7 @@ doctor_show_nvram_dns() {
 		return 0
 	fi
 	for key in dnspriv_enable dns_local_cache dhcpd_dns_router dhcp_dns1_x dhcp_dns2_x dnsfilter_enable_x dnsfilter_mode dnsfilter_custom1 dnsfilter_custom2 dnsfilter_custom3 lan_dnsenable_x lan_dns1_x lan_dns2_x wan_dnsenable_x wan_dns1_x wan_dns2_x; do
-		value="$(nvram get "${key}" 2>/dev/null)"
+		value="$(installer_nvram get "${key}" 2>/dev/null)"
 		case "${key}:${value}" in
 			dnsfilter_enable_x:0 | dnsfilter_enable_x:)
 				doctor_status OK "nvram ${key}=${value}"
@@ -4020,7 +4055,7 @@ status_webui_address() {
 		PTXT "${address}${port:+ (port ${port})}"
 		return 0
 	fi
-	host="$(nvram get lan_ipaddr 2>/dev/null)"
+	host="$(installer_nvram get lan_ipaddr 2>/dev/null)"
 	[ -n "${port}" ] && PTXT "${host:-router}:${port}" || PTXT "unknown"
 }
 
@@ -5329,7 +5364,7 @@ check_ipset() {
 
 adguardhome_owner_account() {
 	local account
-	account="$(/bin/nvram get http_username 2>/dev/null)" || return 1
+	account="$(installer_nvram get http_username 2>/dev/null)" || return 1
 	[ -n "${account}" ] || account="root"
 	case "${account}" in
 		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-]* | [.-]* | "") return 1 ;;
@@ -5350,7 +5385,7 @@ adguardhome_yaml_secure_file() {
 	yaml_target="${1:-${YAML_FILE}}"
 	[ -f "${yaml_target}" ] || return 0
 	chmod 600 "${yaml_target}" || return 1
-	if which nvram >/dev/null 2>&1; then
+	if ai_have_cmd nvram; then
 		http_username="$(adguardhome_owner_account)" || return 1
 		chown "${http_username}:root" "${yaml_target}" || return 1
 	fi
@@ -5638,7 +5673,7 @@ check_version() {
 			fi
 			# A new AdGuardHome installation intentionally exposes its setup WebUI over
 			# HTTP on the router LAN until the administrator configures HTTPS in AdGuardHome.
-			ADGUARD_WEB_URL="$(printf '%s://%s:%s' 'http' "$(nvram get lan_ipaddr)" "$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")")" # NOSONAR
+			ADGUARD_WEB_URL="$(printf '%s://%s:%s' 'http' "$(installer_nvram get lan_ipaddr)" "$(awk -F: '/.*address:.*/{ print $3 }' "${YAML_FILE}")")" # NOSONAR
 			PTXT "${INFO} ADGUARDHOME_VER=${ADGUARD_VER}" \
 				"${INFO} Run Option 1 to if you want to change builds or upgrade when updates are available." \
 				"${INFO} To visit AdGuardHome," \
@@ -6993,7 +7028,7 @@ wan_iptables_state_active() {
 	nat_rules="$(/usr/sbin/iptables -t nat -S POSTROUTING 2>/dev/null)" || return 1
 	for unit in 0 1; do
 		for key in ifname gw_ifname pppoe_ifname; do
-			ifname="$(/bin/nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
+			ifname="$(installer_nvram get "wan${unit}_${key}" 2>/dev/null)" || ifname=""
 			case "${ifname}" in
 				"" | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-]*) continue ;;
 			esac
@@ -7720,7 +7755,7 @@ add_dnsmasq_event_scripts() {
 	}
 	RESTORE_STATUS=0
 	write_manager_script /jffs/scripts/dnsmasq.postconf 'dnsmasq pre_start' || RESTORE_STATUS=1
-	if [ "${RESTORE_STATUS}" -eq 0 ] && nvram get rc_support | grep -q 'mtlancfg'; then
+	if [ "${RESTORE_STATUS}" -eq 0 ] && installer_nvram get rc_support | grep -q 'mtlancfg'; then
 		write_manager_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' || RESTORE_STATUS=1
 	elif [ "${RESTORE_STATUS}" -eq 0 ]; then
 		del_jffs_script /jffs/scripts/dnsmasq-sdn.postconf 'dnsmasq-sdn $2' >/dev/null || RESTORE_STATUS=1
@@ -8529,7 +8564,7 @@ setup_resolve_lan_addresses() {
 
 	NET_ADDR=""
 	NET_ADDR6=""
-	LAN_IF="$(nvram get lan_ifname)"
+	LAN_IF="$(installer_nvram get lan_ifname)"
 	SETUP_LAN_IF="${LAN_IF}"
 	if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 		NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk '
@@ -8544,7 +8579,7 @@ setup_resolve_lan_addresses() {
 			}')"
 	fi
 	if [ -z "${NET_ADDR}" ]; then
-		NVRAM_ADDR4="$(nvram get lan_ipaddr)"
+		NVRAM_ADDR4="$(installer_nvram get lan_ipaddr)"
 		if [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
 			NET_ADDR="$(ip -o -4 addr list "${LAN_IF}" scope global 2>/dev/null | /usr/bin/awk -v candidate="${NVRAM_ADDR4}" '
 				$0 !~ /(^|[[:space:]])(tentative|deprecated)([[:space:]]|$)/ {
@@ -8556,7 +8591,7 @@ setup_resolve_lan_addresses() {
 		fi
 	fi
 	if [ -z "${NET_ADDR6}" ] && [ -n "${LAN_IF}" ] && ai_have_cmd ip; then
-		NVRAM_ADDR6="$(nvram get ipv6_rtr_addr)"
+		NVRAM_ADDR6="$(installer_nvram get ipv6_rtr_addr)"
 		case "${NVRAM_ADDR6}" in
 			"" | ::) ;;
 			*:*)
@@ -8610,7 +8645,7 @@ setup_reverse_upstream_target() {
 				0.0.0.0) return 1 ;;
 			esac
 			if [ -z "${SETUP_REVERSE_UPSTREAM}" ]; then
-				SETUP_REVERSE_UPSTREAM="$(nvram get lan_gateway 2>/dev/null)"
+				SETUP_REVERSE_UPSTREAM="$(installer_nvram get lan_gateway 2>/dev/null)"
 				case "${SETUP_REVERSE_UPSTREAM}" in
 					"" | 0.0.0.0) return 1 ;;
 				esac
@@ -8859,7 +8894,7 @@ setup_sync_mode_dependent_yaml() {
 		wan)
 			old_reverse="$(conf_value ADGUARD_LAN_REVERSE_UPSTREAM 2>/dev/null)"
 			case "${old_reverse}" in
-				"") old_reverse="$(nvram get lan_gateway 2>/dev/null)" ;;
+				"") old_reverse="$(installer_nvram get lan_gateway 2>/dev/null)" ;;
 			esac
 			case "${old_reverse}" in
 				*:*) ;;
@@ -9366,7 +9401,7 @@ setup_AdGuardHome_impl() {
 								return "${YESNO_STATUS}"
 								;;
 						esac
-						if [ "$(nvram get dns_local_cache)" != "1" ]; then
+						if [ "$(installer_nvram get dns_local_cache)" != "1" ]; then
 							read_yesno "Do you want to run AdGuardHome as a local caching DNS service which includes router traffic?"
 							YESNO_STATUS="$?"
 							case "${YESNO_STATUS}" in
@@ -9467,7 +9502,7 @@ setup_AdGuardHome_impl() {
 						setup_restore_nvram_journal || true
 						return 1
 					fi
-					if ! LAN_DOMAIN_ROLLBACK="$(nvram get lan_domain 2>/dev/null)"; then
+					if ! LAN_DOMAIN_ROLLBACK="$(installer_nvram get lan_domain 2>/dev/null)"; then
 						rm -f "${YAML_ORI_NEW}"
 						setup_restore_previous_yaml || true
 						setup_restore_nvram_journal || true
@@ -9598,7 +9633,7 @@ setup_AdGuardHome_impl() {
 						setup_restore_nvram_journal || true
 						return "${YESNO_STATUS}"
 					fi
-					if [ "$(nvram get dns_local_cache)" != "1" ]; then
+					if [ "$(installer_nvram get dns_local_cache)" != "1" ]; then
 						if ! check_dns_local "${LOCAL_CACHE_SELECTION}"; then
 							restore_installer_config "${CONFIG_ROLLBACK}" || PTXT "${ERROR} Unable to restore the previous installer preferences."
 							if [ "${DOMAIN_LAN_CHANGED}" -eq 1 ]; then
@@ -10258,7 +10293,7 @@ menu() {
 			if read_yesno "Do you want to proceed?"; then setup_amtmupdate; else end_op_message 1; fi
 			;;
 		"6" | "setlocalcache")
-			if [ "$(nvram get dns_local_cache)" != "1" ]; then
+			if [ "$(installer_nvram get dns_local_cache)" != "1" ]; then
 				PTXT "${INFO} This operation allows you to switch to using AdGuardHome as a local caching dns service for the router's own requests." \
 					"${INFO} A simple Yes or No will allow you to decide whether AdGuardhome handles DNS request for both the router and clients, or only clients."
 				read_yesno "Do you want to run AdGuardHome as a local caching DNS service?"
@@ -10804,7 +10839,7 @@ support_export_marker() {
 
 # support_export_collect renders only fixed keys from bounded snapshots.
 support_export_collect() {
-	local count field first hook key owner port result stage transport value version
+	local count field first hook key nvram_binary owner port result stage transport value version
 	SX_WRITE_FAILED=0
 	printf '%s\n' 'support.schema=1' 'support.privacy=allowlist' 'support.upload=none' || SX_WRITE_FAILED=1
 	support_export_emit installer.version version "${AI_VERSION:-unknown}"
@@ -10816,9 +10851,10 @@ support_export_collect() {
 		case "${first}" in 'AdGuard Home, version '*) version="${first#AdGuard Home, version }" ;; *) : ;; esac
 	fi
 	support_export_emit adguardhome.version version "${version}"
+	nvram_binary="$(installer_nvram_path)" || nvram_binary=""
 	for key in productid firmver buildno extendno; do
 		value=unknown
-		if support_export_probe nvram get "${key}"; then
+		if [ -n "${nvram_binary}" ] && support_export_probe "${nvram_binary}" get "${key}"; then
 			# A second line makes the entire value invalid rather than silently
 			# accepting a valid prefix followed by injected report content.
 			value="$(cat "${SX_STAGE}/work/probe")"
@@ -11968,11 +12004,11 @@ if [ "${1:-}" = "amtmupdate" ] && [ -z "${2:-}" ]; then
 fi
 write_conf INSTALLER_BRANCH "\"${BRANCH}\""
 readonly BLOCKLIST_ANALYZER_SHA256
-[ -z "$(nvram get odmpid)" ] && ROUTER_MODEL="$(nvram get productid)" || ROUTER_MODEL="$(nvram get odmpid)"
+[ -z "$(installer_nvram get odmpid)" ] && ROUTER_MODEL="$(installer_nvram get productid)" || ROUTER_MODEL="$(installer_nvram get odmpid)"
 RURL="https://raw.githubusercontent.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/${BRANCH}"
 ROUTER_OS="$(/bin/uname)"
 ! PTXT "${ROUTER_MODEL}" | grep -vE "RT-AC(86|2900)" | grep -q "AC" && ROUTER_ARCH="$(/bin/uname -m)" || ROUTER_ARCH="armv7" # Exception for version ARMv5
-WAN_IPADDR="$(nvram get wan_ipaddr 2>/dev/null)"
+WAN_IPADDR="$(installer_nvram get wan_ipaddr 2>/dev/null)"
 if ipv4_is_private "${WAN_IPADDR}"; then NAT_ENV="${WAN_IPADDR}"; else NAT_ENV=""; fi
 
 [ -z "${ROUTER_MODEL}" ] && PTXT "${ERROR} This is an unsupported router, sorry." && sleep 3s && exit 1

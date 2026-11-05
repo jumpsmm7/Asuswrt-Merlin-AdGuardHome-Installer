@@ -222,7 +222,7 @@ sed -n '/^legacy_firewall_cleanup_needed() {$/,/^}$/p' "${SCRIPT_PATH}" >"${TMP_
 ) || exit $?
 
 sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
-	sed 's#/usr/sbin/iptables#iptables#g; s#/bin/nvram#nvram#g' >"${TMP_ROOT}/wan-iptables-check" ||
+	sed 's#/usr/sbin/iptables#iptables#g' >"${TMP_ROOT}/wan-iptables-check" ||
 	fail 'could not extract WAN IPTABLES state check'
 [ -s "${TMP_ROOT}/wan-iptables-check" ] || fail 'WAN IPTABLES state check was not found'
 (
@@ -233,6 +233,8 @@ sed -n '/^wan_iptables_state_active() {$/,/^}$/p' "${SCRIPT_PATH}" |
 		printf '%s\n' "${WAN_NAT_RULE:-}"
 	}
 	# nvram returns predefined WAN interface names for supported get queries.
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() {
 		case "$1:$2" in
 			get:wan0_ifname) printf '%s\n' 'eth0' ;;

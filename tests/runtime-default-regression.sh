@@ -90,6 +90,8 @@ configure_runtime_defaults new-install wan 0 >"${TMP_ROOT}/new-wan-disabled.out"
 grep -q '^ADGUARD_DNSMASQ_MODE="disabled"$' "${CONF_FILE}" || fail 'fresh WAN defaults overwrote unavailable dnsmasq mode'
 
 CONF_FILE="${TMP_ROOT}/new-lan.config"
+# installer_nvram forwards installer calls to the current firmware model.
+installer_nvram() { nvram "$@"; }
 # nvram returns the configured LAN gateway address for supported queries and fails for all other queries.
 nvram() {
 	case "${1:-}:${2:-}" in

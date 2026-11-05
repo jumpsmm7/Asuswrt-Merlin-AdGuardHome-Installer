@@ -74,6 +74,11 @@ build_fixture() {
 }
 
 cat >"${TEST_ROOT}/recovery-model" <<'MODEL'
+# Isolate the trusted NVRAM executable; actual lookup is tested separately.
+installer_nvram_path() {
+	[ -f "${TEST_ROOT}/bin/nvram" ] && [ -x "${TEST_ROOT}/bin/nvram" ] || return 1
+	printf '%s\n' "${TEST_ROOT}/bin/nvram"
+}
 # Model dependency availability while preserving the clean real command checks.
 nvram_transaction_recovery_dependencies_available() {
 	printf '%s\n' startup:dependencies >>"${TEST_ROOT}/calls"

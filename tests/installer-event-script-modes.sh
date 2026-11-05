@@ -256,6 +256,8 @@ grep -q "write_conf ADGUARD_DNSMASQ_MODE '\"disabled\"'" "${TMP_FILE}.remove-hel
 	# pidof returns success without performing a process lookup.
 	pidof() { return 0; }
 	# nvram prints the `mtlancfg` value.
+	# installer_nvram forwards calls to this fixture's NVRAM model.
+	installer_nvram() { nvram "$@"; }
 	nvram() { printf '%s\n' 'mtlancfg'; }
 	# write_manager_script writes a change marker to the specified path, except for the SDN dnsmasq hook path where it fails.
 	write_manager_script() {
