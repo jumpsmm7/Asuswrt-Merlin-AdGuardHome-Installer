@@ -1,5 +1,77 @@
 # Done
 
+## TASK-041: Remove unsupported command-builtin dependencies
+
+**Priority:** P1 | **Tags:** nvram, firmware-compatibility, agents
+**Authority:** November 5, 2026 (America/New_York) maintainer report that supported router ash lacks `command`; use plain `which`, and resolve any new agent findings.
+**Dependency:** TASK-039, TASK-040
+**Publication:** PR #1050 includes this correction and the original #1049 repair; #1048 is already merged.
+
+### Plan and acceptance
+
+- [x] Use plain `which` in the stock NVRAM resolver and preserve path validation, both supported firmware locations and operation status/rollback semantics.
+- [x] Remove the service FIFO/readiness dependencies on `command` while preserving nonfatal FIFO-open failure, descriptor ownership, bounded waits and cleanup.
+- [x] Add meaningful lookup and service regressions for ash without `command`; retain the large-inventory and privacy assertions. Validate a real BusyBox 1.25.1 build with the optional command builtin disabled.
+- [x] Synchronize canonical, Amazon Q and Qodo guidance, regenerate changed runtime checksums and run integration/focused/full-host checks.
+- [x] Obtain fresh exact-head hosted/native acceptance and address verified agent feedback before reporting completion. Preserve earlier failures and physical-test exclusions; do not merge or release.
+
+**Qualified source:** PR #1050 head `789a0cc71c6325a18f95456d99161c7b782ef78e`, matching local `cea37dfce06ca1a5d1c90669d62c158b2fa4d113` / tree `2b2ed0bcd9b833c27e962c03e0753a1624f81555`. All 40 checks completed: 39 successful, one neutral Scorecard, no failures, skipped or pending checks. All hosted quality jobs passed; strict Sonar reported zero unresolved issues. CodeRabbit approved this head, all five pre-merge checks passed, documentation coverage reached 100 percent, and no unresolved review threads remained.
+
+The [PR ARM aggregate](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/42041257130/job/127302201792) and [push ARM aggregate](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/42041250290/job/127302215119) both accepted all 11 feature groups, 128 scenarios per architecture and `unblocks: true`, at tested-content digest `2543e20410527963e6d1f0d794f0620c7875e334bf5f437cda7d8d82af0fff1a`. The armv5 package remains the older RT-AC68U-class ARMv7 software-float guest with VFP/NEON disabled.
+
+Functional source `06cb38c` separately passed all 200 isolated host checks and both native matrices before the helper-documentation follow-up. A real BusyBox 1.25.1 build with `CONFIG_ASH_CMDCMD` disabled returned 127 for `command :` and passed the focused lookup/JFFS/FIFO/polling regressions. This x86 host language-capability proof is distinct from architecture-native guest execution and modeled firmware commands.
+
+This completion revision changes only task records, leaving the qualified runtime, tests, policies, manifest and native tested-content digest unchanged. Its own published-head checks will be inspected before handoff and recorded in PR #1050 and the private current-result record. Earlier failures and source-specific results remain historical evidence. Physical firmware/flash/reboot/client DHCP/isolation/WAN/soak acceptance is unchanged. No merge or release was performed.
+
+---
+
+## TASK-040: Stream JFFS NVRAM inventory for issue #1049
+
+**Priority:** P1 | **Tags:** v2.7.0, nvram, jffs
+**Dependency:** TASK-039
+**Authority:** November 4, 2026 (America/New_York) maintainer request to resolve issue #1049.
+**Base:** master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`.
+
+### Plan and acceptance
+
+- [x] Replace the whole-inventory shell capture with a streamed, bounded key-presence summary; preserve legacy absence, present-empty and failed-read distinctions, HND nonzero usable output and fail-closed parser errors.
+- [x] Reproduce actual external-printf argument overflow with a large synthetic inventory; extend the existing JFFS regression with late keys, legacy/HND/error cases, no writes and no unrelated-value disclosure.
+- [x] Keep NVRAM path discovery through `which`, existing transaction/rollback behavior and router dependencies intact; regenerate installer MD5/SHA-256.
+- [x] Run focused host/BusyBox checks, canonical code quality and fresh native ARM acceptance for the candidate; preserve failed evidence and report source identity and physical-test exclusions.
+- [x] Publish a reviewable fix against master and record actual current-head review/check results. No router mutation, merge, release or physical-pass claim is authorized.
+
+Root owns runtime code, task records and publication. The regression delegate owns only `tests/installer-jffs-readiness.sh`; the design delegate remains read-only. `status`/`doctor` routing will change only if a current-code defect is reproduced.
+
+---
+
+**Qualified runtime candidate:** PR #1050 head `2bc47c9a57fc7b9e082afcead7d94e60d50c00a9`, matching local frozen `9b8109db8c0fa55c014a49cadbbb0c4745b07ca4` / tree `d4a704c3dd628e03739ba6c3042e3ca26732b197`. All 200 canonical host checks and hosted quality checks passed, including strict Sonar enforcement with zero unresolved issues. CodeRabbit approved; Qodo/Codex/Amazon Q reported no blocking defects. The completed push native matrix accepted all 11 feature groups with 128 scenarios on each architecture and `unblocks: true`, content digest `a367cb02d80492152bc5a1c6773038ac13568e5958cd8cc566b150ab0df3b6fc`. The one-MiB readiness regression passed in every native guest, including older ARMv7 software float.
+
+**Completion record:** Runtime behavior is complete and verified. This record and descriptive test-helper comments form the final revision; fresh final-head hosted/native results remain a publication check and will be recorded in PR #1050 and `/workspace/work/v270-validation/issue1049-current.json`. The TaskPlanner prerequisite update is required by canonical policy after #1048 was merged. No new physical router, flash, reboot, client DHCP/isolation, WAN or soak pass is claimed; no merge or release was performed.
+
+
+
+## TASK-039: Resolve stock NVRAM locations for issue #1047
+
+**Priority:** P1 | **Tags:** v2.7.0, nvram, preflight
+**Authority:** November 4, 2026 maintainer request to investigate master issue #1047; use `which` to support both `/bin/nvram` and `/usr/sbin/nvram`.
+**Base:** master `5634e7b689f0b2413c825b8fecf0572e333f5634`.
+
+### Plan and acceptance
+
+- [x] Use a shared stock-only `which` resolver for installer NVRAM availability, preflight and all read/write/rollback operations; retain readonly diagnostics and existing commit/failure semantics.
+- [x] Remove the manager and init script fixed NVRAM invocations and synchronize canonical, Amazon Q and Qodo stock-path guidance.
+- [x] Exercise actual lookup against both private firmware layouts, missing/unusable commands, stock precedence and transaction failures. Update caller fixtures without disguising command discovery failures.
+- [x] Regenerate installer checksums; run focused host/BusyBox regressions, shared agent validation, canonical code quality and scoped native ARM acceptance for the final tested content.
+- [x] Record real evidence, source identity and limits. No router mutation, merge, tag, release publication or physical-pass claim is authorized by this repair.
+
+Root owns implementation/publication; the test delegate owns only the new location regression. Firmware commands are modeled in private temporary paths; virtual results do not establish physical firmware or soak acceptance.
+
+---
+
+**Completion:** PR #1048 was merged by the maintainer as master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`. Qualification belongs to PR head `5de40db`: 200 canonical host checks and 128 scenarios per ARM target passed; both aggregates accepted all 11 feature groups; CodeRabbit approved with no unresolved threads. Later artifact updates and physical router results are not relabeled as that evidence.
+
+
+
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
 ## TASK-033: Investigate constrained-router maintenance failure gaps

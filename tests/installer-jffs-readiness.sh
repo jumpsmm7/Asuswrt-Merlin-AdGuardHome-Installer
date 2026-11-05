@@ -12,6 +12,8 @@ fail() {
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
+JFFS_TEST_AWK="$(which awk 2>/dev/null)" || fail 'actual awk executable is unavailable'
+[ -x "${JFFS_TEST_AWK}" ] || fail 'actual awk executable is unavailable'
 {
 	sed -n '/^jffs_read_settings() {$/,/^preflight_check_jffs_ready() {$/p' "${INSTALLER_PATH}" | sed '$d'
 	sed -n '/^preflight_check_jffs_ready() {$/,/^preflight_check_router_eligibility() {$/p' "${INSTALLER_PATH}" | sed '$d'
@@ -132,6 +134,114 @@ run_case absent-scripts check_jffs_enabled 0 'legacy enablement applied'
 run_case absent-scripts-zero check_jffs_enabled 0 'legacy enablement applied'
 run_case absent-enable check_jffs_enabled 0 'legacy enablement applied'
 run_case absent-enable-zero check_jffs_enabled 0 'legacy enablement applied'
+
+# Force a real exec boundary even when the running shell implements printf as
+# a builtin. Passing the complete inventory as one argument exceeds Linux's
+# argument limit; feeding it through stdin to a bounded reader does not.
+cat >"${TEST_ROOT}/external-printf" <<'EOF_PRINTF'
+#!/bin/sh
+printf "$@"
+EOF_PRINTF
+chmod 700 "${TEST_ROOT}/external-printf" || fail 'could not prepare external printf'
+# The key-like text inside this unrelated value is not a JFFS record. Relevant
+# records appear after the one-MiB value, so the reader must consume the stream.
+awk 'BEGIN {
+	value = "x"
+	for (i = 0; i < 20; i++) value = value value
+	printf "private_inventory_marker=%s jffs2_format=1\n", value
+}' >"${TEST_ROOT}/large-inventory" || fail 'could not prepare synthetic inventory'
+
+# run_large_case exercises the real readiness path with a large unrelated value
+# while all firmware operations remain read-only private models.
+run_large_case() {
+	case_name="$1"
+	entry="$2"
+	expected_status="$3"
+	expected_text="$4"
+	case_output="${TEST_ROOT}/large-${case_name}-${entry}.out"
+	(
+		. "${TEST_ROOT}/functions"
+		# printf forces the private executable boundary for every diagnostic.
+		printf() { "${TEST_ROOT}/external-printf" "$@"; }
+		# PTXT captures unformatted installer diagnostics for assertions.
+		PTXT() { printf '%s\n' "$*"; }
+		ERROR=ERROR INFO=INFO
+		# installer_nvram models reads and records any unintended mutation.
+		installer_nvram() {
+			case "$1" in
+				show)
+					case "${case_name}" in
+						empty) return 1 ;;
+						malformed)
+							sed 's/^/#/' "${TEST_ROOT}/large-inventory"
+							return "$?"
+							;;
+					esac
+					cat "${TEST_ROOT}/large-inventory" || return 1
+					case "${case_name}" in
+						empty-format) printf '%s\n' jffs2_format= jffs2_scripts=1 jffs2_enable=1 ;;
+						failed-format) printf '%s\n' jffs2_format=0 jffs2_scripts=1 jffs2_enable=1 ;;
+						empty-scripts) printf '%s\n' jffs2_scripts= jffs2_enable=1 ;;
+						empty-on) printf '%s\n' jffs2_scripts=1 jffs2_on= ;;
+						failed-on) printf '%s\n' jffs2_scripts=1 jffs2_on=1 ;;
+						enabled | enabled-hnd) printf '%s\n' jffs2_format=0 jffs2_scripts=1 jffs2_on=1 ;;
+						pending) printf '%s\n' jffs2_format=1 jffs2_scripts=1 jffs2_on=1 ;;
+						disabled) printf '%s\n' jffs2_scripts=0 jffs2_enable=1 ;;
+						*) printf '%s\n' jffs2_scripts=1 jffs2_enable=1 ;;
+					esac
+					case "${case_name}" in ready-hnd | enabled-hnd) return 7 ;; *) return 0 ;; esac
+					;;
+				get)
+					case "${case_name}:$2" in
+						failed-format:jffs2_format | failed-scripts:jffs2_scripts | failed-on:jffs2_on) return 1 ;;
+						empty-on:jffs2_enable | failed-on:jffs2_enable | pending:jffs2_enable | enabled:jffs2_enable | enabled-hnd:jffs2_enable | empty-on:jffs2_on | empty-scripts:jffs2_scripts) return 0 ;;
+						pending:jffs2_format) printf '%s\n' 1 ;;
+						enabled:jffs2_format | enabled-hnd:jffs2_format) printf '%s\n' 0 ;;
+						*:jffs2_format) return 0 ;;
+						disabled:jffs2_scripts) printf '%s\n' 0 ;;
+						*:jffs2_scripts | *:jffs2_enable | *:jffs2_on) printf '%s\n' 1 ;;
+						*) return 1 ;;
+					esac
+					;;
+				*)
+					printf '%s\n' "$1" >>"${TEST_ROOT}/large-${case_name}.writes"
+					return 1
+					;;
+			esac
+		}
+		if [ "${case_name}" = filter-failed ]; then
+			# awk emits usable markers before simulating a failed inventory filter.
+			awk() {
+				"${JFFS_TEST_AWK}" "$@"
+				return 1
+			}
+		fi
+		"${entry}"
+	) >"${case_output}" 2>&1
+	status=$?
+	[ "${status}" -eq "${expected_status}" ] || fail "large ${case_name}: expected ${expected_status}, got ${status}"
+	grep -Fq "${expected_text}" "${case_output}" || fail "large ${case_name}: missing ${expected_text}"
+	if grep -Eq 'Argument list too long|private_inventory_marker' "${case_output}"; then
+		fail "large ${case_name}: inventory crossed an argument or diagnostic boundary"
+	fi
+	[ ! -e "${TEST_ROOT}/large-${case_name}.writes" ] || fail "large ${case_name}: unexpected NVRAM mutation"
+}
+run_large_case ready preflight_check_jffs_ready 0 'preflight.jffs.result=OK'
+run_large_case ready-hnd preflight_check_jffs_ready 0 'preflight.jffs.result=OK'
+run_large_case enabled check_jffs_enabled 0 'already enabled'
+run_large_case enabled-hnd check_jffs_enabled 0 'already enabled'
+run_large_case failed-format preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:jffs2_format'
+run_large_case failed-scripts preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:jffs2_scripts'
+run_large_case empty-format preflight_check_jffs_ready 1 'preflight.jffs.reason=missing-value:jffs2_format'
+run_large_case empty-scripts preflight_check_jffs_ready 1 'preflight.jffs.reason=missing-value:jffs2_scripts'
+run_large_case empty-on preflight_check_jffs_ready 1 'preflight.jffs.reason=missing-value:jffs2_on'
+run_large_case failed-on preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:jffs2_on'
+run_large_case pending preflight_check_jffs_ready 1 'preflight.jffs.reason=format-pending'
+run_large_case disabled preflight_check_jffs_ready 1 'preflight.jffs.reason=enablement-required'
+run_large_case malformed preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:nvram-inventory'
+run_large_case empty preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:nvram-inventory'
+run_large_case filter-failed preflight_check_jffs_ready 1 'preflight.jffs.reason=read-failed:nvram-inventory'
+
 # Exercise the real transaction begin seam, including filesystem failure.
 sed -n '/^nvram_transaction_begin() {$/,/^}/p; /^nvram_transaction_begin_locked() {$/,/^}/p' "${INSTALLER_PATH}" >"${TEST_ROOT}/transaction-functions"
 for stage_case in lock storage inventory key; do
@@ -166,4 +276,4 @@ for stage_case in lock storage inventory key; do
 	) >"${TEST_ROOT}/transaction-${stage_case}.out" 2>&1 || fail "real ${stage_case} transaction failure was misreported"
 done
 
-printf '%s\n' 'PASS: JFFS readiness is read-only, legacy-aware and reports failed stages'
+printf '%s\n' 'PASS: JFFS readiness handles large inventories, legacy flags and failed stages'

@@ -108,11 +108,11 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
-# Firmware places nvram in either stock location. Resolve with which under a
-# stock-only PATH so persistent operations never fall through to Entware.
+# installer_nvram_path resolves nvram with which under a stock-only PATH.
+# It accepts only executable files at the two supported firmware locations.
 installer_nvram_path() {
 	local nvram_binary
-	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin command which nvram 2>/dev/null)" || return 1
+	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin which nvram 2>/dev/null)" || return 1
 	case "${nvram_binary}" in
 		/bin/nvram | /usr/sbin/nvram)
 			[ -f "${nvram_binary}" ] && [ -x "${nvram_binary}" ] || return 1
@@ -2815,14 +2815,27 @@ jffs_read_settings() {
 	jffs2_scripts_value="$(installer_nvram get jffs2_scripts 2>/dev/null)" || scripts_status=1
 	jffs2_enabled_value="$(installer_nvram get jffs2_enable 2>/dev/null)" || enable_status=1
 	inventory=""
-	if [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
-		[ -z "${jffs2_format_value}" ] || [ -z "${jffs2_scripts_value}" ] || [ -z "${jffs2_enabled_value}" ]; then
-		# HND may return failure after emitting a usable inventory.
-		inventory="$(installer_nvram show 2>/dev/null)" || true
-		if ! printf '%s\n' "${inventory}" | grep -q '^[[:alnum:]_][[:alnum:]_]*='; then
-			jffs_read_reason="read-failed:nvram-inventory"
-			return 1
-		fi
+	# Stream large HND inventories only when needed; never pass their values
+	# as argv or retain unrelated secrets. HND may fail after usable output.
+	if { [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
+		[ -z "${jffs2_format_value}" ] || [ -z "${jffs2_scripts_value}" ] || [ -z "${jffs2_enabled_value}" ]; } &&
+		! inventory="$(installer_nvram show 2>/dev/null | awk '
+		/^[[:alnum:]_][[:alnum:]_]*=/ { valid = 1 }
+		/^jffs2_format=/ { format = 1 }
+		/^jffs2_scripts=/ { scripts = 1 }
+		/^jffs2_enable=/ { enable = 1 }
+		/^jffs2_on=/ { legacy = 1 }
+		END {
+			if (!valid) exit 1
+			print "inventory=1"
+			if (format) print "jffs2_format="
+			if (scripts) print "jffs2_scripts="
+			if (enable) print "jffs2_enable="
+			if (legacy) print "jffs2_on="
+		}
+	')"; then
+		jffs_read_reason="read-failed:nvram-inventory"
+		return 1
 	fi
 	for key in jffs2_format jffs2_scripts jffs2_enable; do
 		case "${key}" in

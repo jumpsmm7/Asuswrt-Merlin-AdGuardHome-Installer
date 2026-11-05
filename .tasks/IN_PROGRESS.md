@@ -1,23 +1,5 @@
 # In Progress
 
-## TASK-039: Resolve stock NVRAM locations for issue #1047
-
-**Priority:** P1 | **Tags:** v2.7.0, nvram, preflight
-**Authority:** November 4, 2026 maintainer request to investigate master issue #1047; use `which` to support both `/bin/nvram` and `/usr/sbin/nvram`.
-**Base:** master `5634e7b689f0b2413c825b8fecf0572e333f5634`.
-
-### Plan and acceptance
-
-- [x] Use a shared stock-only `which` resolver for installer NVRAM availability, preflight and all read/write/rollback operations; retain readonly diagnostics and existing commit/failure semantics.
-- [x] Remove the manager and init script fixed NVRAM invocations and synchronize canonical, Amazon Q and Qodo stock-path guidance.
-- [x] Exercise actual lookup against both private firmware layouts, missing/unusable commands, stock precedence and transaction failures. Update caller fixtures without disguising command discovery failures.
-- [ ] Regenerate installer checksums; run focused host/BusyBox regressions, shared agent validation, canonical code quality and scoped native ARM acceptance for the final tested content.
-- [ ] Record real evidence, source identity and limits. No router mutation, merge, tag, release publication or physical-pass claim is authorized by this repair.
-
-Root owns implementation/publication; the test delegate owns only the new location regression. Firmware commands are modeled in private temporary paths; virtual results do not establish physical firmware or soak acceptance.
-
----
-
 ## TASK-038: Repair reboot recovery and complete stack CI synchronization
 
 **Priority:** P1 | **Tags:** v2.7.0, recovery, ci

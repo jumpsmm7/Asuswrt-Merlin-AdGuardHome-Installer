@@ -25,11 +25,12 @@ cleanup() {
 # mkfifo provides a controllable wrapper around the system `mkfifo` utility for testing creation failures.
 mkfifo() {
 	[ "${MKFIFO_FAIL:-0}" = "0" ] || return 1
-	command mkfifo "$@"
+	"${TEST_NATIVE_MKFIFO}" "$@"
 }
 
 trap cleanup EXIT
 trap 'cleanup; exit 1' HUP INT TERM
+TEST_NATIVE_MKFIFO="$(which mkfifo)" || fail 'real mkfifo is unavailable'
 umask 077
 mkdir "${TEST_ROOT}"
 
@@ -38,7 +39,7 @@ for script in installer AdGuardHome.sh S99AdGuardHome rc.func.AdGuardHome; do
 done
 
 sed -n \
-	'/^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p' \
+	'/^dns_handoff_path_has_owner_mode() {$/,/^}$/p; /^dns_guard_fifo_is_private() {$/,/^}$/p; /^remove_dns_guard_fifo() {$/,/^}$/p; /^dns_guard_open_wait_fd() {$/,/^}$/p; /^initialize_dns_guard_wait() {$/,/^}$/p' \
 	"${REPO_DIR}/S99AdGuardHome" >"${FUNCTIONS_FILE}"
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -91,6 +92,70 @@ rm "${ADGUARD_METADATA_DIR}"
 DNS_GUARD_READY_DIR="${TEST_ROOT}/guard"
 mkdir "${DNS_GUARD_READY_DIR}"
 chmod 700 "${DNS_GUARD_READY_DIR}"
+_dns_guard_wait_initialized=0
+_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
+
+# A shell without command must retain the guard descriptor while restoring an
+# existing caller descriptor, including its read position.
+(
+	# command models an unavailable optional shell builtin.
+	command() {
+		printf '%s\n' unexpected-command >>"${TEST_ROOT}/command-calls"
+		return 127
+	}
+	printf '%s\n' before after >"${TEST_ROOT}/caller-fd4"
+	exec 4<"${TEST_ROOT}/caller-fd4"
+	IFS= read -r value <&4 || exit 1
+	[ "${value}" = before ] || exit 1
+	initialize_dns_guard_wait || exit 1
+	[ "${_dns_guard_wait_initialized}" = 1 ] || exit 1
+	[ ! -e "${DNS_GUARD_READY_DIR}/wait" ] || exit 1
+	printf '%s\n' guard-descriptor >&3 || exit 1
+	IFS= read -r value <&3 || exit 1
+	[ "${value}" = guard-descriptor ] || exit 1
+	IFS= read -r value <&4 || exit 1
+	[ "${value}" = after ] || exit 1
+	exec 3<&- 4<&-
+) || fail 'guard FIFO initialization required command or damaged caller descriptors'
+[ ! -e "${TEST_ROOT}/command-calls" ] || fail 'guard FIFO initialization invoked command'
+
+# Replace the validated FIFO immediately before opening it. The real open must
+# fail without terminating the shell or removing the replacement directory.
+sed -n '/^dns_guard_fifo_is_private() {$/,/^}$/p' "${REPO_DIR}/S99AdGuardHome" |
+	sed 's/^dns_guard_fifo_is_private()/dns_guard_fifo_is_private_real()/' >"${TEST_ROOT}/fifo-validation" ||
+	fail 'could not isolate FIFO validation for the open failure'
+(
+	. "${TEST_ROOT}/fifo-validation"
+	# command rejects any optional-builtin dependency during an open failure.
+	command() {
+		printf '%s\n' unexpected-command >>"${TEST_ROOT}/command-calls"
+		return 127
+	}
+	FIFO_VALIDATIONS=0
+	# dns_guard_fifo_is_private validates once, then models a foreign replacement.
+	dns_guard_fifo_is_private() {
+		if [ "${FIFO_VALIDATIONS}" -eq 0 ]; then
+			FIFO_VALIDATIONS=1
+			dns_guard_fifo_is_private_real || return 1
+			rm "${_dns_guard_wait_fifo}" || return 1
+			mkdir "${_dns_guard_wait_fifo}" || return 1
+			return 0
+		fi
+		dns_guard_fifo_is_private_real
+	}
+	printf '%s\n' caller-preserved >"${TEST_ROOT}/caller-fd4-failure"
+	exec 4<"${TEST_ROOT}/caller-fd4-failure"
+	if initialize_dns_guard_wait 2>/dev/null; then exit 1; fi
+	[ "${_dns_guard_wait_initialized}" = 0 ] || exit 1
+	[ -d "${DNS_GUARD_READY_DIR}/wait" ] || exit 1
+	IFS= read -r value <&4 || exit 1
+	[ "${value}" = caller-preserved ] || exit 1
+	exec 4<&-
+	rmdir "${DNS_GUARD_READY_DIR}/wait" || exit 1
+	printf '%s\n' survived >"${TEST_ROOT}/fifo-open-survived"
+) || fail 'guard FIFO open failure was fatal or damaged caller descriptors'
+[ -f "${TEST_ROOT}/fifo-open-survived" ] || fail 'guard FIFO open failure terminated its shell'
+[ ! -e "${TEST_ROOT}/command-calls" ] || fail 'guard FIFO open failure invoked command'
 
 # A pre-created symlink must neither be followed nor removed.
 victim="${TEST_ROOT}/victim"

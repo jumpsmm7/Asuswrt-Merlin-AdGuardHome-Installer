@@ -8,27 +8,31 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 GUARD_STARTED_FILE="${TMP_ROOT}/guard-started"
 
+# cleanup stops the owned fixture guard and removes its private workspace.
 cleanup() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
-		command kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 	fi
 	rm -rf "${TMP_ROOT}"
 }
+# fail reports the violated polling contract and exits through fixture cleanup.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+TEST_NATIVE_SLEEP="$(which sleep)" || fail 'real sleep is unavailable'
+TEST_NATIVE_KILL="$(which kill)" || fail 'real kill is unavailable'
 
 sed -n '/^dns_retry_limit() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract DNS guard helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'DNS guard helper extraction was empty'
-grep -Fq 'command usleep 100000' "${FUNCTIONS_FILE}" || fail 'DNS guard no longer uses the expected usleep polling command'
+grep -Eq '^[[:space:]]+usleep 100000$' "${FUNCTIONS_FILE}" || fail 'DNS guard no longer uses the expected direct usleep polling command'
 # Instrument only the extracted test copy. The source boundary above remains
 # an exact assertion, while the wrapper records calls before delegating to the
 # shell's native or PATH-selected usleep implementation.
-sed 's/command usleep 100000/test_usleep 100000/g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.wrapped" || fail 'could not instrument usleep fixture boundary'
+sed 's/^\([[:space:]]*\)usleep 100000$/\1test_usleep 100000/' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.wrapped" || fail 'could not instrument usleep fixture boundary'
 mv "${FUNCTIONS_FILE}.wrapped" "${FUNCTIONS_FILE}" || fail 'could not publish instrumented usleep fixture'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -37,11 +41,14 @@ DNS_HANDOFF_DIR="${TMP_ROOT}/handoff"
 mkdir -p "${DNS_HANDOFF_DIR}" || fail 'could not create handoff directory'
 USLEEP_AVAILABLE=0
 
+# dns_handoff_set_current_identity supplies a stable owner identity for this fixture.
 dns_handoff_set_current_identity() {
 	DNS_HANDOFF_CURRENT_PID="$$"
 	DNS_HANDOFF_CURRENT_START_TIME="1"
 }
+# dns_handoff_path_has_owner_mode models a validated private readiness directory.
 dns_handoff_path_has_owner_mode() { return 0; }
+# dns_guard_readiness_matches_identity waits for the child trap, then models unready state.
 dns_guard_readiness_matches_identity() {
 	# Wait for the fixture guard to install its trap before launch can stop it.
 	# This preserves the production launch/stop ordering without racing a
@@ -49,33 +56,43 @@ dns_guard_readiness_matches_identity() {
 	_guard_started_attempts=0
 	while [ ! -f "${GUARD_STARTED_FILE}" ] && [ "${_guard_started_attempts}" -lt 5 ]; do
 		_guard_started_attempts="$((_guard_started_attempts + 1))"
-		command sleep 1
+		"${TEST_NATIVE_SLEEP}" 1
 	done
 	return 1
 }
+# dns_handoff_marker_matches_identity keeps the modeled owner marker valid.
 dns_handoff_marker_matches_identity() { return 0; }
+# remove_current_dns_guard_readiness removes only the fixture readiness workspace.
 remove_current_dns_guard_readiness() { rm -rf "${DNS_GUARD_READY_DIR}"; }
 # start_dns_port_guard holds the fixture guard process until its caller exercises the stop path.
 start_dns_port_guard() {
 	trap 'exit 0' HUP INT TERM
 	: >"${GUARD_STARTED_FILE}"
-	while :; do command sleep 1; done
+	while :; do "${TEST_NATIVE_SLEEP}" 1; done
 }
+# stop_dns_port_guard reaps the modeled guard and clears its recorded PID.
 stop_dns_port_guard() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
-		command kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		ADGUARDHOME_DNS_GUARD_PID=""
 	fi
 }
+# which exposes usleep only in the available-applet scenario.
 which() {
 	[ "$1" = usleep ] && [ "${USLEEP_AVAILABLE}" -eq 1 ] && printf '%s\n' "${TMP_ROOT}/usleep"
 }
+# sleep records integer fallback delays without delaying the fixture.
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 # test_usleep records the requested microsecond delay before invoking the real usleep shim.
 test_usleep() {
 	printf '%s\n' "usleep $*" >>"${CALLS_FILE}"
-	command usleep "$@"
+	"${TMP_ROOT}/usleep" "$@"
+}
+# command models firmware without this optional builtin; any use is a failure.
+command() {
+	printf '%s\n' unexpected-command >>"${CALLS_FILE}"
+	return 127
 }
 printf '%s\n' '#!/bin/sh' ':' >"${TMP_ROOT}/usleep" || fail 'could not create usleep shim'
 chmod 755 "${TMP_ROOT}/usleep" || fail 'could not chmod usleep shim'
@@ -97,5 +114,6 @@ rm -f "${GUARD_STARTED_FILE}"
 if launch_dns_port_guard; then fail 'unready guard unexpectedly succeeded with usleep'; fi
 [ "$(grep -c '^usleep 100000$' "${CALLS_FILE}")" -eq 1 ] || fail 'available usleep path did not preserve 100000 microsecond polling'
 ! grep -q '^sleep 1$' "${CALLS_FILE}" || fail 'available usleep path used integer sleep fallback'
+! grep -q '^unexpected-command$' "${CALLS_FILE}" || fail 'DNS guard readiness required command'
 
 printf '%s\n' 'PASS: S99 DNS guard usleep fallback'
