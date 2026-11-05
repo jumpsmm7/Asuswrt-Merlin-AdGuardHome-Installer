@@ -126,6 +126,7 @@ sed -n '/^dns_guard_fifo_is_private() {$/,/^}$/p' "${REPO_DIR}/S99AdGuardHome" |
 	fail 'could not isolate FIFO validation for the open failure'
 (
 	. "${TEST_ROOT}/fifo-validation"
+	# command rejects any optional-builtin dependency during an open failure.
 	command() {
 		printf '%s\n' unexpected-command >>"${TEST_ROOT}/command-calls"
 		return 127

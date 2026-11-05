@@ -108,8 +108,8 @@ ai_have_cmd() {
 	which "$1" >/dev/null 2>&1
 }
 
-# Firmware places nvram in either stock location. Resolve with which under a
-# stock-only PATH so persistent operations never fall through to Entware.
+# installer_nvram_path resolves nvram with which under a stock-only PATH.
+# It accepts only executable files at the two supported firmware locations.
 installer_nvram_path() {
 	local nvram_binary
 	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin which nvram 2>/dev/null)" || return 1

@@ -1604,6 +1604,8 @@ dns_guard_open_wait_fd() {
 	exec 3<&4
 }
 
+# initialize_dns_guard_wait opens persistent fd3 through a private FIFO while
+# preserving caller fd4, and removes only the validated owned FIFO path.
 initialize_dns_guard_wait() {
 	_dns_guard_wait_initialized=0
 	_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
@@ -1846,6 +1848,8 @@ start_dns_port_guard() {
 	dns_guard_wait_for_stop
 }
 
+# launch_dns_port_guard starts an owned guard with bounded readiness polling.
+# Failed readiness stops the guard and removes its readiness workspace.
 launch_dns_port_guard() {
 	dns_handoff_set_current_identity || return 1
 	DNS_GUARD_OWNER_PID="${DNS_HANDOFF_CURRENT_PID}"

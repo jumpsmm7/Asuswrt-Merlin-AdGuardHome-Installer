@@ -16,6 +16,7 @@ fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
 }
+# cleanup removes only the private stock-layout workspace.
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
@@ -190,6 +191,7 @@ cmp -s "${TEST_ROOT}/expected-calls" "${NVRAM_TEST_CALLS}" || fail 'wrapper retr
 [ "$(cat "${TEST_ROOT}/probe-output")" = probe-output ] || fail 'wrapper changed command output'
 reset_layout
 (
+	# nvram models a function that must not replace the stock executable.
 	nvram() {
 		printf '%s\n' 'shadow nvram' >>"${NVRAM_TEST_CALLS}"
 		return 0
@@ -255,9 +257,13 @@ if grep -Eq '^arg=(set|unset|commit)$' "${NVRAM_TEST_CALLS}"; then fail 'legacy 
 
 # Only lock ownership and prior-setup recovery are outside this location
 # fixture. Snapshot creation, staging, writes, commits and rollback remain real.
+# nvram_transaction_lock_acquire models successful lock ownership outside the location contract.
 nvram_transaction_lock_acquire() { return 0; }
+# nvram_transaction_lock_release models successful release of the fixture lock.
 nvram_transaction_lock_release() { return 0; }
+# nvram_transaction_finalize_setup_pair models the absence of an earlier setup recovery.
 nvram_transaction_finalize_setup_pair() { return 0; }
+# rollback_result_write captures transaction diagnostics without changing recovery behavior.
 rollback_result_write() { printf '%s\n' "$*" >&2; }
 BASE_DIR="${TEST_ROOT}/base"
 mkdir -p "${BASE_DIR}" || exit 1

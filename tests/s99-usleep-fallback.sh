@@ -8,6 +8,7 @@ FUNCTIONS_FILE="${TMP_ROOT}/functions"
 CALLS_FILE="${TMP_ROOT}/calls"
 GUARD_STARTED_FILE="${TMP_ROOT}/guard-started"
 
+# cleanup stops the owned fixture guard and removes its private workspace.
 cleanup() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
 		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
@@ -15,6 +16,7 @@ cleanup() {
 	fi
 	rm -rf "${TMP_ROOT}"
 }
+# fail reports the violated polling contract and exits through fixture cleanup.
 fail() {
 	printf '%s\n' "FAIL: $*" >&2
 	exit 1
@@ -39,11 +41,14 @@ DNS_HANDOFF_DIR="${TMP_ROOT}/handoff"
 mkdir -p "${DNS_HANDOFF_DIR}" || fail 'could not create handoff directory'
 USLEEP_AVAILABLE=0
 
+# dns_handoff_set_current_identity supplies a stable owner identity for this fixture.
 dns_handoff_set_current_identity() {
 	DNS_HANDOFF_CURRENT_PID="$$"
 	DNS_HANDOFF_CURRENT_START_TIME="1"
 }
+# dns_handoff_path_has_owner_mode models a validated private readiness directory.
 dns_handoff_path_has_owner_mode() { return 0; }
+# dns_guard_readiness_matches_identity waits for the child trap, then models unready state.
 dns_guard_readiness_matches_identity() {
 	# Wait for the fixture guard to install its trap before launch can stop it.
 	# This preserves the production launch/stop ordering without racing a
@@ -55,7 +60,9 @@ dns_guard_readiness_matches_identity() {
 	done
 	return 1
 }
+# dns_handoff_marker_matches_identity keeps the modeled owner marker valid.
 dns_handoff_marker_matches_identity() { return 0; }
+# remove_current_dns_guard_readiness removes only the fixture readiness workspace.
 remove_current_dns_guard_readiness() { rm -rf "${DNS_GUARD_READY_DIR}"; }
 # start_dns_port_guard holds the fixture guard process until its caller exercises the stop path.
 start_dns_port_guard() {
@@ -63,6 +70,7 @@ start_dns_port_guard() {
 	: >"${GUARD_STARTED_FILE}"
 	while :; do "${TEST_NATIVE_SLEEP}" 1; done
 }
+# stop_dns_port_guard reaps the modeled guard and clears its recorded PID.
 stop_dns_port_guard() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
 		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
@@ -70,9 +78,11 @@ stop_dns_port_guard() {
 		ADGUARDHOME_DNS_GUARD_PID=""
 	fi
 }
+# which exposes usleep only in the available-applet scenario.
 which() {
 	[ "$1" = usleep ] && [ "${USLEEP_AVAILABLE}" -eq 1 ] && printf '%s\n' "${TMP_ROOT}/usleep"
 }
+# sleep records integer fallback delays without delaying the fixture.
 sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 # test_usleep records the requested microsecond delay before invoking the real usleep shim.
 test_usleep() {
