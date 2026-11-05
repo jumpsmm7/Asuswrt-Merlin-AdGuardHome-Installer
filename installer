@@ -2817,9 +2817,23 @@ jffs_read_settings() {
 	inventory=""
 	if [ "${format_status}${scripts_status}${enable_status}" != "000" ] ||
 		[ -z "${jffs2_format_value}" ] || [ -z "${jffs2_scripts_value}" ] || [ -z "${jffs2_enabled_value}" ]; then
-		# HND may return failure after emitting a usable inventory.
-		inventory="$(installer_nvram show 2>/dev/null)" || true
-		if ! printf '%s\n' "${inventory}" | grep -q '^[[:alnum:]_][[:alnum:]_]*='; then
+		# Stream large HND inventories; never pass their values as argv or
+		# retain unrelated secrets. HND may fail after emitting usable data.
+		if ! inventory="$(installer_nvram show 2>/dev/null | awk '
+			/^[[:alnum:]_][[:alnum:]_]*=/ { valid = 1 }
+			/^jffs2_format=/ { format = 1 }
+			/^jffs2_scripts=/ { scripts = 1 }
+			/^jffs2_enable=/ { enable = 1 }
+			/^jffs2_on=/ { legacy = 1 }
+			END {
+				if (!valid) exit 1
+				print "inventory=1"
+				if (format) print "jffs2_format="
+				if (scripts) print "jffs2_scripts="
+				if (enable) print "jffs2_enable="
+				if (legacy) print "jffs2_on="
+			}
+		')"; then
 			jffs_read_reason="read-failed:nvram-inventory"
 			return 1
 		fi

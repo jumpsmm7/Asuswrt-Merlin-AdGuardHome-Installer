@@ -1,20 +1,21 @@
 # In Progress
 
-## TASK-039: Resolve stock NVRAM locations for issue #1047
+## TASK-040: Stream JFFS NVRAM inventory for issue #1049
 
-**Priority:** P1 | **Tags:** v2.7.0, nvram, preflight
-**Authority:** November 4, 2026 maintainer request to investigate master issue #1047; use `which` to support both `/bin/nvram` and `/usr/sbin/nvram`.
-**Base:** master `5634e7b689f0b2413c825b8fecf0572e333f5634`.
+**Priority:** P1 | **Tags:** v2.7.0, nvram, jffs
+**Dependency:** TASK-039
+**Authority:** November 4, 2026 (America/New_York) maintainer request to resolve issue #1049.
+**Base:** master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`.
 
 ### Plan and acceptance
 
-- [x] Use a shared stock-only `which` resolver for installer NVRAM availability, preflight and all read/write/rollback operations; retain readonly diagnostics and existing commit/failure semantics.
-- [x] Remove the manager and init script fixed NVRAM invocations and synchronize canonical, Amazon Q and Qodo stock-path guidance.
-- [x] Exercise actual lookup against both private firmware layouts, missing/unusable commands, stock precedence and transaction failures. Update caller fixtures without disguising command discovery failures.
-- [ ] Regenerate installer checksums; run focused host/BusyBox regressions, shared agent validation, canonical code quality and scoped native ARM acceptance for the final tested content.
-- [ ] Record real evidence, source identity and limits. No router mutation, merge, tag, release publication or physical-pass claim is authorized by this repair.
+- [x] Replace the whole-inventory shell capture with a streamed, bounded key-presence summary; preserve legacy absence, present-empty and failed-read distinctions, HND nonzero usable output and fail-closed parser errors.
+- [x] Reproduce actual external-printf argument overflow with a large synthetic inventory; extend the existing JFFS regression with late keys, legacy/HND/error cases, no writes and no unrelated-value disclosure.
+- [x] Keep NVRAM path discovery through `which`, existing transaction/rollback behavior and router dependencies intact; regenerate installer MD5/SHA-256.
+- [ ] Run focused host/BusyBox checks, canonical code quality and fresh native ARM acceptance for the candidate; preserve failed evidence and report source identity and physical-test exclusions.
+- [ ] Publish a reviewable fix against master and record actual current-head review/check results. No router mutation, merge, release or physical-pass claim is authorized.
 
-Root owns implementation/publication; the test delegate owns only the new location regression. Firmware commands are modeled in private temporary paths; virtual results do not establish physical firmware or soak acceptance.
+Root owns runtime code, task records and publication. The regression delegate owns only `tests/installer-jffs-readiness.sh`; the design delegate remains read-only. `status`/`doctor` routing will change only if a current-code defect is reproduced.
 
 ---
 

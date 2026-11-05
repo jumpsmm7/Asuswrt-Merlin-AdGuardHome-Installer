@@ -1,5 +1,27 @@
 # Done
 
+## TASK-039: Resolve stock NVRAM locations for issue #1047
+
+**Priority:** P1 | **Tags:** v2.7.0, nvram, preflight
+**Authority:** November 4, 2026 maintainer request to investigate master issue #1047; use `which` to support both `/bin/nvram` and `/usr/sbin/nvram`.
+**Base:** master `5634e7b689f0b2413c825b8fecf0572e333f5634`.
+
+### Plan and acceptance
+
+- [x] Use a shared stock-only `which` resolver for installer NVRAM availability, preflight and all read/write/rollback operations; retain readonly diagnostics and existing commit/failure semantics.
+- [x] Remove the manager and init script fixed NVRAM invocations and synchronize canonical, Amazon Q and Qodo stock-path guidance.
+- [x] Exercise actual lookup against both private firmware layouts, missing/unusable commands, stock precedence and transaction failures. Update caller fixtures without disguising command discovery failures.
+- [x] Regenerate installer checksums; run focused host/BusyBox regressions, shared agent validation, canonical code quality and scoped native ARM acceptance for the final tested content.
+- [x] Record real evidence, source identity and limits. No router mutation, merge, tag, release publication or physical-pass claim is authorized by this repair.
+
+Root owns implementation/publication; the test delegate owns only the new location regression. Firmware commands are modeled in private temporary paths; virtual results do not establish physical firmware or soak acceptance.
+
+---
+
+**Completion:** PR #1048 was merged by the maintainer as master `279bfaf0410c3a8c5e517a123e9fa22438cb7710`. Qualification belongs to PR head `5de40db`: 200 canonical host checks and 128 scenarios per ARM target passed; both aggregates accepted all 11 feature groups; CodeRabbit approved with no unresolved threads. Later artifact updates and physical router results are not relabeled as that evidence.
+
+
+
 Completion records below are dated snapshots. Current v2.6.7 physical acceptance is recorded in [the acceptance checklist](../RELEASE-2.6.7-CHECKLIST.md); earlier BLOCKED observations are retained as history.
 
 ## TASK-033: Investigate constrained-router maintenance failure gaps
