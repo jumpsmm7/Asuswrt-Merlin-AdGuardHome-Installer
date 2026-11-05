@@ -1,5 +1,30 @@
 # Done
 
+## TASK-041: Remove unsupported command-builtin dependencies
+
+**Priority:** P1 | **Tags:** nvram, firmware-compatibility, agents
+**Authority:** November 5, 2026 (America/New_York) maintainer report that supported router ash lacks `command`; use plain `which`, and resolve any new agent findings.
+**Dependency:** TASK-039, TASK-040
+**Publication:** PR #1050 includes this correction and the original #1049 repair; #1048 is already merged.
+
+### Plan and acceptance
+
+- [x] Use plain `which` in the stock NVRAM resolver and preserve path validation, both supported firmware locations and operation status/rollback semantics.
+- [x] Remove the service FIFO/readiness dependencies on `command` while preserving nonfatal FIFO-open failure, descriptor ownership, bounded waits and cleanup.
+- [x] Add meaningful lookup and service regressions for ash without `command`; retain the large-inventory and privacy assertions. Validate a real BusyBox 1.25.1 build with the optional command builtin disabled.
+- [x] Synchronize canonical, Amazon Q and Qodo guidance, regenerate changed runtime checksums and run integration/focused/full-host checks.
+- [x] Obtain fresh exact-head hosted/native acceptance and address verified agent feedback before reporting completion. Preserve earlier failures and physical-test exclusions; do not merge or release.
+
+**Qualified source:** PR #1050 head `789a0cc71c6325a18f95456d99161c7b782ef78e`, matching local `cea37dfce06ca1a5d1c90669d62c158b2fa4d113` / tree `2b2ed0bcd9b833c27e962c03e0753a1624f81555`. All 40 checks completed: 39 successful, one neutral Scorecard, no failures, skipped or pending checks. All hosted quality jobs passed; strict Sonar reported zero unresolved issues. CodeRabbit approved this head, all five pre-merge checks passed, documentation coverage reached 100 percent, and no unresolved review threads remained.
+
+The [PR ARM aggregate](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/42041257130/job/127302201792) and [push ARM aggregate](https://github.com/jumpsmm7/Asuswrt-Merlin-AdGuardHome-Installer/actions/runs/42041250290/job/127302215119) both accepted all 11 feature groups, 128 scenarios per architecture and `unblocks: true`, at tested-content digest `2543e20410527963e6d1f0d794f0620c7875e334bf5f437cda7d8d82af0fff1a`. The armv5 package remains the older RT-AC68U-class ARMv7 software-float guest with VFP/NEON disabled.
+
+Functional source `06cb38c` separately passed all 200 isolated host checks and both native matrices before the helper-documentation follow-up. A real BusyBox 1.25.1 build with `CONFIG_ASH_CMDCMD` disabled returned 127 for `command :` and passed the focused lookup/JFFS/FIFO/polling regressions. This x86 host language-capability proof is distinct from architecture-native guest execution and modeled firmware commands.
+
+This completion revision changes only task records, leaving the qualified runtime, tests, policies, manifest and native tested-content digest unchanged. Its own published-head checks will be inspected before handoff and recorded in PR #1050 and the private current-result record. Earlier failures and source-specific results remain historical evidence. Physical firmware/flash/reboot/client DHCP/isolation/WAN/soak acceptance is unchanged. No merge or release was performed.
+
+---
+
 ## TASK-040: Stream JFFS NVRAM inventory for issue #1049
 
 **Priority:** P1 | **Tags:** v2.7.0, nvram, jffs

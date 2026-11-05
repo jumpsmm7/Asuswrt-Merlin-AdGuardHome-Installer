@@ -1,24 +1,5 @@
 # In Progress
 
-## TASK-041: Remove unsupported command-builtin dependencies
-
-**Priority:** P1 | **Tags:** nvram, firmware-compatibility, agents
-**Authority:** November 5, 2026 (America/New_York) maintainer report that supported router ash lacks `command`; use plain `which`, and resolve any new agent findings.
-**Dependency:** TASK-039, TASK-040
-**Publication:** Fold this correction into open PR #1050; #1048 is already merged. The previously qualified #1049 runtime remains historical evidence for its exact source, not the new compatibility correction.
-
-### Plan and acceptance
-
-- [x] Use plain `which` in the stock NVRAM resolver and preserve path validation, both supported firmware locations and operation status/rollback semantics.
-- [x] Remove the service FIFO/readiness dependencies on `command` while preserving nonfatal FIFO-open failure, descriptor ownership, bounded waits and cleanup.
-- [x] Add meaningful lookup and service regressions for ash without `command`; retain the large-inventory and privacy assertions. Validate a real BusyBox 1.25.1 build with the optional command builtin disabled if available.
-- [ ] Synchronize canonical, Amazon Q and Qodo guidance, regenerate changed runtime checksums and run integration/focused/full-host checks.
-- [ ] Obtain fresh exact-head hosted/native acceptance and address verified agent feedback before reporting completion. Preserve earlier failures and physical-test exclusions; do not merge or release.
-
-Root owns policy, task records, installer and publication. The runtime delegate owns S99 and its service fixtures; the test delegate owns the two installer NVRAM/JFFS fixtures. One writer and one current-head observer remain authoritative.
-
----
-
 ## TASK-038: Repair reboot recovery and complete stack CI synchronization
 
 **Priority:** P1 | **Tags:** v2.7.0, recovery, ci
