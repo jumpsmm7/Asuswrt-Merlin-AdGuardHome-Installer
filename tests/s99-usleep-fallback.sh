@@ -10,7 +10,7 @@ GUARD_STARTED_FILE="${TMP_ROOT}/guard-started"
 
 cleanup() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
-		command kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 	fi
 	rm -rf "${TMP_ROOT}"
@@ -21,14 +21,16 @@ fail() {
 }
 trap cleanup 0
 trap 'cleanup; exit 1' HUP INT TERM
+TEST_NATIVE_SLEEP="$(which sleep)" || fail 'real sleep is unavailable'
+TEST_NATIVE_KILL="$(which kill)" || fail 'real kill is unavailable'
 
 sed -n '/^dns_retry_limit() {$/,/^}$/p; /^launch_dns_port_guard() {$/,/^}$/p' "${S99_PATH}" >"${FUNCTIONS_FILE}" || fail 'could not extract DNS guard helpers'
 [ -s "${FUNCTIONS_FILE}" ] || fail 'DNS guard helper extraction was empty'
-grep -Fq 'command usleep 100000' "${FUNCTIONS_FILE}" || fail 'DNS guard no longer uses the expected usleep polling command'
+grep -Eq '^[[:space:]]+usleep 100000$' "${FUNCTIONS_FILE}" || fail 'DNS guard no longer uses the expected direct usleep polling command'
 # Instrument only the extracted test copy. The source boundary above remains
 # an exact assertion, while the wrapper records calls before delegating to the
 # shell's native or PATH-selected usleep implementation.
-sed 's/command usleep 100000/test_usleep 100000/g' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.wrapped" || fail 'could not instrument usleep fixture boundary'
+sed 's/^\([[:space:]]*\)usleep 100000$/\1test_usleep 100000/' "${FUNCTIONS_FILE}" >"${FUNCTIONS_FILE}.wrapped" || fail 'could not instrument usleep fixture boundary'
 mv "${FUNCTIONS_FILE}.wrapped" "${FUNCTIONS_FILE}" || fail 'could not publish instrumented usleep fixture'
 # shellcheck disable=SC1090
 . "${FUNCTIONS_FILE}"
@@ -49,7 +51,7 @@ dns_guard_readiness_matches_identity() {
 	_guard_started_attempts=0
 	while [ ! -f "${GUARD_STARTED_FILE}" ] && [ "${_guard_started_attempts}" -lt 5 ]; do
 		_guard_started_attempts="$((_guard_started_attempts + 1))"
-		command sleep 1
+		"${TEST_NATIVE_SLEEP}" 1
 	done
 	return 1
 }
@@ -59,11 +61,11 @@ remove_current_dns_guard_readiness() { rm -rf "${DNS_GUARD_READY_DIR}"; }
 start_dns_port_guard() {
 	trap 'exit 0' HUP INT TERM
 	: >"${GUARD_STARTED_FILE}"
-	while :; do command sleep 1; done
+	while :; do "${TEST_NATIVE_SLEEP}" 1; done
 }
 stop_dns_port_guard() {
 	if [ -n "${ADGUARDHOME_DNS_GUARD_PID:-}" ]; then
-		command kill "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
+		"${TEST_NATIVE_KILL}" "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		wait "${ADGUARDHOME_DNS_GUARD_PID}" 2>/dev/null || true
 		ADGUARDHOME_DNS_GUARD_PID=""
 	fi
@@ -75,7 +77,12 @@ sleep() { printf '%s\n' "sleep $*" >>"${CALLS_FILE}"; }
 # test_usleep records the requested microsecond delay before invoking the real usleep shim.
 test_usleep() {
 	printf '%s\n' "usleep $*" >>"${CALLS_FILE}"
-	command usleep "$@"
+	"${TMP_ROOT}/usleep" "$@"
+}
+# command models firmware without this optional builtin; any use is a failure.
+command() {
+	printf '%s\n' unexpected-command >>"${CALLS_FILE}"
+	return 127
 }
 printf '%s\n' '#!/bin/sh' ':' >"${TMP_ROOT}/usleep" || fail 'could not create usleep shim'
 chmod 755 "${TMP_ROOT}/usleep" || fail 'could not chmod usleep shim'
@@ -97,5 +104,6 @@ rm -f "${GUARD_STARTED_FILE}"
 if launch_dns_port_guard; then fail 'unready guard unexpectedly succeeded with usleep'; fi
 [ "$(grep -c '^usleep 100000$' "${CALLS_FILE}")" -eq 1 ] || fail 'available usleep path did not preserve 100000 microsecond polling'
 ! grep -q '^sleep 1$' "${CALLS_FILE}" || fail 'available usleep path used integer sleep fallback'
+! grep -q '^unexpected-command$' "${CALLS_FILE}" || fail 'DNS guard readiness required command'
 
 printf '%s\n' 'PASS: S99 DNS guard usleep fallback'

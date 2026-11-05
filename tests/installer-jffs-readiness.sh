@@ -12,6 +12,8 @@ fail() {
 cleanup() { rm -rf "${TEST_ROOT}"; }
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
+JFFS_TEST_AWK="$(which awk 2>/dev/null)" || fail 'actual awk executable is unavailable'
+[ -x "${JFFS_TEST_AWK}" ] || fail 'actual awk executable is unavailable'
 {
 	sed -n '/^jffs_read_settings() {$/,/^preflight_check_jffs_ready() {$/p' "${INSTALLER_PATH}" | sed '$d'
 	sed -n '/^preflight_check_jffs_ready() {$/,/^preflight_check_router_eligibility() {$/p' "${INSTALLER_PATH}" | sed '$d'
@@ -210,7 +212,7 @@ run_large_case() {
 		if [ "${case_name}" = filter-failed ]; then
 			# awk emits usable markers before simulating a failed inventory filter.
 			awk() {
-				command awk "$@"
+				"${JFFS_TEST_AWK}" "$@"
 				return 1
 			}
 		fi

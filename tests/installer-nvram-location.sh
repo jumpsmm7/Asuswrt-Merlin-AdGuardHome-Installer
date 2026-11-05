@@ -22,6 +22,13 @@ trap 'exit 1' HUP INT TERM
 NVRAM_TEST_WHICH="$(which which 2>/dev/null)" || fail 'actual which executable is unavailable'
 [ -x "${NVRAM_TEST_WHICH}" ] || fail 'actual which executable is unavailable'
 
+# command models a missing optional builtin even if this test shell provides it.
+# Any attempted use must fail and leave evidence.
+command() {
+	printf '%s\n' used >>"${TEST_ROOT}/command-used"
+	return 127
+}
+
 # Extract each production helper unchanged before rebasing stock filesystem
 # literals. The real which executable searches a private stock-only PATH;
 # no replacement lookup function supplies the expected answer.
@@ -36,12 +43,18 @@ done
 sed -e "s|/sbin:/bin:/usr/sbin:/usr/bin|${TEST_ROOT}/stock/sbin:${TEST_ROOT}/stock/bin:${TEST_ROOT}/stock/usr/sbin:${TEST_ROOT}/stock/usr/bin|g" \
 	-e "s|/usr/sbin/nvram|${TEST_ROOT}/stock/usr/sbin/nvram|g" \
 	-e "s|/bin/nvram|${TEST_ROOT}/stock/bin/nvram|g" \
-	-e 's|command which nvram|command "${NVRAM_TEST_WHICH}" nvram|g' \
 	"${TEST_ROOT}/functions.original" >"${TEST_ROOT}/functions" || fail 'could not isolate stock paths'
 . "${TEST_ROOT}/functions"
 
 mkdir -p "${TEST_ROOT}/stock/sbin" "${TEST_ROOT}/stock/bin" \
 	"${TEST_ROOT}/stock/usr/sbin" "${TEST_ROOT}/stock/usr/bin" "${TEST_ROOT}/attacker" || exit 1
+# Preserve the production plain which invocation. This private executable runs
+# actual which under the rebased stock PATH, rather than supplying a path.
+cat >"${TEST_ROOT}/stock/usr/bin/which" <<'EOF_WHICH'
+#!/bin/sh
+exec "${NVRAM_TEST_WHICH}" "$@"
+EOF_WHICH
+chmod 755 "${TEST_ROOT}/stock/usr/bin/which" || exit 1
 cat >"${TEST_ROOT}/model" <<'EOF_MODEL'
 #!/bin/sh
 printf 'call=%s\n' "$0" >>"${NVRAM_TEST_CALLS}"
@@ -148,18 +161,14 @@ reset_layout
 ln -s "${TEST_ROOT}/missing" "${TEST_ROOT}/stock/bin/nvram" || exit 1
 assert_rejected
 
-# Shell functions and inherited PATH executables cannot replace the stock
-# lookup or execution. Both stock candidates exist when execution fails, so
+# An nvram function or inherited PATH executable cannot replace stock command
+# execution. Both stock candidates exist when execution fails, so
 # exactly one call also proves there is no retry against the second candidate.
 reset_layout
 install_model bin
 install_model usr/sbin
 (
-	# These hostile functions must never run across the resolver boundary.
-	which() {
-		printf '%s\n' 'shadow which' >>"${NVRAM_TEST_CALLS}"
-		return 1
-	}
+	# Lookup still uses actual which; execution must use the resolved binary.
 	nvram() {
 		printf '%s\n' 'shadow nvram' >>"${NVRAM_TEST_CALLS}"
 		return 1
@@ -181,16 +190,37 @@ cmp -s "${TEST_ROOT}/expected-calls" "${NVRAM_TEST_CALLS}" || fail 'wrapper retr
 [ "$(cat "${TEST_ROOT}/probe-output")" = probe-output ] || fail 'wrapper changed command output'
 reset_layout
 (
-	which() {
-		printf '%s\n' 'shadow which' >>"${NVRAM_TEST_CALLS}"
-		return 0
-	}
 	nvram() {
 		printf '%s\n' 'shadow nvram' >>"${NVRAM_TEST_CALLS}"
 		return 0
 	}
 	assert_rejected
 ) || exit 1
+
+# A plain which invocation may be supplied unusable output. Validate its data
+# and status before executing anything, even when both stock files exist.
+for lookup_case in empty relative multiline disallowed failed; do
+	reset_layout
+	install_model bin
+	install_model usr/sbin
+	(
+		# which models invalid lookup data without executing a replacement binary.
+		which() {
+			case "${lookup_case}" in
+				empty) return 0 ;;
+				relative) printf '%s\n' nvram ;;
+				multiline) printf '%s\n' "${TEST_ROOT}/stock/bin/nvram" "${TEST_ROOT}/stock/usr/sbin/nvram" ;;
+				disallowed) printf '%s\n' "${TEST_ROOT}/attacker/nvram" ;;
+				failed)
+					printf '%s\n' "${TEST_ROOT}/stock/bin/nvram"
+					return 1
+					;;
+				*) return 1 ;;
+			esac
+		}
+		assert_rejected
+	) || fail "unusable which output was accepted: ${lookup_case}"
+done
 
 # Model unrelated package/topology checks only; the real preflight dispatch,
 # stock NVRAM check and JFFS reader run together against both firmware layouts.
@@ -252,4 +282,5 @@ if grep '^call=' "${NVRAM_TEST_CALLS}" | grep -Fvx "call=${TEST_ROOT}/stock/usr/
 	fail 'transaction executed a different NVRAM binary'
 fi
 
-printf '%s\n' 'PASS: stock NVRAM locations preserve preflight, JFFS and transaction behavior'
+[ ! -e "${TEST_ROOT}/command-used" ] || fail 'stock lookup invoked the unavailable command builtin'
+printf '%s\n' 'PASS: stock NVRAM lookup needs no command builtin and preserves preflight, JFFS and transactions'

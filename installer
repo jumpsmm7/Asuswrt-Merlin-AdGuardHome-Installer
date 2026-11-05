@@ -112,7 +112,7 @@ ai_have_cmd() {
 # stock-only PATH so persistent operations never fall through to Entware.
 installer_nvram_path() {
 	local nvram_binary
-	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin command which nvram 2>/dev/null)" || return 1
+	nvram_binary="$(PATH=/sbin:/bin:/usr/sbin:/usr/bin which nvram 2>/dev/null)" || return 1
 	case "${nvram_binary}" in
 		/bin/nvram | /usr/sbin/nvram)
 			[ -f "${nvram_binary}" ] && [ -x "${nvram_binary}" ] || return 1

@@ -3,7 +3,7 @@
   "taskplannerVersion": "2.1.1",
   "readmeAttribution": true,
   "idPrefix": "TASK",
-  "nextId": 41,
+  "nextId": 42,
   "states": {
     "Backlog": "BACKLOG.md",
     "Next": "NEXT.md",

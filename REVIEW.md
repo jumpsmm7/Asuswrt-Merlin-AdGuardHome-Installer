@@ -143,7 +143,7 @@ combined declaration when the substitution status is intentionally ignored.
 
 Do not request unquoted expansion merely to shorten code.
 
-When suggesting a command-availability check for router-targeted code, follow the repository’s existing `which` convention rather than introducing a stylistic rewrite.
+When suggesting a command-availability check for router-targeted code, use plain `which`. Supported firmware may omit the `command` builtin; do not require `command which`, `command -v`, or other `command` invocations in router-runtime code. Call validated executables directly; host-only validation tooling keeps its declared host capabilities.
 
 ## BusyBox version and applets
 

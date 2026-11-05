@@ -1598,6 +1598,12 @@ dns_guard_wait_for_stop() {
 	agh_log WARNING dns_guard_wait_for_stop "DNS handoff owner disappeared; stopping the DNS port guard."
 }
 
+# dns_guard_open_wait_fd duplicates the caller-opened FIFO into persistent fd3.
+# Regular function redirection restores fd4 and keeps path-open errors nonfatal.
+dns_guard_open_wait_fd() {
+	exec 3<&4
+}
+
 initialize_dns_guard_wait() {
 	_dns_guard_wait_initialized=0
 	_dns_guard_wait_fifo="${DNS_GUARD_READY_DIR}/wait"
@@ -1608,7 +1614,7 @@ initialize_dns_guard_wait() {
 		if ! dns_guard_fifo_is_private; then
 			return 1
 		fi
-		if command exec 3<>"${_dns_guard_wait_fifo}"; then
+		if dns_guard_open_wait_fd 4<>"${_dns_guard_wait_fifo}"; then
 			_dns_guard_wait_initialized=1
 		fi
 	fi
@@ -1877,7 +1883,7 @@ launch_dns_port_guard() {
 		_dns_guard_ready_attempts="$((_dns_guard_ready_attempts + 1))"
 		if [ "${_dns_guard_ready_attempts}" -lt "${_dns_guard_ready_limit}" ]; then
 			if [ "${_dns_guard_ready_uses_usleep}" -eq 1 ]; then
-				command usleep 100000
+				usleep 100000
 			else
 				sleep 1
 			fi

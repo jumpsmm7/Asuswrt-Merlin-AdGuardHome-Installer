@@ -149,7 +149,7 @@ General shell rules:
 * Prefer `"${var}"`, not `$var`, unless unquoted expansion is intentional.
 * Use `${var:-}` when an unset variable could be possible.
 * Use `printf`, not `echo -e`.
-* Use `which` for router-targeted command lookups.
+* Use plain `which` for router-targeted command lookups. Supported firmware may omit the `command` builtin; do not require `command which`, `command -v`, or other `command` invocations in router-runtime code. Call validated executables directly. Host-only validation tools may use their declared host capabilities.
 * Avoid process-heavy code inside loops.
 * Avoid unquoted glob expansion unless intentional.
 * Preserve the existing coding style when practical.
